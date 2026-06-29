@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { adminLogout } from "@/components/AdminGate";
 
 const ITEMS = [
   { href: "/admin", label: "Khách mời" },
@@ -28,6 +29,11 @@ export default function AdminNav() {
               </Link>
             );
           })}
+          <button
+            onClick={adminLogout}
+            className="ml-2 px-4 py-1.5 rounded-sm text-sm font-medium text-muted hover:text-red-600 transition">
+            Đăng xuất
+          </button>
         </nav>
       </div>
     </header>

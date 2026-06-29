@@ -1,10 +1,13 @@
 import AdminNav from "@/components/AdminNav";
+import AdminGate from "@/components/AdminGate";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-surface-muted">
-      <AdminNav />
-      <main>{children}</main>
-    </div>
+    <AdminGate>
+      <div className="min-h-screen bg-surface-muted">
+        <AdminNav />
+        <main>{children}</main>
+      </div>
+    </AdminGate>
   );
 }
