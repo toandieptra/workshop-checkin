@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { api } from "@/lib/api";
 
 const WELCOME_MS = 10000;
 
@@ -8,7 +9,7 @@ export default function WelcomePage() {
   const [welcome, setWelcome] = useState<{ name: string; message: string } | null>(null);
   const timerRef = useRef<any>(null);
 
-  useWebSocket((data) => {
+  const { connected } = useWebSocket((data) => {
     if (data?.type === "welcome" && data.display_name) {
       setWelcome({ name: data.display_name, message: data.display_message || "" });
       clearTimeout(timerRef.current);
@@ -16,7 +17,48 @@ export default function WelcomePage() {
     }
   });
 
+  useEffect(() => {
+    if (connected) return;
+
+    let lastEventId: string | null = null;
+    let isInitial = true;
+
+    const poll = async () => {
+      try {
+        const res = await api("/checkin/welcome/latest");
+        if (res && res.id) {
+          if (isInitial) {
+            isInitial = false;
+            lastEventId = res.id;
+            // Only show welcome on initial load if the event is very fresh
+            const diff = Date.now() - new Date(res.created_at).getTime();
+            if (diff < WELCOME_MS) {
+              setWelcome({ name: res.display_name, message: res.display_message || "" });
+              clearTimeout(timerRef.current);
+              timerRef.current = setTimeout(() => setWelcome(null), WELCOME_MS);
+            }
+            return;
+          }
+
+          if (res.id !== lastEventId) {
+            lastEventId = res.id;
+            setWelcome({ name: res.display_name, message: res.display_message || "" });
+            clearTimeout(timerRef.current);
+            timerRef.current = setTimeout(() => setWelcome(null), WELCOME_MS);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to poll latest welcome:", err);
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [connected]);
+
   useEffect(() => () => clearTimeout(timerRef.current), []);
+
 
   return (
     <main className="fixed inset-0 flex flex-col items-center justify-center text-center overflow-hidden"
