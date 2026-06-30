@@ -1,19 +1,40 @@
+import asyncio
+import logging
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from .db import engine
 from .ws import manager
 from .routers import workshops, guests, checkin, search, import_export, upload_sessions, lark_sync
 
+log = logging.getLogger("app.lifespan")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # cho DB san sang (migration chay boi postgres initdb)
-    async with engine.begin() as conn:
-        await conn.execute(text("SELECT 1"))
+    last_err: Exception | None = None
+    for attempt in range(15):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("SELECT 1"))
+            last_err = None
+            break
+        except (OperationalError, OSError) as e:
+            last_err = e
+            wait = min(2.0, 0.5 * (attempt + 1))
+            log.warning(
+                "DB not ready (attempt %d/15): %s; retry in %.1fs",
+                attempt + 1, e, wait,
+            )
+            await asyncio.sleep(wait)
+    if last_err is not None:
+        log.error("DB unreachable after retries: %s", last_err)
+        raise last_err
     yield
 
 
