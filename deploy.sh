@@ -81,8 +81,12 @@ echo "[4/7] Tag :latest for compose"
 "$DOCKER_BIN" tag workshop-checkin-frontend:amd64 workshop-checkin-frontend:latest
 
 echo "[5/7] Recreate containers"
+<<<<<<< HEAD
+"$DOCKER_BIN" compose up -d --force-recreate backend face-api frontend nginx
+=======
 "$DOCKER_BIN" compose up -d --force-recreate
 
+>>>>>>> 5a950540fbfbc0ee7efcab8e4df77fd0b5be6ec1
 
 echo "[6/7] Current status"
 sleep 5
