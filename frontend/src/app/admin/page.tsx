@@ -2,6 +2,8 @@
 import { useEffect, useState, useRef } from "react";
 import { api, apiForm, API_URL } from "@/lib/api";
 import QrUploadModal from "@/components/QrUploadModal";
+import { useWebSocket } from "@/hooks/useWebSocket";
+
 
 interface Workshop { id: string; name: string; slug: string; event_date?: string; location?: string; }
 interface FaceProfile { id: string; image_url?: string; quality_score?: number; is_active: boolean; source?: string; }
@@ -67,6 +69,45 @@ export default function AdminPage() {
     return () => clearTimeout(t);
   }, [search]);
   useEffect(() => { loadGuests(wid); }, [wid, debouncedSearch, dateSort]);
+
+  const { connected } = useWebSocket((data) => {
+    if (data?.type === "welcome" && data.workshop_id === wid) {
+      loadGuests(wid);
+    }
+  });
+
+  useEffect(() => {
+    if (connected || !wid) return;
+
+    let lastEventId: string | null = null;
+    let isInitial = true;
+
+    const poll = async () => {
+      try {
+        const res = await api("/checkin/welcome/latest");
+        if (res && res.id) {
+          if (isInitial) {
+            isInitial = false;
+            lastEventId = res.id;
+            return;
+          }
+
+          if (res.id !== lastEventId) {
+            lastEventId = res.id;
+            if (res.workshop_id === wid) {
+              loadGuests(wid);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to poll latest welcome in admin:", err);
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [connected, wid]);
 
   const currentWorkshop = workshops.find((w) => w.id === wid);
 

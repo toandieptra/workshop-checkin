@@ -308,3 +308,20 @@ async def get_logs(workshop_id: uuid.UUID, limit: int = 100, db: AsyncSession = 
         }
         for r in rows
     ]
+
+
+@router.get("/welcome/latest")
+async def get_latest_welcome(db: AsyncSession = Depends(get_db)):
+    stmt = select(WelcomeEvent).order_by(WelcomeEvent.created_at.desc())
+    row = (await db.execute(stmt.limit(1))).scalar_one_or_none()
+    if not row:
+        return None
+    return {
+        "id": str(row.id),
+        "workshop_id": str(row.workshop_id),
+        "guest_id": str(row.guest_id) if row.guest_id else None,
+        "display_name": row.display_name,
+        "display_message": row.display_message,
+        "created_at": row.created_at,
+    }
+
