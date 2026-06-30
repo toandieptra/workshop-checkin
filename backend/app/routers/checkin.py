@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..config import settings
-from ..models import Guest, CheckinLog, WelcomeEvent
+from ..models import Guest, FaceProfile, CheckinLog, WelcomeEvent
 from ..schemas import RecognizeResult, ConfirmRequest, ManualCheckinRequest, ResendRequest, ResetRequest, GuestOut
 from ..services.face_client import get_embedding
 from ..services import lark_client
@@ -43,6 +43,54 @@ async def _save_snapshot(data: bytes, filename: str) -> str | None:
     with open(os.path.join(snap_dir, fname), "wb") as fh:
         fh.write(data)
     return f"/uploads/snapshots/{fname}"
+
+
+async def _save_checkin_face(db: AsyncSession, guest_id, embedding, data: bytes, ext: str):
+    """Lưu ảnh check-in vào face_profiles (source='checkin') làm tham chiếu.
+
+    Enforce rolling window: chi giu toi da MAX_CHECKIN_SNAPSHOTS_PER_GUEST (2)
+    anh moi nhat; row cu nhat (theo created_at) bi xoa ca DB record lan file.
+    """
+    faces_dir = os.path.join(settings.UPLOAD_DIR, "guest-faces")
+    os.makedirs(faces_dir, exist_ok=True)
+    fname = f"{guest_id}_chk_{uuid.uuid4().hex}{ext}"
+    fpath = os.path.join(faces_dir, fname)
+    with open(fpath, "wb") as fh:
+        fh.write(data)
+    image_url = f"/uploads/guest-faces/{fname}"
+
+    fp = FaceProfile(
+        guest_id=guest_id,
+        image_url=image_url,
+        embedding=embedding,
+        quality_score=None,
+        is_active=True,
+        source="checkin",
+    )
+    db.add(fp)
+    await db.flush()  # dam bao co created_at de ordering rolling window
+
+    cap = settings.MAX_CHECKIN_SNAPSHOTS_PER_GUEST
+    excess = (await db.execute(
+        text("""
+            SELECT id, image_url FROM face_profiles
+            WHERE guest_id = :gid AND source = 'checkin'
+            ORDER BY created_at DESC
+            OFFSET :cap
+        """),
+        {"gid": str(guest_id), "cap": cap},
+    )).all()
+    for old_id, old_url in excess:
+        if old_url:
+            rel = old_url.lstrip("/").removeprefix("uploads/")
+            path = os.path.join(settings.UPLOAD_DIR, rel)
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError as e:
+                    logger.warning("Khong xoa duoc file checkin %s: %s", path, e)
+        await db.execute(text("DELETE FROM face_profiles WHERE id = :id"), {"id": str(old_id)})
+    return fp
 
 
 async def _broadcast_welcome(db: AsyncSession, workshop_id, guest: Guest):
@@ -102,6 +150,11 @@ async def recognize(
 
     similarity = float(row.similarity)
     guest = await _guest_with_faces(db, row.guest_id)
+
+    # luu anh check-in thanh cong lam tham chieu (rolling 2 anh moi nhat)
+    # ap dung cho ca duplicate/confirm/auto — moi lan match that la 1 lan "check-in thuc te"
+    ext = os.path.splitext(file.filename or "")[1] or ".jpg"
+    await _save_checkin_face(db, guest.id, emb, data, ext)
 
     # nguong thap -> khong nhan
     if similarity < settings.REJECT_THRESHOLD:

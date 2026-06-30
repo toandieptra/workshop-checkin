@@ -2,7 +2,7 @@ import os
 import uuid
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,6 +55,18 @@ async def upload_face_image(guest_id: uuid.UUID, file: UploadFile = File(...), d
     if not g.consent_face_recognition:
         raise HTTPException(403, "guest did not consent to face recognition")
 
+    # quota chi ap dung cho anh tham chieu (admin/QR upload),
+    # anh check-in (snapshot) tu camera khong tinh vao gioi han nay
+    n_ref = (await db.execute(
+        select(func.count(FaceProfile.id))
+        .where(FaceProfile.guest_id == guest_id, FaceProfile.source == "reference")
+    )).scalar_one()
+    if n_ref >= settings.MAX_FACE_IMAGES_PER_GUEST:
+        raise HTTPException(
+            422,
+            f"guest already has {n_ref}/{settings.MAX_FACE_IMAGES_PER_GUEST} reference images",
+        )
+
     data = await file.read()
     res = await get_embedding(data, file.filename or "face.jpg")
     if not res.get("success"):
@@ -80,6 +92,7 @@ async def upload_face_image(guest_id: uuid.UUID, file: UploadFile = File(...), d
         embedding=face["embedding"],
         quality_score=quality,
         is_active=True,
+        source="reference",
     )
     db.add(fp)
     await db.commit()

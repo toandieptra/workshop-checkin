@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useCamera } from "@/hooks/useCamera";
+import { useFaceDetector, type DetectedFace } from "@/hooks/useFaceDetector";
 import { api, apiForm, API_URL, maskPhone } from "@/lib/api";
 
 interface Guest {
@@ -12,8 +13,34 @@ interface RecognizeResult {
   guest?: Guest; message: string; log_id?: string;
 }
 
+function drawCornerBrackets(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, len: number
+) {
+  // 4 corner brackets, moi goc la 2 duong thang vuong goc (chi ve goc, khong ve canh)
+  ctx.beginPath();
+  // top-left
+  ctx.moveTo(x, y + len);
+  ctx.lineTo(x, y);
+  ctx.lineTo(x + len, y);
+  // top-right
+  ctx.moveTo(x + w - len, y);
+  ctx.lineTo(x + w, y);
+  ctx.lineTo(x + w, y + len);
+  // bottom-right
+  ctx.moveTo(x + w, y + h - len);
+  ctx.lineTo(x + w, y + h);
+  ctx.lineTo(x + w - len, y + h);
+  // bottom-left
+  ctx.moveTo(x + len, y + h);
+  ctx.lineTo(x, y + h);
+  ctx.lineTo(x, y + h - len);
+  ctx.stroke();
+}
+
 export default function CheckinPage() {
   const cam = useCamera();
+  const detector = useFaceDetector();
   const [workshops, setWorkshops] = useState<any[]>([]);
   const [workshopId, setWorkshopId] = useState<string>("");
   const [auto, setAuto] = useState(false);
@@ -23,8 +50,14 @@ export default function CheckinPage() {
   const [statusText, setStatusText] = useState("Đang chờ khách");
   const [query, setQuery] = useState("");
   const [searchRes, setSearchRes] = useState<Guest[]>([]);
+  const [faces, setFaces] = useState<DetectedFace[]>([]);
+  const [faceLabels, setFaceLabels] = useState<Record<number, string>>({});
+  const [autoFireCount, setAutoFireCount] = useState(0);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const loopRef = useRef<any>(null);
   const nextTimerRef = useRef<any>(null);
+  const detectLoopRef = useRef<any>(null);
+  const faceIdRef = useRef(0);
 
   const clearNextTimer = () => {
     if (nextTimerRef.current) { clearTimeout(nextTimerRef.current); nextTimerRef.current = null; }
@@ -50,6 +83,11 @@ export default function CheckinPage() {
       form.append("file", blob, "frame.jpg");
       const res: RecognizeResult = await apiForm("/checkin/recognize", form);
       setResult(res);
+      // neu match: gan ten vao bbox lon nhat (backend lay face lon nhat)
+      if (res.guest && faces.length > 0) {
+        const biggest = faces.reduce((a, b) => (a.w * a.h >= b.w * b.h ? a : b));
+        setFaceLabels((prev) => ({ ...prev, [biggest.id]: res.guest!.full_name }));
+      }
       const matched = res.decision === "confirm" || res.decision === "auto" || res.decision === "duplicate";
       setPaused(matched);
       setStatusText(
@@ -66,19 +104,123 @@ export default function CheckinPage() {
     }
   }, [busy, workshopId, cam]);
 
+  // giu callback recognize on dinh de interval khong bi cleanup moi render
+  const recognizeRef = useRef(recognize);
+  recognizeRef.current = recognize;
+
   // auto recognition loop moi 1.2s (pause khi vua match khach)
   useEffect(() => {
-    clearInterval(loopRef.current);
-    if (auto && !paused) loopRef.current = setInterval(recognize, 1200);
-    return () => clearInterval(loopRef.current);
-  }, [auto, paused, recognize]);
+    if (!auto || paused || !workshopId) {
+      clearInterval(loopRef.current);
+      loopRef.current = null;
+      return;
+    }
+    console.log("[checkin] auto-loop start, interval=1200ms");
+    loopRef.current = setInterval(() => {
+      setAutoFireCount((c) => c + 1);
+      recognizeRef.current();
+    }, 1200);
+    return () => {
+      console.log("[checkin] auto-loop cleanup");
+      clearInterval(loopRef.current);
+    };
+  }, [auto, paused, workshopId]);
 
   // cleanup timer khi unmount
   useEffect(() => () => clearNextTimer(), []);
 
+  // detect loop: chay khi video ready + detector ready, moi 200ms
+  useEffect(() => {
+    if (!detector.ready || !cam.ready) return;
+    const tick = async () => {
+      const v = cam.videoRef.current;
+      if (v && v.videoWidth) {
+        try {
+          const detected = await detector.detect(v);
+          // stable id: giu id cu theo vi tri xy gan nhat de label khong nhay
+          setFaces((prev) => {
+            if (prev.length === 0) return detected.map((f) => ({ ...f, id: faceIdRef.current++ }));
+            const usedPrev = new Set<number>();
+            return detected.map((f) => {
+              let bestIdx = -1;
+              let bestDist = Infinity;
+              for (let i = 0; i < prev.length; i++) {
+                if (usedPrev.has(i)) continue;
+                const p = prev[i];
+                const cx = f.x + f.w / 2, cy = f.y + f.h / 2;
+                const px = p.x + p.w / 2, py = p.y + p.h / 2;
+                const d = Math.hypot(cx - px, cy - py);
+                if (d < bestDist) { bestDist = d; bestIdx = i; }
+              }
+              if (bestIdx >= 0 && bestDist < Math.max(f.w, f.h)) {
+                usedPrev.add(bestIdx);
+                return { ...f, id: prev[bestIdx].id };
+              }
+              return { ...f, id: faceIdRef.current++ };
+            });
+          });
+        } catch {}
+      }
+      detectLoopRef.current = setTimeout(tick, 200);
+    };
+    detectLoopRef.current = setTimeout(tick, 200);
+    return () => clearTimeout(detectLoopRef.current);
+  }, [detector.ready, cam.ready, detector, cam.videoRef]);
+
+  // ve overlay khi faces/labels thay doi
+  useEffect(() => {
+    const canvas = overlayRef.current;
+    const video = cam.videoRef.current;
+    if (!canvas || !video) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    canvas.width = video.videoWidth || canvas.width;
+    canvas.height = video.videoHeight || canvas.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineWidth = 3;
+    ctx.font = "600 14px system-ui, -apple-system, sans-serif";
+    ctx.textBaseline = "middle";
+    for (const f of faces) {
+      // 4 corner brackets (khong ve full rectangle)
+      ctx.strokeStyle = "#00B7E9";
+      const cornerLen = Math.max(8, Math.min(14, f.w / 4, f.h / 4));
+      drawCornerBrackets(ctx, f.x, f.y, f.w, f.h, cornerLen);
+      // label background
+      const label = faceLabels[f.id];
+      if (label) {
+        const text = label;
+        const tw = ctx.measureText(text).width;
+        const padX = 8, padY = 4;
+        const lx = f.x;
+        const ly = Math.max(0, f.y - 24);
+        const lw = tw + padX * 2;
+        const lh = 22;
+        ctx.fillStyle = "#0D3B42"; // brand-teal dark
+        ctx.fillRect(lx, ly, lw, lh);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(text, lx + padX, ly + lh / 2);
+      } else {
+        // confidence score khi chua match
+        const text = `${Math.round(f.score * 100)}%`;
+        const tw = ctx.measureText(text).width;
+        const padX = 8;
+        const lx = f.x;
+        const ly = Math.max(0, f.y - 22);
+        ctx.fillStyle = "rgba(13, 59, 66, 0.85)";
+        ctx.fillRect(lx, ly, tw + padX * 2, 20);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(text, lx + padX, ly + 10);
+      }
+    }
+  }, [faces, faceLabels, cam.videoRef]);
+
+  // cleanup canvas khi unmount
+  useEffect(() => () => clearTimeout(detectLoopRef.current), []);
+
   const nextGuest = useCallback(() => {
     clearNextTimer();
     setResult(null);
+    setFaceLabels({});
     setStatusText("Đang chờ khách");
     setPaused(false);
   }, []);
@@ -155,9 +297,18 @@ export default function CheckinPage() {
           <div className="bg-surface rounded-md border border-line p-4">
             <div className="relative bg-black rounded-sm overflow-hidden aspect-[4/3]">
               <video ref={cam.videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+              <canvas
+                ref={overlayRef}
+                className="absolute inset-0 w-full h-full pointer-events-none"
+              />
               <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
                 {statusText}
               </div>
+              {detector.error && (
+                <div className="absolute bottom-2 left-2 bg-red-600/80 text-white text-xs px-2 py-1 rounded">
+                  Face detector: {detector.error}
+                </div>
+              )}
             </div>
             {cam.error && <div className="text-red-600 text-sm mt-2">{cam.error}</div>}
             <div className="flex flex-wrap gap-2 mt-3 items-center">
@@ -168,6 +319,12 @@ export default function CheckinPage() {
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
                 Tự động (1.2s)
+                {auto && !paused && (
+                  <span className="inline-flex items-center gap-1 text-xs text-green-700">
+                    <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="tabular-nums">×{autoFireCount}</span>
+                  </span>
+                )}
               </label>
               <button onClick={cam.switchCamera} className="border border-line px-3 py-2 rounded-sm text-sm">
                 Đổi camera

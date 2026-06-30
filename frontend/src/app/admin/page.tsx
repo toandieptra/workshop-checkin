@@ -4,7 +4,7 @@ import { api, apiForm, API_URL } from "@/lib/api";
 import QrUploadModal from "@/components/QrUploadModal";
 
 interface Workshop { id: string; name: string; slug: string; event_date?: string; location?: string; }
-interface FaceProfile { id: string; image_url?: string; quality_score?: number; is_active: boolean; }
+interface FaceProfile { id: string; image_url?: string; quality_score?: number; is_active: boolean; source?: string; }
 interface Guest {
   id: string; full_name: string; phone?: string; email?: string; company?: string; business_model?: string;
   role_title?: string; guest_type?: string; note?: string; party_size?: number;
@@ -12,7 +12,8 @@ interface Guest {
   created_at?: string; registered_at?: string | null; face_profiles: FaceProfile[];
 }
 
-const MAX_FACE_IMAGES = 3;
+const MAX_REFERENCE_IMAGES = 3;   // ảnh tham chiếu do admin/QR upload
+const MAX_CHECKIN_SNAPSHOTS = 2;  // ảnh check-in (rolling window)
 
 async function urlToFile(url: string, fallbackName: string): Promise<File> {
   const res = await fetch(url);
@@ -46,6 +47,7 @@ export default function AdminPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dateSort, setDateSort] = useState<"asc" | "desc">("desc");
   const [statusFilter, setStatusFilter] = useState<"all" | "checked_in" | "not_checked_in">("all");
+  const [consentLoadingId, setConsentLoadingId] = useState<string | null>(null);
 
   const loadWorkshops = async () => {
     const ws = await api("/workshops");
@@ -103,6 +105,26 @@ export default function AdminPage() {
     await loadGuests(wid);
   };
 
+  const toggleConsent = async (g: Guest) => {
+    setConsentLoadingId(g.id);
+    try {
+      await api(`/guests/${g.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ consent_face_recognition: !g.consent_face_recognition }),
+      });
+      setMsg(
+        g.consent_face_recognition
+          ? `Đã tắt đồng ý nhận diện mặt cho ${g.full_name}`
+          : `Đã bật đồng ý nhận diện mặt cho ${g.full_name}`,
+      );
+      await loadGuests(wid);
+    } catch (e: any) {
+      setMsg("Lỗi cập nhật consent: " + (e?.message || ""));
+    } finally {
+      setConsentLoadingId(null);
+    }
+  };
+
   const copyPhone = async (phone: string) => {
     try {
       await navigator.clipboard.writeText(phone);
@@ -122,9 +144,11 @@ export default function AdminPage() {
 
   const uploadFace = async (guestId: string, file: File) => {
     const g = guests.find((x) => x.id === guestId);
-    const current = g?.face_profiles?.length || 0;
-    if (current >= MAX_FACE_IMAGES) {
-      setMsg(`Khách đã có ${current}/${MAX_FACE_IMAGES} ảnh — không thể thêm`);
+    const current = (g?.face_profiles || []).filter(
+      (fp) => !fp.source || fp.source === "reference"
+    ).length;
+    if (current >= MAX_REFERENCE_IMAGES) {
+      setMsg(`Khách đã có ${current}/${MAX_REFERENCE_IMAGES} ảnh tham chiếu — không thể thêm`);
       return;
     }
     setMsg("Đang xử lý ảnh...");
@@ -222,12 +246,14 @@ export default function AdminPage() {
   const applyQrImages = async (urls: string[]) => {
     if (!qrGuestId) return;
     const g = guests.find((x) => x.id === qrGuestId);
-    const current = g?.face_profiles?.length || 0;
-    const slots = Math.max(0, MAX_FACE_IMAGES - current);
+    const current = (g?.face_profiles || []).filter(
+      (fp) => !fp.source || fp.source === "reference"
+    ).length;
+    const slots = Math.max(0, MAX_REFERENCE_IMAGES - current);
     const picked = urls.slice(0, slots);
     const skipped = urls.length - picked.length;
     if (!picked.length) {
-      setMsg(`Khách đã đủ ${MAX_FACE_IMAGES} ảnh — bỏ qua ${urls.length} ảnh từ mobile`);
+      setMsg(`Khách đã đủ ${MAX_REFERENCE_IMAGES} ảnh tham chiếu — bỏ qua ${urls.length} ảnh từ mobile`);
       return;
     }
     setMsg(`Đang tải ${picked.length} ảnh từ mobile lên server...`);
@@ -246,8 +272,8 @@ export default function AdminPage() {
     await loadGuests(wid);
     setMsg(
       skipped > 0
-        ? `Đã thêm ${picked.length} ảnh (bỏ qua ${skipped} ảnh thừa, đã đủ ${MAX_FACE_IMAGES})`
-        : `Đã thêm ${picked.length} ảnh từ mobile`,
+        ? `Đã thêm ${picked.length} ảnh tham chiếu (bỏ qua ${skipped} ảnh thừa, đã đủ ${MAX_REFERENCE_IMAGES})`
+        : `Đã thêm ${picked.length} ảnh tham chiếu từ mobile`,
     );
   };
 
@@ -402,9 +428,13 @@ export default function AdminPage() {
                           </span>
                           <img
                             src={g.consent_face_recognition ? "/icons/consent-yes.png" : "/icons/consent-no.png"}
-                            alt={g.consent_face_recognition ? "Có đồng ý nhận diện mặt" : "Chưa đồng ý nhận diện mặt"}
-                            title={g.consent_face_recognition ? "Có đồng ý nhận diện mặt" : "Chưa đồng ý nhận diện mặt"}
-                            className="w-5 h-5 object-contain inline-block"
+                            alt={g.consent_face_recognition ? "Đã đồng ý nhận diện mặt" : "Chưa đồng ý nhận diện mặt"}
+                            title={g.consent_face_recognition ? "Đã đồng ý nhận diện mặt — bấm để tắt" : "Chưa đồng ý — bấm để bật"}
+                            onClick={() => toggleConsent(g)}
+                            className={`w-5 h-5 object-contain cursor-pointer select-none ${consentLoadingId === g.id ? "animate-pulse opacity-50" : "hover:opacity-80"}`}
+                            data-testid="consent-toggle"
+                            data-guest-id={g.id}
+                            data-consent={g.consent_face_recognition ? "yes" : "no"}
                           />
                         </div>
                       </td>
@@ -451,36 +481,85 @@ export default function AdminPage() {
                         </div>
                       </td>
                       <td className="px-3 py-3 align-top">
-                        <div className="flex items-center justify-between gap-2 min-w-[200px]">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {g.face_profiles.map((fp) => (
-                              <div key={fp.id} className="relative group">
-                                <img
-                                  src={`${API_URL.replace("/api", "")}${fp.image_url}`}
-                                  alt=""
-                                  className="w-8 h-8 object-cover rounded border border-line"
-                                  title={`q=${fp.quality_score?.toFixed(2)}`}
-                                />
-                                <button
-                                  onClick={() => deleteFace(g.id, fp.id)}
-                                  title="Xóa ảnh"
-                                  aria-label="Xóa ảnh"
-                                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full
-                                             bg-red-600 text-white text-xs leading-none
-                                             opacity-0 group-hover:opacity-100
-                                             transition-opacity flex items-center justify-center
-                                             hover:bg-red-700">
-                                  ×
-                                </button>
-                              </div>
-                            ))}
-                            {g.face_profiles.length === 0 && <span className="text-muted text-xs">—</span>}
+                        <div className="flex flex-col gap-2 min-w-[220px]">
+                          {/* Ảnh tham chiếu (admin/QR upload) */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-semibold text-muted">
+                                Tham chiếu ({g.face_profiles.filter((fp) => !fp.source || fp.source === "reference").length}/{MAX_REFERENCE_IMAGES})
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {g.face_profiles.filter((fp) => !fp.source || fp.source === "reference").map((fp) => (
+                                <div key={fp.id} className="relative group">
+                                  <img
+                                    src={`${API_URL.replace("/api", "")}${fp.image_url}`}
+                                    alt=""
+                                    className="w-8 h-8 object-cover rounded border border-line"
+                                    title={`q=${fp.quality_score?.toFixed(2)}`}
+                                  />
+                                  <button
+                                    onClick={() => deleteFace(g.id, fp.id)}
+                                    title="Xóa ảnh"
+                                    aria-label="Xóa ảnh"
+                                    className="absolute -top-1 -right-1 w-5 h-5 rounded-full
+                                               bg-red-600 text-white text-xs leading-none
+                                               opacity-0 group-hover:opacity-100
+                                               transition-opacity flex items-center justify-center
+                                               hover:bg-red-700">
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                              {g.consent_face_recognition && g.face_profiles.filter((fp) => !fp.source || fp.source === "reference").length === 0 && (
+                                <span className="text-muted text-xs">—</span>
+                              )}
+                            </div>
                           </div>
-                          {g.consent_face_recognition && g.face_profiles.length < MAX_FACE_IMAGES && (
-                            <div className="flex items-center gap-1 shrink-0">
+
+                          {/* Ảnh check-in (snapshot rolling 2) */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-semibold text-muted">
+                                Check-in ({g.face_profiles.filter((fp) => fp.source === "checkin").length}/{MAX_CHECKIN_SNAPSHOTS})
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {g.face_profiles.filter((fp) => fp.source === "checkin").map((fp) => (
+                                <div key={fp.id} className="relative group">
+                                  <img
+                                    src={`${API_URL.replace("/api", "")}${fp.image_url}`}
+                                    alt=""
+                                    className="w-8 h-8 object-cover rounded border border-line opacity-90"
+                                    title="Ảnh chụp khi check-in"
+                                  />
+                                  <span className="absolute -bottom-1 -left-1 text-[9px] leading-none px-1 py-0.5 rounded
+                                                   bg-brand/90 text-white">auto</span>
+                                  <button
+                                    onClick={() => deleteFace(g.id, fp.id)}
+                                    title="Xóa ảnh"
+                                    aria-label="Xóa ảnh"
+                                    className="absolute -top-1 -right-1 w-5 h-5 rounded-full
+                                               bg-red-600 text-white text-xs leading-none
+                                               opacity-0 group-hover:opacity-100
+                                               transition-opacity flex items-center justify-center
+                                               hover:bg-red-700">
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                              {g.face_profiles.filter((fp) => fp.source === "checkin").length === 0 && (
+                                <span className="text-muted text-xs">—</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Nút upload (chỉ cho ảnh tham chiếu) */}
+                          {g.consent_face_recognition && g.face_profiles.filter((fp) => !fp.source || fp.source === "reference").length < MAX_REFERENCE_IMAGES && (
+                            <div className="flex items-center gap-1">
                               <label
                                 className="text-brand text-sm underline cursor-pointer
-                                           min-h-[40px] px-3 py-1 rounded inline-flex items-center
+                                           min-h-[32px] px-2 py-0.5 rounded inline-flex items-center
                                            hover:bg-brand/10">
                                 Upload
                                 <input type="file" accept="image/*" className="hidden"
@@ -489,13 +568,13 @@ export default function AdminPage() {
                               <button
                                 onClick={() => setQrGuestId(g.id)}
                                 title="Upload bằng QR mobile"
-                                className="min-h-[40px] min-w-[40px] px-2 rounded text-base hover:bg-brand/10">
+                                className="min-h-[32px] min-w-[32px] px-2 rounded text-base hover:bg-brand/10">
                                 📲
                               </button>
                             </div>
                           )}
                           {!g.consent_face_recognition && (
-                            <span className="text-xs text-muted italic shrink-0">Không đồng ý</span>
+                            <span className="text-xs text-muted italic">Không đồng ý</span>
                           )}
                         </div>
                       </td>
@@ -564,7 +643,7 @@ export default function AdminPage() {
       )}
       {qrGuest && (
         <div className="fixed bottom-4 right-4 z-20 bg-brand-teal text-white text-sm px-4 py-2 rounded shadow-lg max-w-xs">
-          📱 Đang upload ảnh cho: <b>{qrGuest.full_name}</b> (đã có {qrGuest.face_profiles.length}/{MAX_FACE_IMAGES})
+          📱 Đang upload ảnh cho: <b>{qrGuest.full_name}</b> (đã có {qrGuest.face_profiles.filter((fp) => !fp.source || fp.source === "reference").length}/{MAX_REFERENCE_IMAGES})
         </div>
       )}
     </div>

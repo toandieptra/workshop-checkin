@@ -54,6 +54,7 @@ class FaceProfileOut(BaseModel):
     image_url: str | None
     quality_score: float | None
     is_active: bool
+    source: str = "reference"
     created_at: datetime
 
 

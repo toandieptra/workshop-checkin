@@ -27,7 +27,8 @@ class Settings(BaseSettings):
 
     PUBLIC_BASE_URL: str | None = None  # neu None -> su request.base_url (dev/LAN)
 
-    MAX_FACE_IMAGES_PER_GUEST: int = 3
+    MAX_FACE_IMAGES_PER_GUEST: int = 3       # ảnh tham chiếu (admin/QR upload)
+    MAX_CHECKIN_SNAPSHOTS_PER_GUEST: int = 2  # ảnh check-in (rolling window: chi luu 2 moi nhat)
     MAX_UPLOAD_FILE_BYTES: int = 10 * 1024 * 1024
 
     # ===== Lark Base sync =====

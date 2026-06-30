@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 
 interface Workshop { id: string; name: string; slug: string; }
-interface FaceProfile { id: string; image_url?: string; quality_score?: number; is_active: boolean; }
+interface FaceProfile { id: string; image_url?: string; quality_score?: number; is_active: boolean; source?: string; }
 interface Guest {
   id: string; workshop_id: string; full_name: string; phone?: string; email?: string;
   company?: string; business_model?: string; role_title?: string; guest_type?: string; note?: string; party_size?: number;

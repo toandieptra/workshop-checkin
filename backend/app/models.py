@@ -53,6 +53,7 @@ class FaceProfile(Base):
     embedding: Mapped[list[float] | None] = mapped_column(Vector(512))
     quality_score: Mapped[float | None] = mapped_column(Float)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="reference")  # reference | checkin
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     guest: Mapped["Guest"] = relationship(back_populates="face_profiles")
