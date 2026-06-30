@@ -196,26 +196,39 @@ async def recognize(
                                message=f"{guest.full_name} — xác nhận check-in?", log_id=log.id)
 
     # auto check-in (khong yeu cau confirm)
-    await _do_checkin(db, workshop_id, guest, "face", similarity, snapshot_url)
+    lark_err = await _do_checkin(db, workshop_id, guest, "face", similarity, snapshot_url)
+    msg = f"Đã check-in {guest.full_name}"
+    if lark_err:
+        msg += f" (Lỗi Lark: {lark_err})"
     return RecognizeResult(decision="auto", similarity=similarity, quality_score=quality,
                            guest=GuestOut.model_validate(guest),
-                           message=f"Đã check-in {guest.full_name}")
+                           message=msg)
 
 
-async def _lark_writeback(guest: Guest):
-    """Tick Check-in=true trên Lark. Best-effort: lỗi không chặn check-in."""
+async def _lark_writeback(guest: Guest) -> str | None:
+    """Tick Check-In=true trên Lark. Thử "Check-In" trước, nếu lỗi thì thử "Check-in"."""
     if not settings.LARK_WRITEBACK_ENABLED:
-        return
+        return None
     if not guest.lark_record_id or not settings.LARK_TABLE_REGISTRATIONS:
-        return
+        return None
     try:
         await lark_client.update_record(
             settings.LARK_TABLE_REGISTRATIONS,
             guest.lark_record_id,
-            {"Check-in": True},
+            {"Check-In": True},
         )
-    except Exception as e:
-        logger.warning("lark writeback failed for guest %s: %s", guest.id, e)
+        return None
+    except Exception as e1:
+        try:
+            await lark_client.update_record(
+                settings.LARK_TABLE_REGISTRATIONS,
+                guest.lark_record_id,
+                {"Check-in": True},
+            )
+            return None
+        except Exception as e2:
+            logger.warning("lark writeback failed for guest %s: %s (Check-In) and %s (Check-in)", guest.id, e1, e2)
+            return f"{e1} / {e2}"
 
 
 async def _do_checkin(db, workshop_id, guest: Guest, method, similarity, snapshot_url,
@@ -228,9 +241,10 @@ async def _do_checkin(db, workshop_id, guest: Guest, method, similarity, snapsho
     db.add(log)
     await db.commit()
     await mark_checked_in(workshop_id, guest.id)
-    await _lark_writeback(guest)
+    lark_err = await _lark_writeback(guest)
     if broadcast:
         await _broadcast_welcome(db, workshop_id, guest)
+    return lark_err
 
 
 @router.post("/confirm", response_model=RecognizeResult)
@@ -252,10 +266,30 @@ async def confirm(body: ConfirmRequest, db: AsyncSession = Depends(get_db)):
         return RecognizeResult(decision="duplicate", guest=GuestOut.model_validate(guest),
                                message=f"{guest.full_name} đã check-in")
 
-    await _do_checkin(db, body.workshop_id, guest, "face", body.similarity, None, feedback="correct")
+    lark_err = await _do_checkin(db, body.workshop_id, guest, "face", body.similarity, None, feedback="correct")
+    msg = f"Đã check-in {guest.full_name}"
+    if lark_err:
+        msg += f" (Lỗi Lark: {lark_err})"
     return RecognizeResult(decision="auto", similarity=body.similarity,
                            guest=GuestOut.model_validate(guest),
-                           message=f"Đã check-in {guest.full_name}")
+                           message=msg)
+
+
+@router.post("/manual", response_model=RecognizeResult)
+async def manual_checkin(body: ManualCheckinRequest, db: AsyncSession = Depends(get_db)):
+    guest = await _guest_with_faces(db, body.guest_id)
+    if not guest:
+        raise HTTPException(404, "guest not found")
+    if await is_duplicate(body.workshop_id, body.guest_id):
+        return RecognizeResult(decision="duplicate", guest=GuestOut.model_validate(guest),
+                               message=f"{guest.full_name} đã check-in")
+    lark_err = await _do_checkin(db, body.workshop_id, guest, body.method, None, None)
+    msg = f"Đã check-in {guest.full_name}"
+    if lark_err:
+        msg += f" (Lỗi Lark: {lark_err})"
+    return RecognizeResult(decision="auto", guest=GuestOut.model_validate(guest),
+                           message=msg)
+
 
 
 @router.post("/manual", response_model=RecognizeResult)

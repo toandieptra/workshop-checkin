@@ -130,10 +130,17 @@ export default function AdminPage() {
   };
   const manualCheckin = async (id: string) => {
     if (!wid) return;
-    await api("/checkin/manual", {
-      method: "POST",
-      body: JSON.stringify({ workshop_id: wid, guest_id: id, method: "manual" }),
-    });
+    try {
+      const res = await api("/checkin/manual", {
+        method: "POST",
+        body: JSON.stringify({ workshop_id: wid, guest_id: id, method: "manual" }),
+      });
+      if (res?.message) {
+        setMsg(res.message);
+      }
+    } catch (e: any) {
+      setMsg("Lỗi check-in: " + (e?.message || ""));
+    }
     await loadGuests(wid);
   };
 
