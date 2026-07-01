@@ -72,7 +72,6 @@ esac
 "$DOCKER_BIN" build --no-cache --pull --load --platform=linux/amd64 \
   --build-arg NEXT_PUBLIC_API_URL="$APP_URL/api" \
   --build-arg NEXT_PUBLIC_WS_URL="${WS_SCHEME}://${WS_HOST}/ws" \
-  --build-arg NEXT_PUBLIC_ADMIN_PASSWORD="${NEXT_PUBLIC_ADMIN_PASSWORD:-local}" \
   -t workshop-checkin-frontend:amd64 -f frontend/Dockerfile frontend
 
 echo "[4/7] Tag :latest for compose"

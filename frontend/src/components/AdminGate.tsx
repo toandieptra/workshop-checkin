@@ -32,6 +32,11 @@ export default function AdminGate({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    // Bypass khi NEXT_PUBLIC_ADMIN_PASSWORD khong duoc set (gate da tat).
+    if (!ADMIN_PASSWORD) {
+      setStatus("unlocked");
+      return;
+    }
     setStatus(isAuthed() ? "unlocked" : "locked");
   }, []);
 
