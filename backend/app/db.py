@@ -59,6 +59,7 @@ def _build_database_url() -> str:
 
 engine = create_async_engine(_build_database_url(), echo=False, pool_pre_ping=True)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async_session_maker = SessionLocal  # alias for background tasks that need a new session
 
 
 class Base(DeclarativeBase):

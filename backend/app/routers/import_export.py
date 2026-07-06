@@ -14,13 +14,7 @@ from ..models import Guest, Workshop
 
 router = APIRouter(prefix="/api", tags=["import-export"])
 
-COLS = ["full_name", "phone", "email", "business_model", "role_title", "guest_type", "consent_face_recognition"]
-
-
-def _parse_bool(v) -> bool:
-    if isinstance(v, bool):
-        return v
-    return str(v).strip().lower() in ("1", "true", "yes", "y", "co", "có", "x")
+COLS = ["full_name", "phone", "email", "business_model", "role_title", "guest_type"]
 
 
 def _parse_int(v, default: int = 1) -> int:
@@ -69,7 +63,6 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
                 row.get("party_size") or row.get("so_khach") or row.get("số khách")
                 or row.get("số vé đăng ký") or row.get("so ve") or 1
             ),
-            consent_face_recognition=_parse_bool(row.get("consent_face_recognition", True)),
         )
         db.add(g)
         created += 1
@@ -78,24 +71,62 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
 
 
 @router.get("/workshops/{workshop_id}/export")
-async def export_checked_in(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def export_guests(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Xuất toàn bộ khách của workshop (mọi trạng thái) kèm thông tin & trạng thái check-in/đồng bộ."""
     rows = (await db.execute(
-        select(Guest).where(Guest.workshop_id == workshop_id, Guest.checkin_status == "checked_in")
-        .order_by(Guest.checked_in_at)
+        select(Guest).where(
+            Guest.workshop_id == workshop_id,
+            Guest.deleted_at.is_(None),
+        ).order_by(Guest.checkin_status.desc(), Guest.full_name)
     )).scalars().all()
+
+    def _fmt(dt):
+        return dt.isoformat() if dt else ""
+
+    def _checkin_label(status: str | None) -> str:
+        return "Đã check-in" if status == "checked_in" else "Chưa check-in"
+
+    def _sync_label(status: str | None) -> str:
+        return {
+            "synced": "Đã đồng bộ",
+            "pending_push": "Chờ đồng bộ",
+            "conflict": "Xung đột",
+            "error": "Lỗi đồng bộ",
+        }.get(status or "", status or "")
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["full_name", "phone", "business_model", "role_title", "guest_type", "party_size", "registered_at", "checked_in_at"])
+    writer.writerow([
+        "full_name", "phone", "email", "company", "business_model",
+        "role_title", "guest_type", "party_size", "note",
+        "checkin_status", "checked_in_at",
+        "sync_status", "lark_record_id",
+        "registered_at", "created_at",
+    ])
     for g in rows:
-        writer.writerow([g.full_name, g.phone or "", g.business_model or "", g.role_title or "",
-                         g.guest_type or "", g.party_size,
-                         g.registered_at.isoformat() if g.registered_at else "",
-                         g.checked_in_at.isoformat() if g.checked_in_at else ""])
+        writer.writerow([
+            g.full_name,
+            g.phone or "",
+            g.email or "",
+            g.company or "",
+            g.business_model or "",
+            g.role_title or "",
+            g.guest_type or "",
+            g.party_size,
+            g.note or "",
+            _checkin_label(g.checkin_status),
+            _fmt(g.checked_in_at),
+            _sync_label(g.sync_status),
+            g.lark_record_id or "",
+            _fmt(g.registered_at),
+            _fmt(g.created_at),
+        ])
     buf.seek(0)
-    fname = f"checked_in_{workshop_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+    fname = f"guests_{workshop_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+    # BOM để Excel mở UTF-8 (tiếng Việt) đúng
+    content = "\ufeff" + buf.getvalue()
     return StreamingResponse(
-        iter([buf.getvalue()]),
-        media_type="text/csv",
+        iter([content]),
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={fname}"},
     )

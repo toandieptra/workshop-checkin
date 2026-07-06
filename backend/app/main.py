@@ -10,13 +10,14 @@ from sqlalchemy.exc import OperationalError
 
 from .db import engine
 from .ws import manager
-from .routers import workshops, guests, checkin, search, import_export, upload_sessions, lark_sync
+from .routers import workshops, guests, checkin, search, import_export, lark_sync, registration_forms
 
 log = logging.getLogger("app.lifespan")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Wait for DB to be ready
     last_err: Exception | None = None
     for attempt in range(15):
         try:
@@ -35,7 +36,14 @@ async def lifespan(app: FastAPI):
     if last_err is not None:
         log.error("DB unreachable after retries: %s", last_err)
         raise last_err
+
+    # Start Lark polling background task
+    lark_sync.start_lark_poll()
+
     yield
+
+    # Shutdown
+    lark_sync.stop_lark_poll()
 
 
 app = FastAPI(title="workshop-checkin-backend", lifespan=lifespan)
@@ -52,8 +60,8 @@ app.include_router(guests.router)
 app.include_router(checkin.router)
 app.include_router(search.router)
 app.include_router(import_export.router)
-app.include_router(upload_sessions.router)
 app.include_router(lark_sync.router)
+app.include_router(registration_forms.router)
 
 
 @app.get("/api/health")
@@ -73,7 +81,7 @@ async def ws_endpoint(ws: WebSocket):
     try:
         while True:
             msg = await ws.receive_text()
-            # echo (Phase 1) + giu ket noi cho broadcast welcome
+            # echo + keep connection open for welcome broadcasts
             await ws.send_json({"type": "echo", "data": msg})
     except WebSocketDisconnect:
         await manager.disconnect(ws)

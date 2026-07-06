@@ -39,3 +39,4 @@ venv/
 *.swo
 # Playwright MCP snapshots
 /.playwright-mcp/
+/.playwright-cli/

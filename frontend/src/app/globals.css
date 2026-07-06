@@ -11,9 +11,13 @@
 html, body {
   padding: 0;
   margin: 0;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
-  background: #f4f1ec;
-  color: #1a1a1a;
+  font-family: "Be Vietnam Pro", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: #e8f4f5;
+  color: #0d3b42;
 }
 
 * { box-sizing: border-box; }
+
+.font-heading {
+  font-family: Montserrat, Manrope, Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+}

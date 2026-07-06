@@ -13,32 +13,25 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "redis"
     REDIS_PORT: int = 6379
 
-    FACE_API_URL: str = "http://face-api:8428"
-
-    AUTO_CHECKIN_THRESHOLD: float = 0.62
-    MANUAL_CONFIRM_THRESHOLD: float = 0.55
-    REJECT_THRESHOLD: float = 0.55
-    ENABLE_STAFF_CONFIRMATION: bool = True
-    CHECKIN_DEDUP_TTL_SECONDS: int = 600
-    SAVE_CHECKIN_SNAPSHOTS: bool = True
-    MIN_QUALITY_SCORE: float = 0.30
-
     UPLOAD_DIR: str = "/uploads"
-
-    PUBLIC_BASE_URL: str | None = None  # neu None -> su request.base_url (dev/LAN)
-
-    MAX_FACE_IMAGES_PER_GUEST: int = 3       # ảnh tham chiếu (admin/QR upload)
-    MAX_CHECKIN_SNAPSHOTS_PER_GUEST: int = 2  # ảnh check-in (rolling window: chi luu 2 moi nhat)
     MAX_UPLOAD_FILE_BYTES: int = 10 * 1024 * 1024
+
+    PUBLIC_BASE_URL: str | None = None
 
     # ===== Lark Base sync =====
     LARK_APP_ID: str | None = None
     LARK_APP_SECRET: str | None = None
-    LARK_DOMAIN: str = "larksuite.com"  # larksuite.com | feishu.cn
+    LARK_DOMAIN: str = "larksuite.com"
     LARK_BASE_TOKEN: str | None = None
-    LARK_TABLE_REGISTRATIONS: str | None = None  # bang dang ky
-    LARK_TABLE_WORKSHOPS: str | None = None  # bang cau hinh
+    LARK_TABLE_REGISTRATIONS: str | None = None
+    LARK_TABLE_WORKSHOPS: str | None = None
     LARK_WRITEBACK_ENABLED: bool = True
+
+    # ===== Check-in dedup =====
+    CHECKIN_DEDUP_TTL_SECONDS: int = 3000
+
+    # ===== Background sync =====
+    LARK_SYNC_INTERVAL_SECONDS: int = 30
 
     @property
     def database_url(self) -> str:

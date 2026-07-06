@@ -3,13 +3,12 @@ import re
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, text, func
+from sqlalchemy import select, text, func, nulls_last
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import Workshop, Guest
 from ..schemas import WorkshopCreate, WorkshopOut, GuestCreate, GuestOut
-from .lark_sync import push_guest_to_lark
 
 logger = logging.getLogger("workshops")
 router = APIRouter(prefix="/api", tags=["workshops"])
@@ -54,7 +53,13 @@ async def _search_guest_ids(db: AsyncSession, workshop_id: uuid.UUID, search: st
 
 @router.get("/workshops", response_model=list[WorkshopOut])
 async def list_workshops(db: AsyncSession = Depends(get_db)):
-    rows = (await db.execute(select(Workshop).order_by(Workshop.created_at.desc()))).scalars().all()
+    # Sắp xếp: event_date DESC (gần → xa), NULL xuống cuối; tie-breaker created_at DESC.
+    rows = (await db.execute(
+        select(Workshop).order_by(
+            nulls_last(Workshop.event_date.desc()),
+            Workshop.created_at.desc(),
+        )
+    )).scalars().all()
     return rows
 
 
@@ -89,8 +94,7 @@ async def list_guests(
     order_col = func.coalesce(Guest.registered_at, Guest.created_at)
     stmt = (
         select(Guest)
-        .options(selectinload(Guest.face_profiles))
-        .where(Guest.workshop_id == workshop_id)
+        .where(Guest.workshop_id == workshop_id, Guest.deleted_at.is_(None))
     )
     if search and search.strip():
         ids = await _search_guest_ids(db, workshop_id, search)
@@ -115,13 +119,9 @@ async def create_guest(workshop_id: uuid.UUID, body: GuestCreate, db: AsyncSessi
     await db.commit()
     await db.refresh(g)
     try:
-        await push_guest_to_lark(db, g)
+        from .lark_sync import _push_guest_to_lark
+        await _push_guest_to_lark(db, g)
     except Exception as e:
         logger.warning("auto push guest to lark failed for %s: %s", g.id, e)
-    from sqlalchemy.orm import selectinload
-    g = (
-        await db.execute(
-            select(Guest).options(selectinload(Guest.face_profiles)).where(Guest.id == g.id)
-        )
-    ).scalar_one()
+    g = await db.get(Guest, g.id)
     return g

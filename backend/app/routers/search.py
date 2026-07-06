@@ -1,7 +1,6 @@
 import uuid
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, or_, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
@@ -20,9 +19,7 @@ async def search_guests(
 ):
     pattern = f"%{q}%"
     stmt = (
-        select(Guest)
-        .options(selectinload(Guest.face_profiles))
-        .where(
+        select(Guest).where(
             or_(
                 Guest.full_name.ilike(pattern),
                 Guest.phone.ilike(pattern),
@@ -32,6 +29,6 @@ async def search_guests(
     )
     if workshop_id:
         stmt = stmt.where(Guest.workshop_id == workshop_id)
-    stmt = stmt.limit(limit)
+    stmt = stmt.where(Guest.deleted_at.is_(None)).limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
     return rows

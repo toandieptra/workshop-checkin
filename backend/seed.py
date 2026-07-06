@@ -1,4 +1,4 @@
-"""Seed 1 workshop 'Workshop Chuyển' + vài guest demo (placeholder, không embedding)."""
+"""Seed 1 workshop 'Workshop Chuyển' + vài guest demo."""
 import asyncio
 from datetime import date
 
@@ -11,7 +11,7 @@ GUESTS = [
     {"full_name": "Trần Văn Hùng", "phone": "0912345678", "company": "Hùng Beverage", "role_title": "Giám đốc", "guest_type": "Đối tác"},
     {"full_name": "Lê Thị Hồng", "phone": "0923456789", "company": "Hồng Coffee", "role_title": "Quản lý", "guest_type": "Khách mời"},
     {"full_name": "Phạm Minh Tuấn", "phone": "0934567890", "company": "Tuấn F&B", "role_title": "Founder", "guest_type": "VIP"},
-    {"full_name": "Võ Thị Lan", "phone": "0945678901", "company": "Lan Milk Tea", "role_title": "Chủ quán", "guest_type": "Khách mời", "consent_face_recognition": False},
+    {"full_name": "Võ Thị Lan", "phone": "0945678901", "company": "Lan Milk Tea", "role_title": "Chủ quán", "guest_type": "Khách mời"},
 ]
 
 

@@ -4,9 +4,18 @@ const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
     const backend =
-      process.env.BACKEND_INTERNAL_URL || "http://backend:8427";
+      process.env.BACKEND_INTERNAL_URL ||
+      (process.env.BACKEND_DEV_LOCAL ? "http://127.0.0.1:8427" : "http://backend:8427");
+    // Client FE khi không có NEXT_PUBLIC_API_URL sẽ gọi path không có prefix /api
+    // (vd: /workshops, /guests/123). Các rewrite dưới đây map sang backend kèm /api.
+    const apiPrefixes = ["workshops", "guests", "checkin", "public", "lark", "thong-ke", "registration-forms"];
+    const rules = apiPrefixes.map((p) => ({
+      source: `/${p}/:path*`,
+      destination: `${backend}/api/${p}/:path*`,
+    }));
     return [
-      // API: route mọi /api/* qua backend trong docker network
+      ...rules,
+      // Backward-compat: nếu client gọi /api/* thì vẫn proxy được.
       {
         source: "/api/:path*",
         destination: `${backend}/api/:path*`,
@@ -21,10 +30,6 @@ const nextConfig = {
         source: "/m/:path*",
         destination: `${backend}/m/:path*`,
       },
-      // WebSocket: Next.js standalone không proxy WS qua rewrites.
-      // /ws được xử lý trực tiếp bởi backend (qua nginx sidecar hoặc Cloudflare Origin Rule riêng).
-      // Nếu browser gọi tới Next.js thì Next.js sẽ match /api style fallback;
-      // ta KHÔNG rewrite /ws ở đây để tránh hang.
     ];
   },
 };
