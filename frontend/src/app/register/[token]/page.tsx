@@ -40,6 +40,16 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
   const [errName, setErrName] = useState("");
   const [errPhone, setErrPhone] = useState("");
   const [errParty, setErrParty] = useState("");
+  const [errBusinessModel, setErrBusinessModel] = useState("");
+
+  const BUSINESS_MODEL_OPTIONS = [
+    "Đang kinh doanh cà phê / trà sữa",
+    "Cung cấp dịch vụ đào tạo, setup quán",
+    "Công ty / Hộ kinh doanh cung cấp nguyên liệu",
+    "Đang chuẩn bị mở quán",
+    "Đối tác hợp tác thương hiệu",
+    "Khác",
+  ];
 
   useEffect(() => {
     if (!token) {
@@ -51,8 +61,12 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
       try {
         const f = await getPublicRegistrationForm(token);
         setForm(f);
-        const firstWorkshopId = f.workshops?.[0]?.id || f.workshop_id;
-        setWorkshopId(firstWorkshopId || "");
+        const ws = f.workshops?.length
+          ? f.workshops
+          : f.workshop_id
+          ? [{ id: f.workshop_id, name: f.workshop_name, event_date: f.workshop_event_date, location: f.workshop_location }]
+          : [];
+        setWorkshopId(ws.length === 1 ? ws[0].id : "");
         setStep(f.is_active ? "form" : "closed");
       } catch {
         setErrMsg("Form không tồn tại hoặc đã bị xoá.");
@@ -85,6 +99,11 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
       setErrParty("Số khách đăng ký phải lớn hơn hoặc bằng 1.");
       ok = false;
     } else setErrParty("");
+
+    if (!businessModel.trim() || !BUSINESS_MODEL_OPTIONS.includes(businessModel)) {
+      setErrBusinessModel("Vui lòng chọn mô hình kinh doanh.");
+      ok = false;
+    } else setErrBusinessModel("");
 
     return ok;
   };
@@ -131,7 +150,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
           </div>
           <div>
             <div className="font-heading text-base font-bold leading-tight tracking-[0.02em]">Hi Sweetie Việt Nam</div>
-            <div className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.12em] text-[#3A6B74]">Workshop Check-in</div>
+            <div className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.12em] text-[#3A6B74]">Đăng ký Workshop</div>
           </div>
         </div>
         <div className="hidden items-center gap-2 rounded-full border border-brand/25 bg-white/75 px-4 py-2 text-xs font-semibold text-brand-teal shadow-sm backdrop-blur sm:inline-flex">
@@ -162,7 +181,6 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
 
           {step === "form" && (
             <>
-              <p className="mb-2 text-xs font-extrabold uppercase tracking-[0.12em] text-brand-accent">/register/:token</p>
               <h2 className="font-heading text-3xl font-bold leading-tight tracking-[-0.035em] text-brand-teal sm:text-[34px]">
                 Thông tin đăng ký
               </h2>
@@ -192,7 +210,13 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                     value={workshopId}
                     onChange={(e) => setWorkshopId(e.target.value)}
                     className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
+                    disabled={workshopOptions.length === 1}
                   >
+                    {workshopOptions.length > 1 && (
+                      <option value="" disabled>
+                        — Chọn workshop —
+                      </option>
+                    )}
                     {workshopOptions.map((w) => (
                       <option key={w.id} value={w.id}>
                         {w.name}{w.event_date ? " — " + w.event_date : ""}
@@ -249,17 +273,23 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
 
                 <div>
                   <label className="mb-2 block text-sm font-bold text-brand-teal">
-                    Mô hình kinh doanh
+                    Mô hình kinh doanh <span className="text-brand-accent">*</span>
                   </label>
-                  <input
+                  <select
                     value={businessModel}
                     onChange={(e) => setBusinessModel(e.target.value)}
-                    placeholder="Quán trà sữa, cafe, chuỗi F&B..."
-                    className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition placeholder:text-[#7BA4AA] focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
-                  />
-                  <div className="mt-1.5 text-xs leading-5 text-[#5A8A92]">
-                    Hãy cho chúng tôi thêm thông tin về mô hình bạn đang kinh doanh.
-                  </div>
+                    className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
+                  >
+                    <option value="" disabled>
+                      — Chọn mô hình phù hợp —
+                    </option>
+                    {BUSINESS_MODEL_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                  {errBusinessModel && <div className="mt-1.5 text-xs font-semibold text-red-600">{errBusinessModel}</div>}
                 </div>
 
                 <button
