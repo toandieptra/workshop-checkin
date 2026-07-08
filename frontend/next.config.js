@@ -8,12 +8,19 @@ const nextConfig = {
       (process.env.BACKEND_DEV_LOCAL ? "http://127.0.0.1:8427" : "http://backend:8427");
     // Client FE khi không có NEXT_PUBLIC_API_URL sẽ gọi path không có prefix /api
     // (vd: /workshops, /guests/123). Các rewrite dưới đây map sang backend kèm /api.
-    const apiPrefixes = ["workshops", "guests", "checkin", "public", "lark", "thong-ke", "registration-forms"];
+    const apiPrefixes = ["export", "workshops", "guests", "checkin", "public", "lark", "thong-ke", "registration-forms"];
     const rules = apiPrefixes.map((p) => ({
       source: `/${p}/:path*`,
       destination: `${backend}/api/${p}/:path*`,
     }));
     return [
+      // Bypass rewrite cho Next.js route handlers của admin auth.
+      // (Các rule rewrite khác có /api/:path* ở dưới sẽ nuốt path này
+      // nếu không khai báo cụ thể trước.)
+      {
+        source: "/api/admin/:path*",
+        destination: "/api/admin/:path*",
+      },
       ...rules,
       // Backward-compat: nếu client gọi /api/* thì vẫn proxy được.
       {

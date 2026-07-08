@@ -317,10 +317,10 @@ export default function DesktopAdmin() {
                 Đẩy lên Lark
               </button>
               <a
-                href={API_URL + "/workshops/" + wid + "/export"}
+                href={API_URL + "/export/guests?workshop_id=" + wid}
                 className="border border-line px-3 py-2 rounded-sm text-sm"
               >
-                Xuất CSV
+                Xuất Excel
               </a>
               <label className="border border-line px-3 py-2 rounded-sm text-sm cursor-pointer">
                 Nhập CSV/XLSX

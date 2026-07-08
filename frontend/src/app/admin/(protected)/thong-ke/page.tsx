@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { api } from "@/lib/api";
+import { api, API_URL } from "@/lib/api";
 
 interface Workshop { id: string; name: string; slug: string; }
 interface Guest {
@@ -20,6 +20,7 @@ export default function ThongKePage() {
   const [guests, setGuests] = useState<Guest[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkin, setCheckin] = useState<CheckinFilter>("all");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     api("/workshops").then((ws: Workshop[]) => {
@@ -76,22 +77,22 @@ export default function ThongKePage() {
     };
   }, [filtered]);
 
-  const exportCsv = () => {
-    const head = ["full_name", "business_model", "role_title", "guest_type", "phone", "party_size", "actual_party_size", "registered_at", "sync_status", "status", "checked_in_at", "workshop"];
-    const rows = filtered.map((g) => [
-      g.full_name, g.business_model || "", g.role_title || "", g.guest_type || "", g.phone || "",
-      String(g.party_size || 1), g.checkin_status === "checked_in" ? String(g.actual_party_size ?? g.party_size ?? 1) : "",
-      g.registered_at || g.created_at || "", g.sync_status || "", g.checkin_status, g.checked_in_at || "", WS_NAME[g.workshop_id] || g.workshop_id,
-    ]);
-    const esc = (v: string) => "\"" + v.replace(/\"/g, "\"\"") + "\"";
-    const csv = [head, ...rows].map((r) => r.map(esc).join(",")).join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "thong-ke_" + new Date().toISOString().slice(0, 10) + ".csv";
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportXlsx = async () => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ workshop_id: wid, status: checkin });
+      const res = await fetch(API_URL + "/export/guests?" + params.toString());
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "thong-ke_" + new Date().toISOString().slice(0, 10) + ".xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -99,9 +100,9 @@ export default function ThongKePage() {
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold text-brand-teal">Thống kê khách mời</h1>
-          <button onClick={exportCsv} disabled={!filtered.length}
+          <button onClick={exportXlsx} disabled={!filtered.length || exporting}
             className="bg-brand-teal text-white px-3 py-2 rounded-sm text-sm disabled:opacity-40">
-            Xuất CSV ({filtered.length})
+            {exporting ? "Đang xuất..." : `Xuất Excel (${filtered.length})`}
           </button>
         </div>
 

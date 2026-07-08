@@ -31,6 +31,8 @@ __pycache__/
 .venv/
 venv/
 .env.py
+# backend/.env là symlink tới /.env; local-only, không commit.
+/backend/.env
 
 # === IDE ===
 .vscode/

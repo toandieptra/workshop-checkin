@@ -3,9 +3,11 @@ import io
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,41 +72,62 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
     return {"imported": created, "total_rows": len(rows)}
 
 
-@router.get("/workshops/{workshop_id}/export")
-async def export_guests(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Xuất toàn bộ khách của workshop (mọi trạng thái) kèm thông tin & trạng thái check-in/đồng bộ."""
-    rows = (await db.execute(
-        select(Guest).where(
-            Guest.workshop_id == workshop_id,
-            Guest.deleted_at.is_(None),
-        ).order_by(Guest.checkin_status.desc(), Guest.full_name)
-    )).scalars().all()
+@router.get("/export/guests")
+async def export_guests(
+    db: AsyncSession = Depends(get_db),
+    workshop_id: str | None = Query(default=None, description="uuid hoặc 'all'"),
+    status: str = Query(default="all", pattern="^(all|checked_in|not_checked_in)$"),
+):
+    """Xuất khách ra file .xlsx.
+
+    - workshop_id: uuid của workshop, hoặc 'all' / None để xuất tất cả workshop
+      (khi đó thêm cột 'workshop' để biết khách thuộc workshop nào).
+    - status: 'all' | 'checked_in' | 'not_checked_in'.
+    """
+    stmt = (
+        select(Guest, Workshop.name)
+        .join(Workshop, Guest.workshop_id == Workshop.id)
+        .where(Guest.deleted_at.is_(None))
+    )
+    if workshop_id and workshop_id != "all":
+        try:
+            wid_uuid = uuid.UUID(workshop_id)
+        except ValueError:
+            raise HTTPException(400, "workshop_id không hợp lệ")
+        stmt = stmt.where(Guest.workshop_id == wid_uuid)
+    if status == "checked_in":
+        stmt = stmt.where(Guest.checkin_status == "checked_in")
+    elif status == "not_checked_in":
+        stmt = stmt.where(Guest.checkin_status != "checked_in")
+    stmt = stmt.order_by(Guest.checkin_status.desc(), Guest.full_name)
+
+    rows = (await db.execute(stmt)).all()
 
     def _fmt(dt):
-        return dt.isoformat() if dt else ""
+        return dt if dt else None
 
-    def _checkin_label(status: str | None) -> str:
-        return "Đã check-in" if status == "checked_in" else "Chưa check-in"
+    def _checkin_label(s: str | None) -> str:
+        return "Đã check-in" if s == "checked_in" else "Chưa check-in"
 
-    def _sync_label(status: str | None) -> str:
+    def _sync_label(s: str | None) -> str:
         return {
             "synced": "Đã đồng bộ",
             "pending_push": "Chờ đồng bộ",
             "conflict": "Xung đột",
             "error": "Lỗi đồng bộ",
-        }.get(status or "", status or "")
+        }.get(s or "", s or "")
 
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow([
-        "full_name", "phone", "email", "company", "business_model",
+    headers = [
+        "workshop", "full_name", "phone", "email", "company", "business_model",
         "role_title", "guest_type", "party_size", "note",
         "checkin_status", "checked_in_at",
         "sync_status", "lark_record_id",
         "registered_at", "created_at",
-    ])
-    for g in rows:
-        writer.writerow([
+    ]
+    body_rows = []
+    for g, w_name in rows:
+        body_rows.append([
+            w_name,
             g.full_name,
             g.phone or "",
             g.email or "",
@@ -121,12 +144,50 @@ async def export_guests(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_d
             _fmt(g.registered_at),
             _fmt(g.created_at),
         ])
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Guests"
+
+    header_font = Font(bold=True, color="FFFFFFFF")
+    header_fill = PatternFill("solid", fgColor="FF0D3B42")
+    header_align = Alignment(horizontal="left", vertical="center")
+
+    ws.append(headers)
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+
+    date_fmt = "yyyy-mm-dd hh:mm:ss"
+    date_col_indexes = [headers.index(h) + 1 for h in ("checked_in_at", "registered_at", "created_at")]
+    for row in body_rows:
+        ws.append(row)
+        excel_row = ws.max_row
+        for col_idx in date_col_indexes:
+            ws.cell(row=excel_row, column=col_idx).number_format = date_fmt
+
+    sample_for_width = body_rows[:200]
+    for col_idx, header in enumerate(headers, start=1):
+        max_len = len(header)
+        for row in sample_for_width:
+            val = row[col_idx - 1]
+            if val is None:
+                continue
+            s = val.strftime("%Y-%m-%d %H:%M:%S") if hasattr(val, "strftime") else str(val)
+            if len(s) > max_len:
+                max_len = len(s)
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 50)
+
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
     buf.seek(0)
-    fname = f"guests_{workshop_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-    # BOM để Excel mở UTF-8 (tiếng Việt) đúng
-    content = "\ufeff" + buf.getvalue()
+    fname = f"guests_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
     return StreamingResponse(
-        iter([content]),
-        media_type="text/csv; charset=utf-8",
+        iter([buf.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={fname}"},
     )

@@ -15,10 +15,13 @@ WORKDIR /app
 # can talk to the right backend without a server-side runtime env.
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_WS_URL
-ARG NEXT_PUBLIC_ADMIN_PASSWORD
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
-ENV NEXT_PUBLIC_ADMIN_PASSWORD=$NEXT_PUBLIC_ADMIN_PASSWORD
+
+# Admin auth — đọc ở runtime (KHÔNG prefix NEXT_PUBLIC_), nên chỉ cần ARG
+# để build-time fail-fast nếu thiếu, không ENV inline vào image.
+ARG ADMIN_PASSWORD
+ARG ADMIN_SESSION_SECRET
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
