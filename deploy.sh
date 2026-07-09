@@ -4,7 +4,7 @@
 #   its BuildKit container is already running).
 # - Builds each service as linux/amd64 via buildx --load so images land in
 #   the local docker daemon (avoids the docker buildx "no export" issue).
-# - Tags built images as :latest for docker-compose.
+# - Tags built images as :latest only (no :amd64 intermediate tags).
 # - Force-recreates containers and verifies health endpoints.
 set -eu
 
@@ -31,10 +31,10 @@ echo "Compose: $($DOCKER_BIN compose version)"
 
 mkdir -p ./postgres-data ./redis-data ./uploads
 
-echo "[1/7] Validate compose"
+echo "[1/6] Validate compose"
 "$DOCKER_BIN" compose config >/dev/null
 
-echo "[2/7] Pick a running linux/amd64 buildx builder"
+echo "[2/6] Pick a running linux/amd64 buildx builder"
 PICKED_BUILDER=""
 # Prefer wsbuilder2 (container driver with BuildKit v0.12.5 already running).
 for cand in wsbuilder2 wsbuilder wsbuilder3 wsbuilder4 default; do
@@ -57,12 +57,12 @@ fi
 echo "  Using builder: $PICKED_BUILDER"
 "$DOCKER_BIN" buildx use "$PICKED_BUILDER"
 
-echo "[3/7] Build images (linux/amd64, no cache, --pull, --load)"
+echo "[3/6] Build images (linux/amd64, no cache, --pull, --load) -> :latest"
 "$DOCKER_BIN" build --no-cache --pull --load --platform=linux/amd64 \
-  -t workshop-checkin-backend:amd64 -f backend/Dockerfile backend
+  -t workshop-checkin-backend:latest -f backend/Dockerfile backend
 
 "$DOCKER_BIN" build --no-cache --pull --load --platform=linux/amd64 \
-  -t workshop-checkin-face-api:amd64 -f face-api/Dockerfile face-api
+  -t workshop-checkin-face-api:latest -f face-api/Dockerfile face-api
 
 WS_HOST="$(printf %s "$APP_URL" | sed -E 's#^https?://##')"
 WS_SCHEME="ws"
@@ -72,21 +72,16 @@ esac
 "$DOCKER_BIN" build --no-cache --pull --load --platform=linux/amd64 \
   --build-arg NEXT_PUBLIC_API_URL="$APP_URL/api" \
   --build-arg NEXT_PUBLIC_WS_URL="${WS_SCHEME}://${WS_HOST}/ws" \
-  -t workshop-checkin-frontend:amd64 -f frontend/Dockerfile frontend
+  -t workshop-checkin-frontend:latest -f frontend/Dockerfile frontend
 
-echo "[4/7] Tag :latest for compose"
-"$DOCKER_BIN" tag workshop-checkin-backend:amd64 workshop-checkin-backend:latest
-"$DOCKER_BIN" tag workshop-checkin-face-api:amd64 workshop-checkin-face-api:latest
-"$DOCKER_BIN" tag workshop-checkin-frontend:amd64 workshop-checkin-frontend:latest
-
-echo "[5/7] Recreate containers"
+echo "[4/6] Recreate containers"
 "$DOCKER_BIN" compose up -d --force-recreate
 
-echo "[6/7] Current status"
+echo "[5/6] Current status"
 sleep 5
 "$DOCKER_BIN" compose ps
 
-echo "[7/7] Health checks"
+echo "[6/6] Health checks"
 sleep 5
 if command -v curl >/dev/null 2>&1; then
   printf "%s\n" "- App: $APP_URL"
