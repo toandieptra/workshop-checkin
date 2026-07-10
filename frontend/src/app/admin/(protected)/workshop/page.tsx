@@ -49,6 +49,7 @@ function formatDate(eventDate?: string | null, eventTime?: string | null): strin
   if (Number.isNaN(d.getTime())) return eventDate;
   const pad = (n: number) => String(n).padStart(2, "0");
   const datePart = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  if (!eventTime) return datePart;
   return `${datePart} ${normalizeTime(eventTime)}`;
 }
 
@@ -391,7 +392,7 @@ export default function AdminWorkshopPage() {
               <thead className="bg-surface-muted text-left text-muted">
                 <tr>
                   <th className="px-3 py-2 font-medium">Tên</th>
-                  <th className="px-3 py-2 font-medium">Ngày</th>
+                  <th className="px-3 py-2 font-medium">Ngày giờ</th>
                   <th className="px-3 py-2 font-medium">Chi nhánh</th>
                   <th className="px-3 py-2 font-medium">Địa điểm</th>
                   <th className="px-3 py-2 font-medium">Trạng thái</th>
