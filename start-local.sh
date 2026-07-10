@@ -95,6 +95,7 @@ start_backend() {
     # LARK_* and other secrets come from .env via load_env().
     POSTGRES_HOST=localhost POSTGRES_PORT=5547 \
     REDIS_HOST=localhost    REDIS_PORT=6387 \
+    UPLOAD_DIR="$ROOT/uploads" \
     nohup ./.venv/bin/python -m uvicorn app.main:app \
       --host 0.0.0.0 --port "$BACKEND_PORT" \
       > "$BACKEND_LOG" 2>&1 &
@@ -115,6 +116,12 @@ start_backend() {
 }
 
 start_frontend() {
+  # Admin authentication is implemented by Next.js API routes, so the
+  # frontend server also needs ADMIN_PASSWORD and ADMIN_SESSION_SECRET at
+  # runtime. This is especially important when running `./start-local.sh
+  # frontend` directly (without starting the backend first).
+  load_env
+
   if [[ ! -d "$ROOT/frontend/.next/standalone" ]]; then
     warn "Frontend standalone build missing. Building..."
     rebuild_frontend
@@ -122,7 +129,10 @@ start_frontend() {
     # Detect if built with the right API URL — rebuild if config changed.
     local current_url
     current_url="$(node -e "console.log(require('$ROOT/frontend/.next/standalone/server.js'.replace(/server.js$/,'required-server-files.json')).config.env.NEXT_PUBLIC_API_URL || '')" 2>/dev/null || echo "")"
-    local want_url="${NEXT_PUBLIC_API_URL:-http://localhost:$BACKEND_PORT/api}"
+    # This script always targets the local backend. Do not reuse a production
+    # NEXT_PUBLIC_API_URL loaded from the root .env, otherwise every local
+    # restart incorrectly decides that the build is stale.
+    local want_url="http://localhost:$BACKEND_PORT/api"
     if [[ "$current_url" != "$want_url" ]]; then
       warn "Frontend built with NEXT_PUBLIC_API_URL=$current_url, want $want_url — rebuilding"
       rebuild_frontend
@@ -135,6 +145,7 @@ start_frontend() {
   (
     cd "$ROOT/frontend/.next/standalone"
     PORT="$FRONTEND_PORT" \
+    ADMIN_COOKIE_SECURE=false \
     nohup node server.js > "$FRONTEND_LOG" 2>&1 &
     echo $! > /tmp/frontend.pid
   )

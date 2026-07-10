@@ -3,11 +3,15 @@ import logging
 
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from .config import settings
 from .db import engine
 from .ws import manager
 from .routers import workshops, guests, checkin, search, import_export, lark_sync, registration_forms
@@ -62,6 +66,10 @@ app.include_router(search.router)
 app.include_router(import_export.router)
 app.include_router(lark_sync.router)
 app.include_router(registration_forms.router)
+
+_upload_dir = Path(settings.UPLOAD_DIR)
+_upload_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_upload_dir)), name="uploads")
 
 
 @app.get("/api/health")

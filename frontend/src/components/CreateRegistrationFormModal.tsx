@@ -11,6 +11,7 @@ interface Workshop {
   id: string;
   name: string;
   slug: string;
+  status?: string;
 }
 
 interface Props {
@@ -33,9 +34,14 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
   useEffect(() => {
     if (!open) return;
     getWorkshops()
-      .then((ws: Workshop[]) => {
-        setWorkshops(ws);
-        if (ws[0]) setSelectedWorkshopIds((prev) => (prev.length ? prev : [ws[0].id]));
+      .then((ws) => {
+        // Ẩn workshop Nháp / Đã hủy khỏi danh sách tạo Form đăng ký
+        const list = (ws || []).filter((w) => {
+          const s = w.status || "draft";
+          return s !== "draft" && s !== "cancelled";
+        });
+        setWorkshops(list);
+        if (list[0]) setSelectedWorkshopIds((prev) => (prev.length ? prev : [list[0].id]));
       })
       .catch(() => setError("Không tải được danh sách workshop"));
   }, [open]);

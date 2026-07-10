@@ -3,11 +3,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { adminLogout } from "@/components/AdminGate";
-import CreateRegistrationFormModal from "@/components/CreateRegistrationFormModal";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 const ITEMS = [
   { href: "/admin", label: "Khách mời" },
+  { href: "/admin/workshop", label: "Workshop" },
   { href: "/admin/forms", label: "Form đăng ký" },
   { href: "/admin/thong-ke", label: "Thống kê" },
 ];
@@ -15,7 +15,6 @@ const ITEMS = [
 export default function AdminNav() {
   const pathname = usePathname();
   const isMobile = useIsMobile();
-  const [formModalOpen, setFormModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Đóng drawer khi đổi route.
@@ -69,11 +68,6 @@ export default function AdminNav() {
               );
             })}
             <button
-              onClick={() => setFormModalOpen(true)}
-              className="ml-2 border border-brand text-brand px-4 py-1.5 rounded-sm text-sm font-medium hover:bg-brand/5 transition">
-              + Tạo Form Đăng Ký
-            </button>
-            <button
               onClick={adminLogout}
               className="ml-1 px-4 py-1.5 rounded-sm text-sm font-medium text-muted hover:text-red-600 transition">
               Đăng xuất
@@ -82,7 +76,7 @@ export default function AdminNav() {
         )}
       </div>
 
-      {/* Mobile drawer — nav dọc, ẩn "Tạo Form Đăng Ký" (tác vụ nặng, để desktop). */}
+      {/* Mobile drawer — nav dọc. */}
       {isMobileReady && menuOpen && (
         <>
           <div
@@ -119,8 +113,6 @@ export default function AdminNav() {
           </nav>
         </>
       )}
-
-      <CreateRegistrationFormModal open={formModalOpen} onClose={() => setFormModalOpen(false)} />
     </header>
   );
 }

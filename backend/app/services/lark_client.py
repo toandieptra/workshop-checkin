@@ -111,6 +111,28 @@ async def create_record(table_id: str, fields: dict) -> str:
         return record_id
 
 
+async def download_bitable_media(
+    file_token: str,
+    table_id: str | None = None,
+    extra: str | None = None,
+) -> tuple[bytes, str | None]:
+    """Tải attachment bitable theo file_token. Trả (bytes, content-type)."""
+    _ensure_config()
+    if not file_token:
+        raise LarkError("Thiếu file_token")
+    url = f"{settings.lark_base_url}/drive/v1/medias/{file_token}/download"
+    params: dict = {}
+    if extra:
+        params["extra"] = extra
+    elif table_id:
+        params["extra"] = json.dumps({"bitablePerm": {"tableId": table_id}}, separators=(",", ":"))
+    async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+        r = await _request_with_retry(client, "GET", url, params=params or None)
+        if r.status_code != 200 or not r.content:
+            raise LarkError(f"Tải media thất bại: status={r.status_code}")
+        return r.content, r.headers.get("content-type")
+
+
 async def _request_with_retry(client: httpx.AsyncClient, method: str, url: str,
                               params: dict | None = None, json_body: dict | None = None,
                               max_retry: int = 2) -> httpx.Response:

@@ -99,6 +99,16 @@ async def _validate_workshop_ids(db: AsyncSession, ids: list[uuid.UUID]) -> list
     missing = [str(i) for i in unique_ids if i not in found]
     if missing:
         raise HTTPException(404, "workshop not found: " + ", ".join(missing))
+    blocked = [
+        f"{w.name} ({w.status or 'draft'})"
+        for w in workshops
+        if (w.status or "draft") in ("draft", "cancelled")
+    ]
+    if blocked:
+        raise HTTPException(
+            400,
+            "Không thể gắn form với workshop Nháp/Đã hủy: " + ", ".join(blocked),
+        )
     return [w for i in unique_ids for w in workshops if w.id == i]
 
 

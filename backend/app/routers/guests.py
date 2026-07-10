@@ -433,10 +433,31 @@ async def uncheckin_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db
 
 @router.get("/public/workshops/by-slug/{slug}")
 async def get_workshop_by_slug(slug: str, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy.orm import selectinload
     from ..schemas import WorkshopOut
     w = (await db.execute(
-        select(Workshop).where(Workshop.slug == slug)
+        select(Workshop)
+        .options(selectinload(Workshop.media))
+        .where(Workshop.slug == slug)
     )).scalar_one_or_none()
     if not w:
         raise HTTPException(404, "Workshop không tồn tại")
-    return WorkshopOut.model_validate(w)
+    # Không load registration_forms (lazy) — public endpoint chỉ cần info cơ bản.
+    return WorkshopOut(
+        id=w.id,
+        name=w.name,
+        slug=w.slug,
+        event_date=w.event_date,
+        event_time=w.event_time,
+        location=w.location,
+        status=w.status or "draft",
+        branch=w.branch,
+        maps_url=w.maps_url,
+        registration_short_url=w.registration_short_url,
+        lark_workshop_name=w.lark_workshop_name,
+        created_at=w.created_at,
+        updated_at=w.updated_at,
+        last_synced_at=w.last_synced_at,
+        media=list(w.media or []),
+        registration_forms=[],
+    )

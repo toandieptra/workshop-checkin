@@ -2,9 +2,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import uuid
-from datetime import datetime, date, timezone
+from datetime import datetime, date, time, timezone, timedelta
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..config import settings
-from ..models import Guest, Workshop, SyncLog
+from ..models import Guest, Workshop, WorkshopMedia, SyncLog
 from ..services import lark_client
 from ..services.lark_client import LarkError
 
@@ -34,7 +36,15 @@ F_CHECKIN = "Check-in"
 # ===== Field names in Lark workshop config table =====
 WF_NAME = "Workshop"
 WF_DATE = "Ngày sự kiện"
+WF_DATE_TEXT = "Ngày"  # text "dd/mm/yyyy hh:mm" — fallback giờ
 WF_LOCATION = "Địa điểm sự kiện"
+WF_BRANCH = "Chi Nhánh"
+WF_MAPS = "Định Vị"
+WF_SHORT_URL = "Short link đăng ký Workshop"
+WF_IMAGES = "Ảnh WS"
+
+# Lark timestamp (ms) lưu theo local VN (UTC+7)
+_VN_TZ = timezone(timedelta(hours=7))
 
 # ===== Sync status constants =====
 SYNC_OK = "synced"
@@ -67,16 +77,175 @@ def _parse_date(raw) -> date | None:
         return None
     if isinstance(raw, (int, float)):
         try:
-            return datetime.fromtimestamp(raw / 1000, tz=timezone.utc).date()
+            return datetime.fromtimestamp(raw / 1000, tz=_VN_TZ).date()
         except (ValueError, OSError):
             return None
     if isinstance(raw, str):
-        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        s = raw.strip()
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%Y %H:%M", "%Y-%m-%d %H:%M:%S"):
             try:
-                return datetime.strptime(raw.strip(), fmt).date()
+                return datetime.strptime(s, fmt).date()
             except ValueError:
                 continue
     return None
+
+
+def _field_text_segments(raw) -> str | None:
+    """Lấy text từ field Lark dạng list[{text,type}] hoặc str."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw.strip() or None
+    if isinstance(raw, list):
+        parts = []
+        for item in raw:
+            if isinstance(item, dict) and item.get("text"):
+                parts.append(str(item["text"]))
+            elif isinstance(item, str):
+                parts.append(item)
+        return " ".join(parts).strip() or None
+    return None
+
+
+def _parse_time(raw, fallback_raw=None) -> time | None:
+    """Parse giờ sự kiện từ timestamp ms (VN) hoặc text 'dd/mm/yyyy hh:mm'."""
+    if isinstance(raw, (int, float)):
+        try:
+            return datetime.fromtimestamp(raw / 1000, tz=_VN_TZ).time().replace(second=0, microsecond=0)
+        except (ValueError, OSError):
+            pass
+    for candidate in (raw, fallback_raw):
+        text = _field_text_segments(candidate)
+        if not text:
+            continue
+        for fmt in ("%d/%m/%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%H:%M"):
+            try:
+                return datetime.strptime(text.strip(), fmt).time().replace(second=0, microsecond=0)
+            except ValueError:
+                continue
+        m = re.search(r"(\d{1,2}):(\d{2})", text)
+        if m:
+            try:
+                return time(int(m.group(1)), int(m.group(2)))
+            except ValueError:
+                pass
+    return None
+
+
+def _parse_link(raw) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw.strip() or None
+    if isinstance(raw, dict):
+        return (raw.get("link") or raw.get("text") or "").strip() or None
+    if isinstance(raw, list) and raw:
+        return _parse_link(raw[0])
+    return None
+
+
+def _parse_attachments(raw) -> list[dict]:
+    """Parse field attachment Lark (Ảnh WS) → list dict file_token/name/type/size/url."""
+    if not raw:
+        return []
+    if isinstance(raw, dict):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        ft = item.get("file_token") or item.get("token")
+        if not ft:
+            continue
+        out.append({
+            "file_token": ft,
+            "name": item.get("name") or f"{ft}.bin",
+            "type": item.get("type") or item.get("mime_type"),
+            "size": item.get("size"),
+            "url": item.get("url"),
+            "extra": None,
+        })
+        # Lấy extra từ query string url/tmp_url nếu có
+        for key in ("url", "tmp_url"):
+            u = item.get(key) or ""
+            if "extra=" in u:
+                try:
+                    from urllib.parse import urlparse, parse_qs
+                    qs = parse_qs(urlparse(u).query)
+                    if qs.get("extra"):
+                        out[-1]["extra"] = qs["extra"][0]
+                        break
+                except Exception:
+                    pass
+    return out
+
+
+async def _sync_workshop_images(db: AsyncSession, workshop: Workshop, fields: dict) -> int:
+    """Tải Ảnh WS từ Lark vào uploads/workshops/{id}/ và tạo WorkshopMedia nếu chưa có.
+    Trả số file mới thêm.
+    """
+    attachments = _parse_attachments(fields.get(WF_IMAGES))
+    if not attachments:
+        return 0
+
+    existing = (await db.execute(
+        select(WorkshopMedia).where(WorkshopMedia.workshop_id == workshop.id)
+    )).scalars().all()
+    existing_tokens = set()
+    for m in existing:
+        # file lưu dạng {file_token}__{name} hoặc chứa token trong url
+        base = os.path.basename((m.file_url or "").split("?")[0])
+        if "__" in base:
+            existing_tokens.add(base.split("__", 1)[0])
+        if m.file_name:
+            existing_tokens.add(m.file_name)
+
+    max_order = max((m.sort_order for m in existing), default=-1)
+    target_dir = Path(settings.UPLOAD_DIR) / "workshops" / str(workshop.id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    table_id = settings.LARK_TABLE_WORKSHOPS
+    added = 0
+
+    for att in attachments:
+        ft = att["file_token"]
+        if ft in existing_tokens:
+            continue
+        # tránh trùng theo prefix file
+        if any(p.name.startswith(ft + "__") for p in target_dir.glob(f"{ft}__*")):
+            continue
+        try:
+            data, content_type = await lark_client.download_bitable_media(
+                ft,
+                table_id=table_id,
+                extra=att.get("extra"),
+            )
+        except Exception as e:
+            logger.warning("download Ảnh WS failed workshop=%s token=%s: %s", workshop.id, ft, e)
+            continue
+        if not data:
+            continue
+        orig = att.get("name") or f"{ft}.jpg"
+        # sanitize
+        safe = re.sub(r"[^\w.\-]+", "_", orig, flags=re.UNICODE)[:120] or "image.jpg"
+        fname = f"{ft}__{safe}"
+        (target_dir / fname).write_bytes(data)
+        max_order += 1
+        mime = att.get("type") or content_type or "image/jpeg"
+        db.add(WorkshopMedia(
+            workshop_id=workshop.id,
+            media_type="banner",
+            file_url=f"/uploads/workshops/{workshop.id}/{fname}",
+            file_name=orig,
+            mime_type=mime,
+            file_size=len(data),
+            sort_order=max_order,
+        ))
+        existing_tokens.add(ft)
+        added += 1
+
+    return added
 
 
 def _parse_lark_datetime_ms(raw) -> datetime | None:
@@ -172,8 +341,13 @@ async def _resolve_workshop(db: AsyncSession, lark_workshop_name: str, target_id
         name=lark_workshop_name,
         slug=slug,
         event_date=_parse_date(meta.get(WF_DATE)) if meta else None,
+        event_time=_parse_time(meta.get(WF_DATE), meta.get(WF_DATE_TEXT)) if meta else None,
         location=lark_client.field_text(meta, WF_LOCATION) if meta else None,
+        branch=lark_client.field_text(meta, WF_BRANCH) if meta else None,
+        maps_url=_parse_link(meta.get(WF_MAPS)) if meta else None,
+        registration_short_url=lark_client.field_text(meta, WF_SHORT_URL) if meta else None,
         lark_workshop_name=lark_workshop_name,
+        status="published",
     )
     db.add(w)
     await db.flush()
@@ -184,7 +358,7 @@ async def _sync_workshops_from_lark(db: AsyncSession) -> dict:
     """Đồng bộ danh sách workshop từ Lark config table xuống DB local.
 
     - Tạo mới nếu chưa có (theo lark_workshop_name).
-    - Cập nhật name/event_date/location nếu đã có và khác.
+    - Cập nhật name/event_date/event_time/location/branch/maps/short_url nếu đã có và khác.
     - Fail + báo lỗi nếu slug bị trùng với workshop khác (không tự thêm hậu tố).
     """
     if not settings.LARK_TABLE_WORKSHOPS:
@@ -205,12 +379,17 @@ async def _sync_workshops_from_lark(db: AsyncSession) -> dict:
         parsed.append((name, f))
 
     created = updated = errors = 0
+    media_added = 0
     error_details: list[str] = []
     out: list[dict] = []
 
     for name, f in parsed:
         event_date = _parse_date(f.get(WF_DATE))
+        event_time = _parse_time(f.get(WF_DATE), f.get(WF_DATE_TEXT))
         location = lark_client.field_text(f, WF_LOCATION)
+        branch = lark_client.field_text(f, WF_BRANCH)
+        maps_url = _parse_link(f.get(WF_MAPS))
+        short_url = lark_client.field_text(f, WF_SHORT_URL)
 
         existing = (await db.execute(
             select(Workshop).where(Workshop.lark_workshop_name == name)
@@ -231,13 +410,19 @@ async def _sync_workshops_from_lark(db: AsyncSession) -> dict:
                     name=name,
                     slug=slug,
                     event_date=event_date,
+                    event_time=event_time,
                     location=location,
+                    branch=branch,
+                    maps_url=maps_url,
+                    registration_short_url=short_url,
                     lark_workshop_name=name,
+                    status="published",
                     last_synced_at=now,
                 )
                 db.add(w)
                 created += 1
                 is_new = True
+                changed = True
             else:
                 changed = False
                 if existing.name != name:
@@ -246,8 +431,20 @@ async def _sync_workshops_from_lark(db: AsyncSession) -> dict:
                 if existing.event_date != event_date:
                     existing.event_date = event_date
                     changed = True
+                if existing.event_time != event_time:
+                    existing.event_time = event_time
+                    changed = True
                 if (existing.location or None) != (location or None):
                     existing.location = location
+                    changed = True
+                if (existing.branch or None) != (branch or None):
+                    existing.branch = branch
+                    changed = True
+                if (existing.maps_url or None) != (maps_url or None):
+                    existing.maps_url = maps_url
+                    changed = True
+                if (existing.registration_short_url or None) != (short_url or None):
+                    existing.registration_short_url = short_url
                     changed = True
                 existing.last_synced_at = now
                 if changed:
@@ -255,12 +452,19 @@ async def _sync_workshops_from_lark(db: AsyncSession) -> dict:
                 is_new = False
                 w = existing
             await db.flush()
+            imgs = await _sync_workshop_images(db, w, f)
+            media_added += imgs
+            if imgs and not is_new and not changed:
+                updated += 1
             out.append({
                 "lark_workshop_name": name,
                 "event_date": event_date.isoformat() if event_date else None,
+                "event_time": event_time.strftime("%H:%M") if event_time else None,
                 "location": location,
+                "branch": branch,
                 "workshop_id": str(w.id),
                 "is_new": is_new,
+                "media_added": imgs,
             })
         except LarkError as e:
             errors += 1
@@ -275,6 +479,7 @@ async def _sync_workshops_from_lark(db: AsyncSession) -> dict:
         "total": len(parsed),
         "created": created,
         "updated": updated,
+        "media_added": media_added,
         "errors": errors,
         "error_details": error_details,
         "workshops": out,
@@ -486,10 +691,13 @@ async def list_lark_workshops():
         if not name or name in seen:
             continue
         seen.add(name)
+        et = _parse_time(f.get(WF_DATE), f.get(WF_DATE_TEXT))
         out.append({
             "lark_workshop_name": name,
             "event_date": _parse_date(f.get(WF_DATE)).isoformat() if _parse_date(f.get(WF_DATE)) else None,
+            "event_time": et.strftime("%H:%M") if et else None,
             "location": lark_client.field_text(f, WF_LOCATION),
+            "branch": lark_client.field_text(f, WF_BRANCH),
         })
     return out
 

@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "/uploads"
     MAX_UPLOAD_FILE_BYTES: int = 10 * 1024 * 1024
 
+    # Danh sách chi nhánh cố định (phân tách bằng dấu phẩy) — lấy từ Larkbase.
+    WORKSHOP_BRANCHES: str = "Hà Nội,Sài Gòn"
+
     PUBLIC_BASE_URL: str | None = None
 
     # ===== Lark Base sync =====

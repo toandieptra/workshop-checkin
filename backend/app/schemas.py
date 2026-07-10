@@ -1,16 +1,64 @@
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, time
 from pydantic import BaseModel, ConfigDict
 
 
 # ===== Workshop =====
 
+WORKSHOP_STATUSES = ("draft", "published", "completed", "cancelled")
+WORKSHOP_MEDIA_TYPES = ("banner", "invitation", "document")
+
+
+class WorkshopMediaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    workshop_id: uuid.UUID
+    media_type: str
+    file_url: str
+    file_name: str | None = None
+    mime_type: str | None = None
+    file_size: int | None = None
+    sort_order: int = 0
+    created_at: datetime
+
+
+class WorkshopLinkedFormOut(BaseModel):
+    id: uuid.UUID
+    token: str
+    greeting: str | None = None
+    is_active: bool
+    submission_count: int = 0
+    created_at: datetime
+
+
 class WorkshopCreate(BaseModel):
     name: str
     slug: str
     event_date: date | None = None
+    event_time: time | None = None
     location: str | None = None
+    status: str = "draft"
+    branch: str | None = None
+    maps_url: str | None = None
+    registration_short_url: str | None = None
     lark_workshop_name: str | None = None
+
+
+class WorkshopUpdate(BaseModel):
+    name: str | None = None
+    slug: str | None = None
+    event_date: date | None = None
+    event_time: time | None = None
+    location: str | None = None
+    status: str | None = None
+    branch: str | None = None
+    maps_url: str | None = None
+    registration_short_url: str | None = None
+    lark_workshop_name: str | None = None
+
+
+class WorkshopStatusUpdate(BaseModel):
+    status: str
 
 
 class WorkshopOut(BaseModel):
@@ -19,10 +67,18 @@ class WorkshopOut(BaseModel):
     name: str
     slug: str
     event_date: date | None
+    event_time: time | None = None
     location: str | None
+    status: str = "draft"
+    branch: str | None = None
+    maps_url: str | None = None
+    registration_short_url: str | None = None
     lark_workshop_name: str | None = None
     created_at: datetime
+    updated_at: datetime | None = None
     last_synced_at: datetime | None = None
+    media: list[WorkshopMediaOut] = []
+    registration_forms: list[WorkshopLinkedFormOut] = []
 
 
 # ===== Guest =====

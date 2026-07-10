@@ -76,6 +76,7 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
 async def export_guests(
     db: AsyncSession = Depends(get_db),
     workshop_id: str | None = Query(default=None, description="uuid hoặc 'all'"),
+    workshop_ids: str | None = Query(default=None, description="Danh sách UUID workshop, cách nhau bằng dấu phẩy"),
     status: str = Query(default="all", pattern="^(all|checked_in|not_checked_in)$"),
 ):
     """Xuất khách ra file .xlsx.
@@ -89,7 +90,15 @@ async def export_guests(
         .join(Workshop, Guest.workshop_id == Workshop.id)
         .where(Guest.deleted_at.is_(None))
     )
-    if workshop_id and workshop_id != "all":
+    if workshop_ids:
+        try:
+            workshop_uuid_list = [uuid.UUID(value.strip()) for value in workshop_ids.split(",") if value.strip()]
+        except ValueError:
+            raise HTTPException(400, "workshop_ids không hợp lệ")
+        if not workshop_uuid_list:
+            raise HTTPException(400, "workshop_ids không hợp lệ")
+        stmt = stmt.where(Guest.workshop_id.in_(workshop_uuid_list))
+    elif workshop_id and workshop_id != "all":
         try:
             wid_uuid = uuid.UUID(workshop_id)
         except ValueError:

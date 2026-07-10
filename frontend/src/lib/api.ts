@@ -95,8 +95,119 @@ export async function getWorkshopBySlug(slug: string): Promise<any> {
   return await api("/public/workshops/by-slug/" + encodeURIComponent(slug));
 }
 
-export async function getWorkshops(): Promise<any[]> {
-  return await api("/workshops");
+export type WorkshopStatus = "draft" | "published" | "completed" | "cancelled";
+export type WorkshopMediaType = "banner" | "invitation" | "document";
+
+export interface WorkshopMedia {
+  id: string;
+  workshop_id: string;
+  media_type: WorkshopMediaType | string;
+  file_url: string;
+  file_name?: string | null;
+  mime_type?: string | null;
+  file_size?: number | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface WorkshopLinkedForm {
+  id: string;
+  token: string;
+  greeting?: string | null;
+  is_active: boolean;
+  submission_count: number;
+  created_at: string;
+}
+
+export interface WorkshopAdmin {
+  id: string;
+  name: string;
+  slug: string;
+  event_date?: string | null;
+  event_time?: string | null;
+  location?: string | null;
+  status: WorkshopStatus | string;
+  branch?: string | null;
+  maps_url?: string | null;
+  registration_short_url?: string | null;
+  lark_workshop_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  last_synced_at?: string | null;
+  media: WorkshopMedia[];
+  registration_forms: WorkshopLinkedForm[];
+}
+
+export interface WorkshopWriteBody {
+  name: string;
+  slug: string;
+  event_date?: string | null;
+  event_time?: string | null;
+  location?: string | null;
+  status?: WorkshopStatus | string;
+  branch?: string | null;
+  maps_url?: string | null;
+  registration_short_url?: string | null;
+  lark_workshop_name?: string | null;
+}
+
+export async function getWorkshops(status?: string): Promise<WorkshopAdmin[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return await api("/workshops" + q);
+}
+
+export async function getWorkshop(id: string): Promise<WorkshopAdmin> {
+  return await api("/workshops/" + id);
+}
+
+export async function createWorkshop(body: WorkshopWriteBody): Promise<WorkshopAdmin> {
+  return await api("/workshops", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function updateWorkshop(
+  id: string,
+  body: Partial<WorkshopWriteBody>,
+): Promise<WorkshopAdmin> {
+  return await api("/workshops/" + id, { method: "PATCH", body: JSON.stringify(body) });
+}
+
+export async function updateWorkshopStatus(
+  id: string,
+  status: WorkshopStatus | string,
+): Promise<WorkshopAdmin> {
+  return await api("/workshops/" + id + "/status", {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function deleteWorkshop(id: string): Promise<WorkshopAdmin> {
+  return await api("/workshops/" + id, { method: "DELETE" });
+}
+
+/** Xóa hẳn workshop (hard delete). */
+export async function hardDeleteWorkshop(id: string): Promise<void> {
+  await api("/workshops/" + id + "?hard=true", { method: "DELETE" });
+}
+
+export async function getWorkshopBranches(): Promise<string[]> {
+  const res = await api<{ branches: string[] }>("/workshops/meta/branches");
+  return res.branches || [];
+}
+
+export async function uploadWorkshopMedia(
+  workshopId: string,
+  files: File[],
+  mediaType: WorkshopMediaType | string = "banner",
+): Promise<WorkshopMedia[]> {
+  const form = new FormData();
+  form.append("media_type", mediaType);
+  for (const f of files) form.append("files", f);
+  return await apiForm("/workshops/" + workshopId + "/media", form);
+}
+
+export async function deleteWorkshopMedia(workshopId: string, mediaId: string): Promise<void> {
+  await api("/workshops/" + workshopId + "/media/" + mediaId, { method: "DELETE" });
 }
 
 // -----------------------------------------------------------------

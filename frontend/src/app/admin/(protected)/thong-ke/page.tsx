@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, API_URL } from "@/lib/api";
 
 interface Workshop { id: string; name: string; slug: string; }
@@ -16,11 +16,16 @@ const WS_NAME: Record<string, string> = {};
 
 export default function ThongKePage() {
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
-  const [wid, setWid] = useState<string>("all");
+  const [selectedWorkshopIds, setSelectedWorkshopIds] = useState<string[]>([]);
+  const [workshopMenuOpen, setWorkshopMenuOpen] = useState(false);
+  const workshopMenuRef = useRef<HTMLDivElement>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkin, setCheckin] = useState<CheckinFilter>("all");
   const [exporting, setExporting] = useState(false);
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [gotoPage, setGotoPage] = useState("1");
 
   useEffect(() => {
     api("/workshops").then((ws: Workshop[]) => {
@@ -30,16 +35,25 @@ export default function ThongKePage() {
   }, []);
 
   useEffect(() => {
+    if (!workshopMenuOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!workshopMenuRef.current?.contains(e.target as Node)) setWorkshopMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [workshopMenuOpen]);
+
+  useEffect(() => {
     let alive = true;
     setLoading(true);
     const run = async () => {
       try {
         let list: Workshop[] = [];
-        if (wid === "all") {
+        if (selectedWorkshopIds.length === 0) {
           list = await api<Workshop[]>("/workshops");
           list.forEach((w) => (WS_NAME[w.id] = w.name));
         } else {
-          list = [{ id: wid } as Workshop];
+          list = selectedWorkshopIds.map((id) => ({ id } as Workshop));
         }
         const batches = await Promise.all(
           list.map((w) => api<Guest[]>("/workshops/" + w.id + "/guests").catch(() => []))
@@ -51,7 +65,7 @@ export default function ThongKePage() {
     };
     run();
     return () => { alive = false; };
-  }, [wid]);
+  }, [selectedWorkshopIds]);
 
   const filtered = useMemo(() => {
     return guests.filter((g) => {
@@ -77,10 +91,42 @@ export default function ThongKePage() {
     };
   }, [filtered]);
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const page = Math.min(currentPage, pageCount);
+  const pagedGuests = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize],
+  );
+  const firstRow = filtered.length ? (page - 1) * pageSize + 1 : 0;
+  const lastRow = Math.min(page * pageSize, filtered.length);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setGotoPage("1");
+  }, [selectedWorkshopIds, checkin, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > pageCount) setCurrentPage(pageCount);
+  }, [currentPage, pageCount]);
+
+  const workshopLabel = useMemo(() => {
+    if (selectedWorkshopIds.length === 0) return "Tất cả workshop";
+    if (selectedWorkshopIds.length === 1) return WS_NAME[selectedWorkshopIds[0]] || "1 workshop";
+    if (selectedWorkshopIds.length === workshops.length && workshops.length > 0) return "Tất cả workshop";
+    return `${selectedWorkshopIds.length} workshop`;
+  }, [selectedWorkshopIds, workshops]);
+
+  const toggleWorkshop = (id: string) => {
+    setSelectedWorkshopIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
   const exportXlsx = async () => {
     setExporting(true);
     try {
-      const params = new URLSearchParams({ workshop_id: wid, status: checkin });
+      const params = new URLSearchParams({ status: checkin });
+      if (selectedWorkshopIds.length) params.set("workshop_ids", selectedWorkshopIds.join(","));
       const res = await fetch(API_URL + "/export/guests?" + params.toString());
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
@@ -109,13 +155,57 @@ export default function ThongKePage() {
         <div className="space-y-4">
           {/* Filter bar */}
           <div className="bg-surface rounded-md border border-line p-4 flex flex-wrap items-center gap-x-6 gap-y-3">
-            <div className="flex items-center gap-2 min-w-[260px]">
+            <div className="flex items-center gap-2 min-w-[320px] max-w-full">
               <label className="text-xs font-semibold text-muted whitespace-nowrap">Workshop</label>
-              <select className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface min-w-0"
-                value={wid} onChange={(e) => setWid(e.target.value)}>
-                <option value="all">Tất cả workshop</option>
-                {workshops.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
+              <div className="relative flex-1 min-w-[280px]" ref={workshopMenuRef}>
+                <button
+                  type="button"
+                  aria-label="Chọn workshop"
+                  aria-expanded={workshopMenuOpen}
+                  aria-haspopup="listbox"
+                  onClick={() => setWorkshopMenuOpen((o) => !o)}
+                  className="w-full min-w-[320px] border border-line rounded-sm px-2 py-1.5 text-sm bg-surface text-left flex items-center justify-between gap-2"
+                >
+                  <span className="truncate">{workshopLabel}</span>
+                  <span className="text-muted text-xs shrink-0">{workshopMenuOpen ? "▲" : "▼"}</span>
+                </button>
+                {workshopMenuOpen && (
+                  <div
+                    role="listbox"
+                    aria-multiselectable="true"
+                    className="absolute z-20 mt-1 left-0 w-max min-w-full max-w-[min(560px,90vw)] max-h-72 overflow-auto rounded-sm border border-line bg-surface shadow-md"
+                  >
+                    <label className="flex items-start gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-surface-muted border-b border-line">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 shrink-0"
+                        checked={selectedWorkshopIds.length === 0}
+                        onChange={() => setSelectedWorkshopIds([])}
+                      />
+                      <span>Tất cả workshop</span>
+                    </label>
+                    {workshops.map((w) => {
+                      const checked = selectedWorkshopIds.includes(w.id);
+                      return (
+                        <label
+                          key={w.id}
+                          role="option"
+                          aria-selected={checked}
+                          className="flex items-start gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-surface-muted"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 shrink-0"
+                            checked={checked}
+                            onChange={() => toggleWorkshop(w.id)}
+                          />
+                          <span className="whitespace-normal break-words leading-snug">{w.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-4 flex-wrap">
               <span className="text-xs font-semibold text-muted whitespace-nowrap">Trạng thái check-in</span>
@@ -155,11 +245,11 @@ export default function ThongKePage() {
                       <th className="text-center px-3 py-2">Trạng thái</th>
                       <th className="text-center px-3 py-2">Đồng bộ Lark</th>
                       <th className="text-left px-3 py-2">Check-in lúc</th>
-                      {wid === "all" && <th className="text-left px-3 py-2">Workshop</th>}
+                        {selectedWorkshopIds.length !== 1 && <th className="text-left px-3 py-2">Workshop</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
-                    {filtered.map((g) => (
+                    {pagedGuests.map((g) => (
                       <tr key={g.id}>
                         <td className="px-3 py-2 font-medium text-ink">{g.full_name}</td>
                         <td className="px-3 py-2 text-muted">{g.business_model || "—"}</td>
@@ -196,11 +286,68 @@ export default function ThongKePage() {
                         <td className="px-3 py-2 text-muted text-xs">
                           {g.checked_in_at ? new Date(g.checked_in_at).toLocaleString("vi-VN") : "—"}
                         </td>
-                        {wid === "all" && <td className="px-3 py-2 text-muted text-xs">{WS_NAME[g.workshop_id] || "—"}</td>}
+                        {selectedWorkshopIds.length !== 1 && <td className="px-3 py-2 text-muted text-xs">{WS_NAME[g.workshop_id] || "—"}</td>}
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+            {!loading && filtered.length > 0 && (
+              <div className="border-t border-line px-3 py-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+                <div className="text-muted">Hiển thị {firstRow}–{lastRow} trong tổng số {filtered.length} khách</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-muted">
+                    Dòng/trang
+                    <select
+                      aria-label="Số dòng hiển thị mỗi trang"
+                      className="border border-line rounded-sm bg-surface px-2 py-1 text-ink"
+                      value={pageSize}
+                      onChange={(e) => setPageSize(Number(e.target.value))}
+                    >
+                      {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="border border-line rounded-sm px-2 py-1 disabled:opacity-40"
+                    disabled={page <= 1}
+                    onClick={() => setCurrentPage(page - 1)}
+                  >Trước</button>
+                  <span>Trang {page}/{pageCount}</span>
+                  <button
+                    type="button"
+                    className="border border-line rounded-sm px-2 py-1 disabled:opacity-40"
+                    disabled={page >= pageCount}
+                    onClick={() => setCurrentPage(page + 1)}
+                  >Sau</button>
+                  <label className="flex items-center gap-1.5 text-muted">
+                    Đến trang
+                    <input
+                      aria-label="Nhảy tới trang"
+                      type="number"
+                      min={1}
+                      max={pageCount}
+                      className="w-16 border border-line rounded-sm bg-surface px-2 py-1 text-ink"
+                      value={gotoPage}
+                      onChange={(e) => setGotoPage(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const nextPage = Number(gotoPage);
+                          if (Number.isInteger(nextPage)) setCurrentPage(Math.min(Math.max(nextPage, 1), pageCount));
+                        }
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="border border-line rounded-sm px-2 py-1"
+                    onClick={() => {
+                      const nextPage = Number(gotoPage);
+                      if (Number.isInteger(nextPage)) setCurrentPage(Math.min(Math.max(nextPage, 1), pageCount));
+                    }}
+                  >Đi tới</button>
+                </div>
               </div>
             )}
           </div>

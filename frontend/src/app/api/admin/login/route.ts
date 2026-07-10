@@ -101,7 +101,12 @@ export async function POST(req: NextRequest) {
     name: SESSION_COOKIE,
     value: cookie,
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // Standalone local builds run with NODE_ENV=production even though they
+    // are served over plain HTTP. Allow the local launcher to disable Secure;
+    // deployed environments remain secure by default.
+    secure:
+      process.env.NODE_ENV === "production" &&
+      process.env.ADMIN_COOKIE_SECURE !== "false",
     sameSite: "strict",
     path: "/",
     maxAge: Math.floor(SESSION_TTL_MS / 1000),

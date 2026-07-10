@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, time
 
-from sqlalchemy import String, Text, Boolean, ForeignKey, Date, DateTime, Float, Integer, func
+from sqlalchemy import String, Text, Boolean, ForeignKey, Date, DateTime, Time, Float, Integer, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,11 +14,36 @@ class Workshop(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     event_date: Mapped[date | None] = mapped_column(Date)
+    event_time: Mapped[time | None] = mapped_column(Time)
     location: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="draft", nullable=False)
+    branch: Mapped[str | None] = mapped_column(Text)
+    maps_url: Mapped[str | None] = mapped_column(Text)
+    registration_short_url: Mapped[str | None] = mapped_column(Text)
     lark_workshop_name: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    media: Mapped[list["WorkshopMedia"]] = relationship(
+        "WorkshopMedia",
+        back_populates="workshop",
+        cascade="all, delete-orphan",
+        order_by="WorkshopMedia.sort_order",
+    )
+
+
+class WorkshopMedia(Base):
+    __tablename__ = "workshop_media"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    workshop_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"), nullable=False)
+    media_type: Mapped[str] = mapped_column(Text, default="banner", nullable=False)
+    file_url: Mapped[str] = mapped_column(Text, nullable=False)
+    file_name: Mapped[str | None] = mapped_column(Text)
+    mime_type: Mapped[str | None] = mapped_column(Text)
+    file_size: Mapped[int | None] = mapped_column(Integer)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    workshop: Mapped["Workshop"] = relationship("Workshop", back_populates="media")
 
 
 class Guest(Base):
