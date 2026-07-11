@@ -12,7 +12,32 @@ interface Guest {
 }
 type CheckinFilter = "all" | "checked_in" | "not_checked_in";
 
+/** 5 giá trị chuẩn; mọi business_model khác (kể cả rỗng) thuộc nhóm "Khác". */
+const BUSINESS_MODEL_KNOWN = [
+  "Đang kinh doanh cà phê / trà sữa",
+  "Cung cấp dịch vụ đào tạo, setup quán",
+  "Công ty / Hộ kinh doanh cung cấp nguyên liệu",
+  "Đang chuẩn bị mở quán",
+  "Đối tác hợp tác thương hiệu",
+] as const;
+
+const BUSINESS_MODEL_FILTER_OPTIONS = [
+  ...BUSINESS_MODEL_KNOWN,
+  "Khác",
+] as const;
+
+type BusinessModelFilter = "" | (typeof BUSINESS_MODEL_FILTER_OPTIONS)[number];
+
 const WS_NAME: Record<string, string> = {};
+
+function matchesBusinessModelFilter(value: string | undefined | null, filter: BusinessModelFilter): boolean {
+  if (!filter) return true;
+  const v = (value || "").trim();
+  if (filter === "Khác") {
+    return !BUSINESS_MODEL_KNOWN.includes(v as (typeof BUSINESS_MODEL_KNOWN)[number]);
+  }
+  return v === filter;
+}
 
 export default function ThongKePage() {
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
@@ -22,6 +47,7 @@ export default function ThongKePage() {
   const [guests, setGuests] = useState<Guest[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkin, setCheckin] = useState<CheckinFilter>("all");
+  const [businessModel, setBusinessModel] = useState<BusinessModelFilter>("");
   const [exporting, setExporting] = useState(false);
   const [pageSize, setPageSize] = useState(25);
   const [currentPage, setCurrentPage] = useState(1);
@@ -69,11 +95,12 @@ export default function ThongKePage() {
 
   const filtered = useMemo(() => {
     return guests.filter((g) => {
-      if (checkin === "checked_in") return g.checkin_status === "checked_in";
-      if (checkin === "not_checked_in") return g.checkin_status !== "checked_in";
+      if (checkin === "checked_in" && g.checkin_status !== "checked_in") return false;
+      if (checkin === "not_checked_in" && g.checkin_status === "checked_in") return false;
+      if (!matchesBusinessModelFilter(g.business_model, businessModel)) return false;
       return true;
     });
-  }, [guests, checkin]);
+  }, [guests, checkin, businessModel]);
 
   const kpi = useMemo(() => {
     const registeredGuests = filtered.reduce((s, g) => s + (g.party_size || 1), 0);
@@ -103,7 +130,7 @@ export default function ThongKePage() {
   useEffect(() => {
     setCurrentPage(1);
     setGotoPage("1");
-  }, [selectedWorkshopIds, checkin, pageSize]);
+  }, [selectedWorkshopIds, checkin, businessModel, pageSize]);
 
   useEffect(() => {
     if (currentPage > pageCount) setCurrentPage(pageCount);
@@ -207,14 +234,38 @@ export default function ThongKePage() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              <span className="text-xs font-semibold text-muted whitespace-nowrap">Trạng thái check-in</span>
-              {([["all", "Tất cả"], ["checked_in", "Đã check-in"], ["not_checked_in", "Chưa check-in"]] as [string, string][]).map(([val, lbl]) => (
-                <label key={val} className="flex items-center gap-1.5 text-sm cursor-pointer whitespace-nowrap">
-                  <input type="radio" name="checkin" checked={checkin === val} onChange={() => setCheckin(val as CheckinFilter)} />
-                  {lbl}
-                </label>
-              ))}
+            <div className="flex items-center gap-2 min-w-[200px]">
+              <label className="text-xs font-semibold text-muted whitespace-nowrap" htmlFor="filter-checkin">
+                Trạng thái check-in
+              </label>
+              <select
+                id="filter-checkin"
+                aria-label="Trạng thái check-in"
+                className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface min-w-[160px]"
+                value={checkin}
+                onChange={(e) => setCheckin(e.target.value as CheckinFilter)}
+              >
+                <option value="all">Tất cả</option>
+                <option value="checked_in">Đã check-in</option>
+                <option value="not_checked_in">Chưa check-in</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 min-w-[260px] max-w-full">
+              <label className="text-xs font-semibold text-muted whitespace-nowrap" htmlFor="filter-business-model">
+                Mô hình kinh doanh
+              </label>
+              <select
+                id="filter-business-model"
+                aria-label="Mô hình kinh doanh"
+                className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface min-w-[220px] max-w-[min(420px,90vw)]"
+                value={businessModel}
+                onChange={(e) => setBusinessModel(e.target.value as BusinessModelFilter)}
+              >
+                <option value="">Tất cả</option>
+                {BUSINESS_MODEL_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
             </div>
           </div>
 

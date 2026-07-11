@@ -2,6 +2,7 @@
 import { useState } from "react";
 import QrDisplay from "@/components/QrDisplay";
 import { api, API_URL } from "@/lib/api";
+import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
 import { useAdminGuests, type Guest, type LarkWorkshop } from "@/hooks/useAdminGuests";
 
 function formatDateTime(v?: string | null): string {
@@ -9,6 +10,19 @@ function formatDateTime(v?: string | null): string {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("vi-VN");
+}
+
+/** dd/mm/yyyy hh:mm — cùng logic cột "Ngày giờ" trang /admin/workshop */
+function formatEventDateTime(eventDate?: string | null, eventTime?: string | null): string {
+  if (!eventDate) return "—";
+  const d = new Date(eventDate.length === 10 ? eventDate + "T00:00:00" : eventDate);
+  if (Number.isNaN(d.getTime())) return eventDate;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const datePart = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  if (!eventTime) return datePart;
+  const m = String(eventTime).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return datePart;
+  return `${datePart} ${m[1].padStart(2, "0")}:${m[2]}`;
 }
 
 function truncate(s: string | null | undefined, n = 40): string {
@@ -239,20 +253,32 @@ export default function DesktopAdmin() {
       full_name: g.full_name || "",
       phone: g.phone || "",
       business_model: g.business_model || "",
-      role_title: g.role_title || "",
-      guest_type: g.guest_type || "",
       party_size: g.party_size || 1,
-      note: g.note || "",
+      is_vip: isVip(g),
     });
   };
 
   const saveEdit = async () => {
-    if (!editId || !ef.full_name || editBusy) return;
+    if (!editId || editBusy) return;
+    const full_name = (ef.full_name || "").trim();
+    const phone = (ef.phone || "").trim();
+    const business_model = (ef.business_model || "").trim();
+    const party_size = Math.max(1, parseInt(String(ef.party_size), 10) || 1);
+    if (!full_name || !phone || !business_model) {
+      setMsg("Vui lòng nhập Họ tên, SĐT, Số khách và chọn Mô hình kinh doanh.");
+      return;
+    }
     setEditBusy(true);
     try {
       const res = await api<any>("/guests/" + editId + "?sync_lark=true", {
         method: "PATCH",
-        body: JSON.stringify({ ...ef, party_size: Math.max(1, parseInt(ef.party_size) || 1) }),
+        body: JSON.stringify({
+          full_name,
+          phone,
+          business_model,
+          party_size,
+          guest_type: ef.is_vip ? "vip" : null,
+        }),
       });
       const errStr = res.lark_error ? " (Lỗi Lark: " + res.lark_error + ")" : "";
       setMsg("Đã lưu & đồng bộ Lark" + errStr);
@@ -367,7 +393,9 @@ export default function DesktopAdmin() {
                     <div className="text-xs text-muted flex items-center gap-1.5 mb-1">
                       <span aria-hidden>📅</span> Thời gian
                     </div>
-                    <div className="font-semibold text-ink">{currentWorkshop.event_date || "—"}</div>
+                    <div className="font-semibold text-ink">
+                      {formatEventDateTime(currentWorkshop.event_date, currentWorkshop.event_time)}
+                    </div>
                   </div>
                 </div>
 
@@ -419,54 +447,76 @@ export default function DesktopAdmin() {
           )}
         </section>
 
-        {/* Add guest */}
+        {/* Add guest — cùng field với form đăng ký + VIP */}
         <section className="bg-surface rounded-md border border-line p-4 mb-4">
           <h2 className="font-semibold text-brand-teal mb-2">Thêm khách</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-            <input
-              placeholder="Họ và tên *"
-              className="border border-line rounded-sm px-2 py-1"
-              value={newGuest.full_name}
-              onChange={(e) => setNewGuest({ ...newGuest, full_name: e.target.value })}
-            />
-            <input
-              placeholder="Số điện thoại"
-              className="border border-line rounded-sm px-2 py-1"
-              value={newGuest.phone}
-              onChange={(e) => setNewGuest({ ...newGuest, phone: e.target.value })}
-            />
-            <input
-              placeholder="Mô hình kinh doanh"
-              className="border border-line rounded-sm px-2 py-1"
-              value={newGuest.business_model}
-              onChange={(e) => setNewGuest({ ...newGuest, business_model: e.target.value })}
-            />
-            <input
-              placeholder="Chức vụ"
-              className="border border-line rounded-sm px-2 py-1"
-              value={newGuest.role_title}
-              onChange={(e) => setNewGuest({ ...newGuest, role_title: e.target.value })}
-            />
-            <input
-              placeholder="Loại khách (VIP/Speaker/Press)"
-              className="border border-line rounded-sm px-2 py-1"
-              value={newGuest.guest_type}
-              onChange={(e) => setNewGuest({ ...newGuest, guest_type: e.target.value })}
-            />
-            <input
-              type="number"
-              min={1}
-              placeholder="Số khách"
-              className="border border-line rounded-sm px-2 py-1"
-              value={newGuest.party_size}
-              onChange={(e) =>
-                setNewGuest({ ...newGuest, party_size: Math.max(1, parseInt(e.target.value) || 1) })
-              }
-            />
+          <div className="flex flex-wrap items-end gap-3 text-sm">
+            <label className="block min-w-[160px] flex-1">
+              <span className="block text-muted text-xs mb-1">Họ và tên *</span>
+              <input
+                className="border border-line rounded-sm px-2 py-1.5 w-full"
+                value={newGuest.full_name}
+                onChange={(e) => setNewGuest({ ...newGuest, full_name: e.target.value })}
+                placeholder="Nguyễn Văn A"
+              />
+            </label>
+            <label className="block w-[140px] shrink-0">
+              <span className="block text-muted text-xs mb-1">Số điện thoại *</span>
+              <input
+                inputMode="tel"
+                className="border border-line rounded-sm px-2 py-1.5 w-full"
+                value={newGuest.phone}
+                onChange={(e) => setNewGuest({ ...newGuest, phone: e.target.value })}
+                placeholder="0909 123 456"
+              />
+            </label>
+            <label className="block w-[88px] shrink-0">
+              <span className="block text-muted text-xs mb-1">Số khách *</span>
+              <input
+                type="number"
+                min={1}
+                className="border border-line rounded-sm px-2 py-1.5 w-full"
+                value={newGuest.party_size}
+                onChange={(e) =>
+                  setNewGuest({ ...newGuest, party_size: Math.max(1, parseInt(e.target.value) || 1) })
+                }
+              />
+            </label>
+            <label className="block min-w-[200px] flex-[1.2]">
+              <span className="block text-muted text-xs mb-1">Mô hình kinh doanh *</span>
+              <select
+                className="border border-line rounded-sm px-2 py-1.5 w-full bg-surface"
+                value={newGuest.business_model}
+                onChange={(e) => setNewGuest({ ...newGuest, business_model: e.target.value })}
+              >
+                <option value="" disabled>
+                  — Chọn mô hình phù hợp —
+                </option>
+                {BUSINESS_MODEL_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer shrink-0 pb-2">
+              <input
+                type="checkbox"
+                checked={newGuest.is_vip}
+                onChange={(e) => setNewGuest({ ...newGuest, is_vip: e.target.checked })}
+              />
+              <span>Khách VIP</span>
+            </label>
           </div>
           <button
             onClick={createGuest}
-            className="mt-2 bg-brand text-white px-3 py-1.5 rounded-sm text-sm"
+            disabled={
+              !newGuest.full_name.trim() ||
+              !newGuest.phone.trim() ||
+              !newGuest.business_model ||
+              !wid
+            }
+            className="mt-3 bg-brand text-white px-3 py-1.5 rounded-sm text-sm disabled:opacity-40"
           >
             Thêm
           </button>
@@ -633,7 +683,7 @@ export default function DesktopAdmin() {
         </section>
       </div>
 
-      {/* Edit modal */}
+      {/* Edit modal — cùng field với form đăng ký + VIP */}
       {editId && (
         <div
           className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
@@ -641,65 +691,63 @@ export default function DesktopAdmin() {
         >
           <div className="bg-surface rounded-md border border-line p-5 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-semibold text-brand-teal mb-3">Chỉnh sửa khách</h3>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <label className="col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <label className="sm:col-span-2">
                 <span className="block text-muted text-xs mb-1">Họ và tên *</span>
                 <input
                   className="border border-line rounded-sm px-2 py-1.5 w-full"
-                  value={ef.full_name}
+                  value={ef.full_name || ""}
                   onChange={(e) => setEf({ ...ef, full_name: e.target.value })}
                 />
               </label>
               <label>
-                <span className="block text-muted text-xs mb-1">Số điện thoại</span>
+                <span className="block text-muted text-xs mb-1">Số điện thoại *</span>
                 <input
+                  inputMode="tel"
                   className="border border-line rounded-sm px-2 py-1.5 w-full"
-                  value={ef.phone}
+                  value={ef.phone || ""}
                   onChange={(e) => setEf({ ...ef, phone: e.target.value })}
                 />
               </label>
               <label>
-                <span className="block text-muted text-xs mb-1">Số vé</span>
+                <span className="block text-muted text-xs mb-1">Số khách *</span>
                 <input
                   type="number"
                   min={1}
                   className="border border-line rounded-sm px-2 py-1.5 w-full"
-                  value={ef.party_size}
+                  value={ef.party_size ?? 1}
                   onChange={(e) => setEf({ ...ef, party_size: Math.max(1, parseInt(e.target.value) || 1) })}
                 />
               </label>
-              <label className="col-span-2">
-                <span className="block text-muted text-xs mb-1">Mô hình kinh doanh</span>
-                <input
-                  className="border border-line rounded-sm px-2 py-1.5 w-full"
-                  value={ef.business_model}
+              <label className="sm:col-span-2">
+                <span className="block text-muted text-xs mb-1">Mô hình kinh doanh *</span>
+                <select
+                  className="border border-line rounded-sm px-2 py-1.5 w-full bg-surface"
+                  value={ef.business_model || ""}
                   onChange={(e) => setEf({ ...ef, business_model: e.target.value })}
-                />
+                >
+                  <option value="" disabled>
+                    — Chọn mô hình phù hợp —
+                  </option>
+                  {/* Giữ value cũ nếu không nằm trong list chuẩn (data Lark legacy) */}
+                  {ef.business_model &&
+                    !(BUSINESS_MODEL_OPTIONS as readonly string[]).includes(ef.business_model) && (
+                      <option value={ef.business_model}>{ef.business_model}</option>
+                    )}
+                  {BUSINESS_MODEL_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
               </label>
-              <label>
-                <span className="block text-muted text-xs mb-1">Chức vụ</span>
+              <label className="sm:col-span-2 flex items-center gap-2 cursor-pointer">
                 <input
-                  className="border border-line rounded-sm px-2 py-1.5 w-full"
-                  value={ef.role_title}
-                  onChange={(e) => setEf({ ...ef, role_title: e.target.value })}
+                  type="checkbox"
+                  checked={!!ef.is_vip}
+                  onChange={(e) => setEf({ ...ef, is_vip: e.target.checked })}
                 />
-              </label>
-              <label>
-                <span className="block text-muted text-xs mb-1">Loại khách</span>
-                <input
-                  className="border border-line rounded-sm px-2 py-1.5 w-full"
-                  value={ef.guest_type}
-                  onChange={(e) => setEf({ ...ef, guest_type: e.target.value })}
-                />
-              </label>
-              <label className="col-span-2">
-                <span className="block text-muted text-xs mb-1">Ghi chú</span>
-                <textarea
-                  className="border border-line rounded-sm px-2 py-1.5 w-full resize-none"
-                  rows={2}
-                  value={ef.note || ""}
-                  onChange={(e) => setEf({ ...ef, note: e.target.value })}
-                />
+                <span>Khách VIP</span>
               </label>
             </div>
             <div className="flex justify-end gap-2 mt-4">
@@ -712,7 +760,12 @@ export default function DesktopAdmin() {
               </button>
               <button
                 onClick={saveEdit}
-                disabled={editBusy || !ef.full_name}
+                disabled={
+                  editBusy ||
+                  !(ef.full_name || "").trim() ||
+                  !(ef.phone || "").trim() ||
+                  !(ef.business_model || "").trim()
+                }
                 className="bg-brand text-white px-3 py-1.5 rounded-sm text-sm disabled:opacity-50"
               >
                 {editBusy ? "Đang lưu..." : "Lưu & đồng bộ Lark"}

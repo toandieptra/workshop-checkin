@@ -8,6 +8,7 @@ export interface Workshop {
   name: string;
   slug: string;
   event_date?: string;
+  event_time?: string | null;
   location?: string;
   lark_workshop_name?: string;
   last_synced_at?: string | null;
@@ -44,9 +45,8 @@ export interface NewGuestInput {
   full_name: string;
   phone: string;
   business_model: string;
-  role_title: string;
-  guest_type: string;
   party_size: number;
+  is_vip: boolean;
 }
 
 export type StatusFilter = "all" | "checked_in" | "not_checked_in";
@@ -67,14 +67,15 @@ export function useAdminGuests() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-  const [newGuest, setNewGuest] = useState<NewGuestInput>({
+  const emptyNewGuest = (): NewGuestInput => ({
     full_name: "",
     phone: "",
     business_model: "",
-    role_title: "",
-    guest_type: "",
     party_size: 1,
+    is_vip: false,
   });
+
+  const [newGuest, setNewGuest] = useState<NewGuestInput>(emptyNewGuest);
 
   // ----- data loading -----
   const refreshWorkshops = useCallback(async () => {
@@ -163,19 +164,27 @@ export function useAdminGuests() {
 
   // ----- guest actions -----
   const createGuest = useCallback(async () => {
-    if (!newGuest.full_name || !wid) return;
+    if (!wid) return;
+    const full_name = newGuest.full_name.trim();
+    const phone = newGuest.phone.trim();
+    const business_model = newGuest.business_model.trim();
+    const party_size = Math.max(1, Math.floor(Number(newGuest.party_size)) || 1);
+    if (!full_name || !phone || !business_model) {
+      setMsg("Vui lòng nhập Họ tên, SĐT, Số khách và chọn Mô hình kinh doanh.");
+      return;
+    }
     await api("/workshops/" + wid + "/guests", {
       method: "POST",
-      body: JSON.stringify(newGuest),
+      body: JSON.stringify({
+        full_name,
+        phone,
+        business_model,
+        party_size,
+        guest_type: newGuest.is_vip ? "vip" : null,
+      }),
     });
-    setNewGuest({
-      full_name: "",
-      phone: "",
-      business_model: "",
-      role_title: "",
-      guest_type: "",
-      party_size: 1,
-    });
+    setNewGuest(emptyNewGuest());
+    setMsg("Đã thêm khách.");
     await loadGuests(wid, debouncedSearch);
   }, [newGuest, wid, debouncedSearch, loadGuests]);
 
