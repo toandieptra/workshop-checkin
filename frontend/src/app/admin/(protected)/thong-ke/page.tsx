@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, API_URL } from "@/lib/api";
+import { api, downloadGuestsXlsx } from "@/lib/api";
 
 interface Workshop { id: string; name: string; slug: string; }
 interface Guest {
@@ -125,17 +125,14 @@ export default function ThongKePage() {
   const exportXlsx = async () => {
     setExporting(true);
     try {
-      const params = new URLSearchParams({ status: checkin });
-      if (selectedWorkshopIds.length) params.set("workshop_ids", selectedWorkshopIds.join(","));
-      const res = await fetch(API_URL + "/export/guests?" + params.toString());
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "thong-ke_" + new Date().toISOString().slice(0, 10) + ".xlsx";
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadGuestsXlsx({
+        workshopIds: selectedWorkshopIds.length ? selectedWorkshopIds : undefined,
+        status: checkin,
+        filename: "thong-ke_" + new Date().toISOString().slice(0, 10) + ".xlsx",
+      });
+    } catch (e: any) {
+      // Lỗi từ backend (vd 500, mất mạng). Hiển thị tối giản để user biết.
+      window.alert("Xuất Excel thất bại: " + (e?.message || "không rõ"));
     } finally {
       setExporting(false);
     }
