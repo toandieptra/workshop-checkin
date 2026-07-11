@@ -113,7 +113,14 @@ async def export_guests(
     rows = (await db.execute(stmt)).all()
 
     def _fmt(dt):
-        return dt if dt else None
+        # openpyxl không hỗ trợ datetime có tzinfo — Postgres trả về aware
+        # datetime khi cột khai báo DateTime(timezone=True). Convert sang
+        # UTC naive để Excel chấp nhận, đồng thời giữ giá trị giờ chính xác.
+        if dt is None:
+            return None
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
 
     def _checkin_label(s: str | None) -> str:
         return "Đã check-in" if s == "checked_in" else "Chưa check-in"

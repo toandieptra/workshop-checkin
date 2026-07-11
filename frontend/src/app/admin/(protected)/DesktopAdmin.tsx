@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import QrDisplay from "@/components/QrDisplay";
-import { api, API_URL } from "@/lib/api";
+import { api, downloadGuestsXlsx } from "@/lib/api";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
 import { useAdminGuests, type Guest, type LarkWorkshop } from "@/hooks/useAdminGuests";
 
@@ -246,6 +246,29 @@ export default function DesktopAdmin() {
   const [editId, setEditId] = useState<string | null>(null);
   const [ef, setEf] = useState<any>({});
   const [editBusy, setEditBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+
+  const runExport = async () => {
+    setExportBusy(true);
+    setMsg("Đang xuất Excel...");
+    try {
+      await downloadGuestsXlsx({
+        workshopIds: wid ? [wid] : undefined,
+        status: statusFilter,
+        filename:
+          "guests_" +
+          (wid ? wid.slice(0, 8) : "all") +
+          "_" +
+          new Date().toISOString().slice(0, 10) +
+          ".xlsx",
+      });
+      setMsg("Đã xuất Excel");
+    } catch (e: any) {
+      setMsg("Xuất Excel thất bại: " + (e?.message || "không rõ"));
+    } finally {
+      setExportBusy(false);
+    }
+  };
 
   const openEdit = (g: Guest) => {
     setEditId(g.id);
@@ -342,12 +365,13 @@ export default function DesktopAdmin() {
               >
                 Đẩy lên Lark
               </button>
-              <a
-                href={API_URL + "/export/guests?workshop_id=" + wid}
-                className="border border-line px-3 py-2 rounded-sm text-sm"
+              <button
+                onClick={runExport}
+                disabled={exportBusy}
+                className="border border-line px-3 py-2 rounded-sm text-sm disabled:opacity-50"
               >
-                Xuất Excel
-              </a>
+                {exportBusy ? "Đang xuất..." : "Xuất Excel"}
+              </button>
               <label className="border border-line px-3 py-2 rounded-sm text-sm cursor-pointer">
                 Nhập CSV/XLSX
                 <input

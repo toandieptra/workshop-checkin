@@ -28,6 +28,48 @@ export async function apiForm<T = any>(path: string, form: FormData): Promise<T>
   return res.json();
 }
 
+/**
+ * Tải file Excel danh sách khách từ backend `/api/export/guests`.
+ *
+ * - Tự build query (`status`, `workshop_ids`) theo filter của trang gọi.
+ * - Tự download blob về máy user (Content-Disposition của backend).
+ * - Ném Error nếu backend trả lỗi (để UI hiển thị).
+ */
+export async function downloadGuestsXlsx(params: {
+  workshopIds?: string[];
+  status?: "all" | "checked_in" | "not_checked_in";
+  filename?: string;
+}): Promise<void> {
+  const qs = new URLSearchParams();
+  qs.set("status", params.status ?? "all");
+  if (params.workshopIds && params.workshopIds.length) {
+    qs.set("workshop_ids", params.workshopIds.join(","));
+  }
+  const res = await fetch(`${API_URL}/export/guests?${qs.toString()}`, {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = await res.text();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`${res.status}${detail ? ": " + detail : ""}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download =
+    params.filename ?? `guests_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function maskPhone(phone?: string | null): string {
   if (!phone) return "";
   if (phone.length <= 4) return phone;
