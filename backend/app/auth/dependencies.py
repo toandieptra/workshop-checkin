@@ -12,6 +12,37 @@ from .permissions import effective_permissions_for_user
 from .session import token_hash
 
 
+def _allowed_origins(request: Request) -> set[str]:
+    """Build trusted browser origins behind TLS-terminating reverse proxies.
+
+    Inner nginx often sets X-Forwarded-Proto=http while the public site is https,
+    so Origin (https://host) must still match.
+    """
+    allowed: set[str] = set()
+    raw_host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or ""
+    )
+    host = raw_host.split(",", 1)[0].strip()
+    raw_proto = (
+        request.headers.get("x-forwarded-proto")
+        or request.url.scheme
+        or "http"
+    )
+    proto = raw_proto.split(",", 1)[0].strip().lower()
+    if host:
+        allowed.add(f"{proto}://{host}".rstrip("/"))
+        # TLS terminated upstream of the app container
+        if proto == "http":
+            allowed.add(f"https://{host}".rstrip("/"))
+        elif proto == "https":
+            allowed.add(f"http://{host}".rstrip("/"))
+    if settings.PUBLIC_BASE_URL:
+        allowed.add(settings.PUBLIC_BASE_URL.rstrip("/"))
+    return {o for o in allowed if o}
+
+
 async def current_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -21,13 +52,9 @@ async def current_user(
         fetch_site = request.headers.get("sec-fetch-site", "")
         if fetch_site == "cross-site":
             raise HTTPException(403, "cross-site request rejected")
-        origin = request.headers.get("origin")
-        if origin:
-            forwarded_proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-            forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-            expected_origin = f"{forwarded_proto}://{forwarded_host}"
-            if origin.rstrip("/") != expected_origin.rstrip("/"):
-                raise HTTPException(403, "invalid request origin")
+        origin = (request.headers.get("origin") or "").rstrip("/")
+        if origin and origin not in _allowed_origins(request):
+            raise HTTPException(403, "invalid request origin")
     if not session_token:
         raise HTTPException(401, "authentication required")
     row = (await db.execute(
