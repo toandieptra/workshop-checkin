@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import Guest, Workshop
+from ..auth.dependencies import require_permission
 
 router = APIRouter(prefix="/api", tags=["import-export"])
 
@@ -27,7 +28,7 @@ def _parse_int(v, default: int = 1) -> int:
         return default
 
 
-@router.post("/workshops/{workshop_id}/import")
+@router.post("/workshops/{workshop_id}/import", dependencies=[Depends(require_permission("guests.write"))])
 async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     w = await db.get(Workshop, workshop_id)
     if not w:
@@ -72,7 +73,7 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
     return {"imported": created, "total_rows": len(rows)}
 
 
-@router.get("/export/guests")
+@router.get("/export/guests", dependencies=[Depends(require_permission("guests.export"))])
 async def export_guests(
     db: AsyncSession = Depends(get_db),
     workshop_id: str | None = Query(default=None, description="uuid hoặc 'all'"),

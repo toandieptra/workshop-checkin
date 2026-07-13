@@ -20,6 +20,7 @@ from ..schemas import (
     RegistrationSubmitResult,
     RegistrationWorkshopOption,
 )
+from ..auth.dependencies import require_permission
 
 logger = logging.getLogger("registration_forms")
 router = APIRouter(prefix="/api", tags=["registration-forms"])
@@ -122,7 +123,7 @@ async def _replace_form_workshops(db: AsyncSession, form: RegistrationForm, work
 # Admin CRUD
 # -----------------------------------------------------------------
 
-@router.get("/registration-forms", response_model=list[RegistrationFormOut])
+@router.get("/registration-forms", response_model=list[RegistrationFormOut], dependencies=[Depends(require_permission("registration_forms.read"))])
 async def list_registration_forms(db: AsyncSession = Depends(get_db)):
     forms = (await db.execute(
         select(RegistrationForm).order_by(RegistrationForm.created_at.desc())
@@ -130,7 +131,7 @@ async def list_registration_forms(db: AsyncSession = Depends(get_db)):
     return [await _to_out(db, f) for f in forms]
 
 
-@router.post("/registration-forms", response_model=RegistrationFormOut, status_code=201)
+@router.post("/registration-forms", response_model=RegistrationFormOut, status_code=201, dependencies=[Depends(require_permission("registration_forms.write"))])
 async def create_registration_form(
     body: RegistrationFormCreate,
     db: AsyncSession = Depends(get_db),
@@ -154,7 +155,7 @@ async def create_registration_form(
     return await _to_out(db, form)
 
 
-@router.patch("/registration-forms/{form_id}", response_model=RegistrationFormOut)
+@router.patch("/registration-forms/{form_id}", response_model=RegistrationFormOut, dependencies=[Depends(require_permission("registration_forms.write"))])
 async def update_registration_form(
     form_id: uuid.UUID,
     body: RegistrationFormUpdate,
@@ -178,7 +179,7 @@ async def update_registration_form(
     return await _to_out(db, form)
 
 
-@router.delete("/registration-forms/{form_id}", status_code=204)
+@router.delete("/registration-forms/{form_id}", status_code=204, dependencies=[Depends(require_permission("registration_forms.write"))])
 async def delete_registration_form(form_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     form = await db.get(RegistrationForm, form_id)
     if not form:

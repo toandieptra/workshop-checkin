@@ -18,6 +18,7 @@ from ..config import settings
 from ..models import Guest, Workshop, WorkshopMedia, SyncLog
 from ..services import lark_client
 from ..services.lark_client import LarkError
+from ..auth.dependencies import require_permission
 
 logger = logging.getLogger("lark")
 router = APIRouter(prefix="/api/lark", tags=["lark"])
@@ -678,7 +679,7 @@ async def lark_health():
         raise HTTPException(502, f"Lark không kết nối được: {e}")
 
 
-@router.get("/workshops")
+@router.get("/workshops", dependencies=[Depends(require_permission("lark.read"))])
 async def list_lark_workshops():
     if not settings.LARK_TABLE_WORKSHOPS:
         raise HTTPException(400, "Chưa cấu hình LARK_TABLE_WORKSHOPS")
@@ -702,7 +703,7 @@ async def list_lark_workshops():
     return out
 
 
-@router.post("/sync/pull")
+@router.post("/sync/pull", dependencies=[Depends(require_permission("lark.sync"))])
 async def sync_pull(
     lark_workshop_name: str,
     target_workshop_id: uuid.UUID | None = None,
@@ -720,7 +721,7 @@ async def sync_pull(
     }
 
 
-@router.post("/sync/push/{workshop_id}")
+@router.post("/sync/push/{workshop_id}", dependencies=[Depends(require_permission("lark.sync"))])
 async def sync_push(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Push all guests without lark_record_id to Lark."""
     workshop = await db.get(Workshop, workshop_id)
@@ -730,7 +731,7 @@ async def sync_push(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     return {"workshop_id": str(workshop_id), **result}
 
 
-@router.post("/sync/full")
+@router.post("/sync/full", dependencies=[Depends(require_permission("lark.sync"))])
 async def sync_full(
     lark_workshop_name: str,
     target_workshop_id: uuid.UUID | None = None,
@@ -756,7 +757,7 @@ async def sync_full(
     }
 
 
-@router.post("/sync/workshops")
+@router.post("/sync/workshops", dependencies=[Depends(require_permission("lark.sync"))])
 async def sync_workshops(db: AsyncSession = Depends(get_db)):
     """Đồng bộ danh sách workshop từ Lark config table xuống local DB.
 
@@ -765,7 +766,7 @@ async def sync_workshops(db: AsyncSession = Depends(get_db)):
     return await _sync_workshops_from_lark(db)
 
 
-@router.get("/sync/status")
+@router.get("/sync/status", dependencies=[Depends(require_permission("lark.read"))])
 async def sync_status(workshop_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)):
     """Return sync status counts."""
     query = select(func.count(Guest.id), Guest.sync_status)
@@ -785,7 +786,7 @@ async def sync_status(workshop_id: uuid.UUID | None = None, db: AsyncSession = D
     }
 
 
-@router.post("/sync/resolve/{guest_id}")
+@router.post("/sync/resolve/{guest_id}", dependencies=[Depends(require_permission("lark.sync"))])
 async def resolve_conflict(
     guest_id: uuid.UUID,
     direction: str,  # 'local' or 'lark'

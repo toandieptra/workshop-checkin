@@ -18,6 +18,7 @@ from ..services import lark_client
 from ..redis_client import is_duplicate, mark_checked_in, clear_dedup
 from ..ws import manager
 from .lark_sync import _push_guest_to_lark
+from ..auth.dependencies import require_permission
 
 router = APIRouter(prefix="/api", tags=["guests"])
 logger = logging.getLogger("guests")
@@ -301,12 +302,12 @@ async def self_register_and_checkin(
 # Guest CRUD (giữ nguyên flow admin)
 # =================================================================
 
-@router.get("/guests/{guest_id}", response_model=GuestOut)
+@router.get("/guests/{guest_id}", response_model=GuestOut, dependencies=[Depends(require_permission("guests.read"))])
 async def get_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     return await _load_guest(db, guest_id)
 
 
-@router.patch("/guests/{guest_id}", response_model=GuestUpdateResult)
+@router.patch("/guests/{guest_id}", response_model=GuestUpdateResult, dependencies=[Depends(require_permission("guests.write"))])
 async def update_guest(
     guest_id: uuid.UUID,
     body: GuestUpdate,
@@ -355,7 +356,7 @@ async def update_guest(
     )
 
 
-@router.delete("/guests/{guest_id}", status_code=204)
+@router.delete("/guests/{guest_id}", status_code=204, dependencies=[Depends(require_permission("guests.delete"))])
 async def delete_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     g = await db.get(Guest, guest_id)
     if not g:
@@ -369,7 +370,7 @@ async def delete_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 # Admin check-in (giữ tương thích — chấp nhận optional actual_party_size)
 # =================================================================
 
-@router.post("/guests/{guest_id}/checkin", response_model=CheckinResult)
+@router.post("/guests/{guest_id}/checkin", response_model=CheckinResult, dependencies=[Depends(require_permission("checkin.manage"))])
 async def checkin_guest(
     guest_id: uuid.UUID,
     body: CheckinSelfRequest | None = None,
@@ -385,7 +386,7 @@ async def checkin_guest(
     )
 
 
-@router.post("/guests/{guest_id}/uncheckin", response_model=CheckinResult)
+@router.post("/guests/{guest_id}/uncheckin", response_model=CheckinResult, dependencies=[Depends(require_permission("checkin.manage"))])
 async def uncheckin_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     guest = await _load_guest(db, guest_id)
 

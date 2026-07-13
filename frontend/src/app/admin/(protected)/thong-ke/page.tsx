@@ -1,6 +1,10 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, downloadGuestsXlsx } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
+import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
+import { useOutsidePointerDown } from "@/hooks/useOutsidePointerDown";
 
 interface Workshop { id: string; name: string; slug: string; }
 interface Guest {
@@ -11,6 +15,14 @@ interface Guest {
   sync_status?: string;
 }
 type CheckinFilter = "all" | "checked_in" | "not_checked_in";
+type ColumnKey = "name" | "businessModel" | "type" | "registered" | "checkedIn" | "status" | "sync" | "checkedInAt" | "workshop";
+const TABLE_COLUMNS = [
+  { key: "name", label: "Tên" }, { key: "businessModel", label: "Mô hình kinh doanh" },
+  { key: "type", label: "Loại" }, { key: "registered", label: "Số khách đăng ký" },
+  { key: "checkedIn", label: "Số khách check-in" }, { key: "status", label: "Trạng thái" },
+  { key: "sync", label: "Đồng bộ Lark" }, { key: "checkedInAt", label: "Check-in lúc" },
+  { key: "workshop", label: "Workshop" },
+] as const;
 
 /** 5 giá trị chuẩn; mọi business_model khác (kể cả rỗng) thuộc nhóm "Khác". */
 const BUSINESS_MODEL_KNOWN = [
@@ -40,6 +52,7 @@ function matchesBusinessModelFilter(value: string | undefined | null, filter: Bu
 }
 
 export default function ThongKePage() {
+  const { can } = useAuth();
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [selectedWorkshopIds, setSelectedWorkshopIds] = useState<string[]>([]);
   const [workshopMenuOpen, setWorkshopMenuOpen] = useState(false);
@@ -52,6 +65,18 @@ export default function ThongKePage() {
   const [pageSize, setPageSize] = useState(25);
   const [currentPage, setCurrentPage] = useState(1);
   const [gotoPage, setGotoPage] = useState("1");
+  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
+    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
+  const selectableColumns = useMemo(
+    () => selectedWorkshopIds.length === 1 ? TABLE_COLUMNS.filter(({ key }) => key !== "workshop") : TABLE_COLUMNS,
+    [selectedWorkshopIds.length],
+  );
+
+  useEffect(() => {
+    if (!selectableColumns.some(({ key }) => visibleColumns[key])) {
+      setVisibleColumns((current) => ({ ...current, name: true }));
+    }
+  }, [selectableColumns, visibleColumns]);
 
   useEffect(() => {
     api("/workshops").then((ws: Workshop[]) => {
@@ -60,14 +85,7 @@ export default function ThongKePage() {
     }).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!workshopMenuOpen) return;
-    const onPointerDown = (e: MouseEvent) => {
-      if (!workshopMenuRef.current?.contains(e.target as Node)) setWorkshopMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [workshopMenuOpen]);
+  useOutsidePointerDown(workshopMenuRef, useCallback(() => setWorkshopMenuOpen(false), []), workshopMenuOpen);
 
   useEffect(() => {
     let alive = true;
@@ -170,7 +188,7 @@ export default function ThongKePage() {
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold text-brand-teal">Thống kê khách mời</h1>
-          <button onClick={exportXlsx} disabled={!filtered.length || exporting}
+          <button onClick={exportXlsx} disabled={!filtered.length || exporting || !can(PERMISSIONS.reportsExport)}
             className="bg-brand-teal text-white px-3 py-2 rounded-sm text-sm disabled:opacity-40">
             {exporting ? "Đang xuất..." : `Xuất Excel (${filtered.length})`}
           </button>
@@ -276,34 +294,37 @@ export default function ThongKePage() {
 
           {/* Table */}
           <div className="bg-surface rounded-md border border-line overflow-hidden">
+            <div className="px-3 py-2 border-b border-line flex justify-end">
+              <ColumnVisibilityMenu columns={selectableColumns} visible={visibleColumns} onChange={setVisibleColumns} />
+            </div>
             {loading ? (
               <div className="py-20 text-center text-muted">Đang tải...</div>
             ) : filtered.length === 0 ? (
               <div className="py-20 text-center text-muted">Không có khách khớp bộ lọc</div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="admin-table-scroll">
                 <table className="w-full text-sm min-w-[1000px]">
                   <thead className="bg-surface-muted text-muted text-xs">
                     <tr>
-                      <th className="text-left px-3 py-2">Tên</th>
-                      <th className="text-left px-3 py-2">Mô hình kinh doanh</th>
-                      <th className="text-left px-3 py-2">Loại</th>
-                      <th className="text-center px-3 py-2">Số khách đăng ký</th>
-                      <th className="text-center px-3 py-2">Số khách check-in</th>
-                      <th className="text-center px-3 py-2">Trạng thái</th>
-                      <th className="text-center px-3 py-2">Đồng bộ Lark</th>
-                      <th className="text-left px-3 py-2">Check-in lúc</th>
-                        {selectedWorkshopIds.length !== 1 && <th className="text-left px-3 py-2">Workshop</th>}
+                      {visibleColumns.name && <th className="text-left px-3 py-2">Tên</th>}
+                      {visibleColumns.businessModel && <th className="text-left px-3 py-2">Mô hình kinh doanh</th>}
+                      {visibleColumns.type && <th className="text-left px-3 py-2">Loại</th>}
+                      {visibleColumns.registered && <th className="text-center px-3 py-2">Số khách đăng ký</th>}
+                      {visibleColumns.checkedIn && <th className="text-center px-3 py-2">Số khách check-in</th>}
+                      {visibleColumns.status && <th className="text-center px-3 py-2">Trạng thái</th>}
+                      {visibleColumns.sync && <th className="text-center px-3 py-2">Đồng bộ Lark</th>}
+                      {visibleColumns.checkedInAt && <th className="text-left px-3 py-2">Check-in lúc</th>}
+                      {visibleColumns.workshop && selectedWorkshopIds.length !== 1 && <th className="text-left px-3 py-2">Workshop</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
                     {pagedGuests.map((g) => (
                       <tr key={g.id}>
-                        <td className="px-3 py-2 font-medium text-ink">{g.full_name}</td>
-                        <td className="px-3 py-2 text-muted">{g.business_model || "—"}</td>
-                        <td className="px-3 py-2 text-muted">{g.guest_type || "—"}</td>
-                        <td className="px-3 py-2 text-center">{g.party_size || 1}</td>
-                        <td className="px-3 py-2 text-center">
+                        {visibleColumns.name && <td className="px-3 py-2 font-medium text-ink">{g.full_name}</td>}
+                        {visibleColumns.businessModel && <td className="px-3 py-2 text-muted">{g.business_model || "—"}</td>}
+                        {visibleColumns.type && <td className="px-3 py-2 text-muted">{g.guest_type || "—"}</td>}
+                        {visibleColumns.registered && <td className="px-3 py-2 text-center">{g.party_size || 1}</td>}
+                        {visibleColumns.checkedIn && <td className="px-3 py-2 text-center">
                           {g.checkin_status === "checked_in" ? (
                             (() => {
                               const registered = g.party_size || 1;
@@ -318,23 +339,23 @@ export default function ThongKePage() {
                           ) : (
                             "—"
                           )}
-                        </td>
-                        <td className="px-3 py-2 text-center">
+                        </td>}
+                        {visibleColumns.status && <td className="px-3 py-2 text-center">
                           <span className={"text-xs px-2 py-0.5 rounded " + (g.checkin_status === "checked_in" ? "bg-green-50 text-green-700" : "bg-surface-muted text-muted")}>
                             {g.checkin_status === "checked_in" ? "Đã check-in" : "Chưa"}
                           </span>
-                        </td>
-                        <td className="px-3 py-2 text-center">
+                        </td>}
+                        {visibleColumns.sync && <td className="px-3 py-2 text-center">
                           {g.sync_status === "synced" ? (
                             <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Đã đồng bộ</span>
                           ) : (
                             <span className="text-xs px-2 py-0.5 rounded bg-surface-muted text-muted">{g.sync_status || "—"}</span>
                           )}
-                        </td>
-                        <td className="px-3 py-2 text-muted text-xs">
+                        </td>}
+                        {visibleColumns.checkedInAt && <td className="px-3 py-2 text-muted text-xs">
                           {g.checked_in_at ? new Date(g.checked_in_at).toLocaleString("vi-VN") : "—"}
-                        </td>
-                        {selectedWorkshopIds.length !== 1 && <td className="px-3 py-2 text-muted text-xs">{WS_NAME[g.workshop_id] || "—"}</td>}
+                        </td>}
+                        {visibleColumns.workshop && selectedWorkshopIds.length !== 1 && <td className="px-3 py-2 text-muted text-xs">{WS_NAME[g.workshop_id] || "—"}</td>}
                       </tr>
                     ))}
                   </tbody>
@@ -342,7 +363,7 @@ export default function ThongKePage() {
               </div>
             )}
             {!loading && filtered.length > 0 && (
-              <div className="border-t border-line px-3 py-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+              <div className="admin-table-pagination border-t border-line px-3 py-3 flex flex-wrap items-center justify-between gap-3 text-sm">
                 <div className="text-muted">Hiển thị {firstRow}–{lastRow} trong tổng số {filtered.length} khách</div>
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="flex items-center gap-1.5 text-muted">

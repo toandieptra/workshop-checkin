@@ -14,13 +14,6 @@ const nextConfig = {
       destination: `${backend}/api/${p}/:path*`,
     }));
     return [
-      // Bypass rewrite cho Next.js route handlers của admin auth.
-      // (Các rule rewrite khác có /api/:path* ở dưới sẽ nuốt path này
-      // nếu không khai báo cụ thể trước.)
-      {
-        source: "/api/admin/:path*",
-        destination: "/api/admin/:path*",
-      },
       ...rules,
       // Backward-compat: nếu client gọi /api/* thì vẫn proxy được.
       {

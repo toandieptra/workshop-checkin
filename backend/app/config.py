@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     LARK_TABLE_WORKSHOPS: str | None = None
     LARK_WRITEBACK_ENABLED: bool = True
 
+    # ===== Lark OAuth / backend admin auth =====
+    LARK_OAUTH_REDIRECT_URI: str | None = None
+    LARK_ALLOWED_TENANT_KEYS: str = "145765cccf8c5743"
+    AUTH_SESSION_COOKIE: str = "workshop_admin_session"
+    AUTH_SESSION_TTL_SECONDS: int = 86400
+    AUTH_COOKIE_SECURE: bool = True
+    AUTH_BOOTSTRAP_SUPER_ADMIN_EMAIL: str | None = None
+
+    # ===== Lark organization directory sync =====
+    LARK_DIRECTORY_SYNC_ENABLED: bool = True
+    LARK_DIRECTORY_SYNC_INTERVAL_SECONDS: int = 3600
+
     # ===== Check-in dedup =====
     CHECKIN_DEDUP_TTL_SECONDS: int = 3000
 
@@ -50,6 +62,10 @@ class Settings(BaseSettings):
     @property
     def lark_base_url(self) -> str:
         return f"https://open.{self.LARK_DOMAIN}/open-apis"
+
+    @property
+    def lark_allowed_tenant_keys(self) -> set[str]:
+        return {value.strip() for value in self.LARK_ALLOWED_TENANT_KEYS.split(",") if value.strip()}
 
 
 settings = Settings()

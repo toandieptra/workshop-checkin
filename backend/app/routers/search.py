@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_db
 from ..models import Guest
 from ..schemas import GuestOut
+from ..auth.dependencies import require_permission
 
-router = APIRouter(prefix="/api/search", tags=["search"])
+router = APIRouter(prefix="/api/search", tags=["search"], dependencies=[Depends(require_permission("guests.read"))])
 
 
 @router.get("/guests", response_model=list[GuestOut])

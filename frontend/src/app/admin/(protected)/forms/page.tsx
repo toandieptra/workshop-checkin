@@ -2,12 +2,21 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "react-qr-code";
 import CreateRegistrationFormModal from "@/components/CreateRegistrationFormModal";
+import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
 import {
   deleteRegistrationForm,
   listRegistrationForms,
   updateRegistrationForm,
   type RegistrationForm,
 } from "@/lib/api";
+
+type ColumnKey = "workshop" | "link" | "qr" | "status" | "submissions" | "created" | "actions";
+const TABLE_COLUMNS = [
+  { key: "workshop", label: "Workshop" }, { key: "link", label: "Link" },
+  { key: "qr", label: "QR" }, { key: "status", label: "Trạng thái" },
+  { key: "submissions", label: "Submit" }, { key: "created", label: "Ngày tạo" },
+  { key: "actions", label: "Thao tác" },
+] as const;
 
 function formatDateTime(v?: string | null): string {
   if (!v) return "—";
@@ -72,6 +81,9 @@ export default function AdminFormsPage() {
   const [msg, setMsg] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
+    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
+  const visibleColumnCount = TABLE_COLUMNS.filter(({ key }) => visibleColumns[key]).length;
 
   const load = async () => {
     setLoading(true);
@@ -167,24 +179,25 @@ export default function AdminFormsPage() {
         </div>
 
         <section className="bg-surface rounded-md border border-line overflow-hidden">
-          <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-2 flex-wrap">
             <h2 className="font-semibold text-brand-teal">Danh sách form</h2>
-            <button onClick={load} disabled={loading} className="border border-line px-3 py-1.5 rounded-sm text-sm disabled:opacity-50">
-              {loading ? "Đang tải..." : "Tải lại"}
-            </button>
+            <div className="flex items-center gap-2">
+              <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
+              <button onClick={load} disabled={loading} className="border border-line px-3 py-2 rounded-sm text-sm disabled:opacity-50">{loading ? "Đang tải..." : "Tải lại"}</button>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="admin-table-scroll">
             <table className="min-w-[1100px] w-full text-sm">
               <thead className="bg-surface-muted text-muted text-xs">
                 <tr>
-                  <th className="text-left px-3 py-3 min-w-[220px]">Workshop</th>
-                  <th className="text-left px-3 py-3 min-w-[280px]">Link</th>
-                  <th className="text-center px-3 py-3 w-40">QR</th>
-                  <th className="text-center px-3 py-3 w-28">Trạng thái</th>
-                  <th className="text-center px-3 py-3 w-28">Submit</th>
-                  <th className="text-left px-3 py-3 min-w-[180px]">Ngày tạo</th>
-                  <th className="text-left px-3 py-3 min-w-[180px]">Thao tác</th>
+                  {visibleColumns.workshop && <th className="text-left px-3 py-3 min-w-[220px]">Workshop</th>}
+                  {visibleColumns.link && <th className="text-left px-3 py-3 min-w-[280px]">Link</th>}
+                  {visibleColumns.qr && <th className="text-center px-3 py-3 w-40">QR</th>}
+                  {visibleColumns.status && <th className="text-center px-3 py-3 w-28">Trạng thái</th>}
+                  {visibleColumns.submissions && <th className="text-center px-3 py-3 w-28">Submit</th>}
+                  {visibleColumns.created && <th className="text-left px-3 py-3 min-w-[180px]">Ngày tạo</th>}
+                  {visibleColumns.actions && <th className="text-left px-3 py-3 min-w-[180px]">Thao tác</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -192,7 +205,7 @@ export default function AdminFormsPage() {
                   const url = publicUrl(f.token);
                   return (
                     <tr key={f.id} className="hover:bg-brand/5">
-                      <td className="px-3 py-3 align-top">
+                      {visibleColumns.workshop && <td className="px-3 py-3 align-top">
                         <div className="font-semibold text-ink">
                           {f.workshops?.length ? `${f.workshops.length} workshop` : (f.workshop_name || "—")}
                         </div>
@@ -209,8 +222,8 @@ export default function AdminFormsPage() {
                             {f.greeting}
                           </div>
                         )}
-                      </td>
-                      <td className="px-3 py-3 align-top">
+                      </td>}
+                      {visibleColumns.link && <td className="px-3 py-3 align-top">
                         <div className="font-mono text-xs text-muted break-all">{url}</div>
                         <div className="flex gap-3 mt-2">
                           <button onClick={() => copyLink(f.token)} className="text-brand underline min-h-[28px]">
@@ -220,22 +233,22 @@ export default function AdminFormsPage() {
                             Mở form
                           </a>
                         </div>
-                      </td>
-                      <td className="px-3 py-3 align-top text-center">
+                      </td>}
+                      {visibleColumns.qr && <td className="px-3 py-3 align-top text-center">
                         <FormQr token={f.token} />
-                      </td>
-                      <td className="px-3 py-3 align-top text-center">
+                      </td>}
+                      {visibleColumns.status && <td className="px-3 py-3 align-top text-center">
                         <span className={`text-xs px-2 py-0.5 rounded ${f.is_active ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"}`}>
                           {f.is_active ? "Đang bật" : "Đã tắt"}
                         </span>
-                      </td>
-                      <td className="px-3 py-3 align-top text-center font-semibold text-ink">
+                      </td>}
+                      {visibleColumns.submissions && <td className="px-3 py-3 align-top text-center font-semibold text-ink">
                         {f.submission_count || 0}
-                      </td>
-                      <td className="px-3 py-3 align-top text-muted whitespace-nowrap">
+                      </td>}
+                      {visibleColumns.created && <td className="px-3 py-3 align-top text-muted whitespace-nowrap">
                         {formatDateTime(f.created_at)}
-                      </td>
-                      <td className="px-3 py-3 align-top">
+                      </td>}
+                      {visibleColumns.actions && <td className="px-3 py-3 align-top">
                         <div className="flex items-center gap-3 flex-wrap">
                           <button
                             onClick={() => toggleActive(f)}
@@ -252,20 +265,20 @@ export default function AdminFormsPage() {
                             Xóa
                           </button>
                         </div>
-                      </td>
+                      </td>}
                     </tr>
                   );
                 })}
                 {!forms.length && !loading && (
                   <tr>
-                    <td colSpan={7} className="py-10 text-center text-muted">
+                    <td colSpan={visibleColumnCount} className="py-10 text-center text-muted">
                       Chưa có form đăng ký nào. Bấm “Tạo Form Đăng Ký” để tạo form đầu tiên.
                     </td>
                   </tr>
                 )}
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="py-10 text-center text-muted">Đang tải danh sách form...</td>
+                    <td colSpan={visibleColumnCount} className="py-10 text-center text-muted">Đang tải danh sách form...</td>
                   </tr>
                 )}
               </tbody>

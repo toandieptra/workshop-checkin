@@ -15,6 +15,7 @@ from ..models import UploadSession
 from ..schemas import (
     UploadSessionCreate, UploadSessionOut, UploadImagesResponse, UploadImageItem,
 )
+from ..auth.dependencies import require_permission
 
 router = APIRouter(tags=["upload-sessions"])
 
@@ -73,7 +74,7 @@ async def _verify(db: AsyncSession, sid: uuid.UUID, token: str) -> UploadSession
     return s
 
 
-@router.post("/api/upload-sessions", status_code=201)
+@router.post("/api/upload-sessions", status_code=201, dependencies=[Depends(require_permission("uploads.create"))])
 async def create_session(
     body: UploadSessionCreate,
     request: Request,

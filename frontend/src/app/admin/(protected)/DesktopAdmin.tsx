@@ -4,6 +4,15 @@ import QrDisplay from "@/components/QrDisplay";
 import { api, downloadGuestsXlsx } from "@/lib/api";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
 import { useAdminGuests, type Guest, type LarkWorkshop } from "@/hooks/useAdminGuests";
+import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
+
+type ColumnKey = "name" | "phone" | "businessModel" | "registered" | "checkedIn" | "checkin" | "sync" | "actions" | "registeredAt";
+const TABLE_COLUMNS = [
+  { key: "name", label: "Tên khách" }, { key: "phone", label: "SĐT" }, { key: "businessModel", label: "Mô hình kinh doanh" },
+  { key: "registered", label: "Số khách đăng ký" }, { key: "checkedIn", label: "Số khách check-in" },
+  { key: "checkin", label: "Check-in" }, { key: "sync", label: "Đồng bộ Lark" },
+  { key: "actions", label: "Thao tác" }, { key: "registeredAt", label: "Ngày đăng ký" },
+] as const;
 
 function formatDateTime(v?: string | null): string {
   if (!v) return "—";
@@ -141,6 +150,9 @@ export default function DesktopAdmin() {
     msg,
     setMsg,
   } = useAdminGuests();
+  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
+    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
+  const visibleColumnCount = TABLE_COLUMNS.filter(({ key }) => visibleColumns[key]).length;
 
   // ----- Lark sync (desktop-only) -----
   const [larkOpen, setLarkOpen] = useState(false);
@@ -337,6 +349,7 @@ export default function DesktopAdmin() {
               {workshops.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
             <div className="flex items-center gap-2 flex-wrap">
+              <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
               <button
                 onClick={runLarkWorkshopsSync}
                 disabled={larkBusy}
@@ -548,7 +561,7 @@ export default function DesktopAdmin() {
 
         {/* Guest list */}
         <section className="bg-surface rounded-md border border-line">
-          <div className="sticky top-0 z-30 bg-surface/95 backdrop-blur border-b border-line px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="bg-surface border-b border-line px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
             <h2 className="font-semibold text-brand-teal">
               Phiếu đã check-in: {checkedInRecords}/{totalRecords} · Khách đã check-in: {totalCheckedIn}/{totalRegistered}
             </h2>
@@ -571,19 +584,19 @@ export default function DesktopAdmin() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="admin-table-scroll">
             <table className="min-w-[900px] w-full text-sm">
               <thead className="bg-surface-muted text-muted text-xs">
                 <tr>
-                  <th className="text-left px-3 py-3 min-w-[200px]">Tên khách</th>
-                  <th className="text-left px-3 py-3">SĐT</th>
-                  <th className="text-left px-3 py-3 min-w-[160px]">Mô hình kinh doanh</th>
-                  <th className="text-center px-3 py-3 w-28">Số khách đăng ký</th>
-                  <th className="text-center px-3 py-3 w-28">Số khách check-in</th>
-                  <th className="text-center px-3 py-3 w-32">Check-in</th>
-                  <th className="text-center px-3 py-3 w-28">Đồng bộ Lark</th>
-                  <th className="text-left px-3 py-3 min-w-[160px]">Thao tác</th>
-                  <th className="text-left px-3 py-3">Ngày đăng ký</th>
+                  {visibleColumns.name && <th className="text-left px-3 py-3 min-w-[200px]">Tên khách</th>}
+                  {visibleColumns.phone && <th className="text-left px-3 py-3">SĐT</th>}
+                  {visibleColumns.businessModel && <th className="text-left px-3 py-3 min-w-[160px]">Mô hình kinh doanh</th>}
+                  {visibleColumns.registered && <th className="text-center px-3 py-3 w-28">Số khách đăng ký</th>}
+                  {visibleColumns.checkedIn && <th className="text-center px-3 py-3 w-28">Số khách check-in</th>}
+                  {visibleColumns.checkin && <th className="text-center px-3 py-3 w-32">Check-in</th>}
+                  {visibleColumns.sync && <th className="text-center px-3 py-3 w-28">Đồng bộ Lark</th>}
+                  {visibleColumns.actions && <th className="text-left px-3 py-3 min-w-[160px]">Thao tác</th>}
+                  {visibleColumns.registeredAt && <th className="text-left px-3 py-3">Ngày đăng ký</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -591,7 +604,7 @@ export default function DesktopAdmin() {
                   const vip = isVip(g);
                   return (
                     <tr key={g.id} className={(vip ? "bg-cyan-50" : "") + " hover:bg-brand/5"}>
-                      <td className="px-3 py-3 align-top">
+                      {visibleColumns.name && <td className="px-3 py-3 align-top">
                         <div className="font-semibold text-ink">{g.full_name}</div>
                         <div className="mt-1 flex gap-1 flex-wrap">
                           {vip && <span className="text-xs px-2 py-0.5 rounded bg-cyan-200 text-cyan-900 font-semibold">VIP</span>}
@@ -600,8 +613,8 @@ export default function DesktopAdmin() {
                             : <span className="text-xs px-2 py-0.5 rounded bg-surface-muted text-muted">Chưa đồng bộ</span>}
                           {g.role_title && <span className="text-xs px-2 py-0.5 rounded bg-surface-muted text-muted">{g.role_title}</span>}
                         </div>
-                      </td>
-                      <td className="px-3 py-3 align-top whitespace-nowrap">
+                      </td>}
+                      {visibleColumns.phone && <td className="px-3 py-3 align-top whitespace-nowrap">
                         {g.phone ? (
                           <button
                             onClick={() => copyPhone(g.phone!)}
@@ -611,12 +624,12 @@ export default function DesktopAdmin() {
                             {g.phone}
                           </button>
                         ) : <span className="text-muted">-</span>}
-                      </td>
-                      <td className="px-3 py-3 align-top text-muted" title={g.business_model || ""}>
+                      </td>}
+                      {visibleColumns.businessModel && <td className="px-3 py-3 align-top text-muted" title={g.business_model || ""}>
                         {truncate(g.business_model, 60)}
-                      </td>
-                      <td className="px-3 py-3 align-top text-center">{g.party_size || 1}</td>
-                      <td className="px-3 py-3 align-top text-center">
+                      </td>}
+                      {visibleColumns.registered && <td className="px-3 py-3 align-top text-center">{g.party_size || 1}</td>}
+                      {visibleColumns.checkedIn && <td className="px-3 py-3 align-top text-center">
                         {g.checkin_status === "checked_in" ? (
                           (() => {
                             const registered = g.party_size || 1;
@@ -631,8 +644,8 @@ export default function DesktopAdmin() {
                         ) : (
                           "—"
                         )}
-                      </td>
-                      <td className="px-3 py-3 align-top">
+                      </td>}
+                      {visibleColumns.checkin && <td className="px-3 py-3 align-top">
                         {g.checkin_status === "checked_in" ? (
                           <button
                             onClick={() => doUncheckin(g)}
@@ -648,8 +661,8 @@ export default function DesktopAdmin() {
                             Check-in
                           </button>
                         )}
-                      </td>
-                      <td className="px-3 py-3 align-top">
+                      </td>}
+                      {visibleColumns.sync && <td className="px-3 py-3 align-top">
                         <div className="flex flex-col gap-1 items-center">
                           <SyncBadge status={g.sync_status} error={g.sync_error} />
                           {g.sync_status === "conflict" && (
@@ -669,8 +682,8 @@ export default function DesktopAdmin() {
                             </div>
                           )}
                         </div>
-                      </td>
-                      <td className="px-3 py-3 align-top text-sm">
+                      </td>}
+                      {visibleColumns.actions && <td className="px-3 py-3 align-top text-sm">
                         <div className="flex items-center gap-3 flex-wrap">
                           <button
                             onClick={() => openEdit(g)}
@@ -691,15 +704,15 @@ export default function DesktopAdmin() {
                             Xóa
                           </button>
                         </div>
-                      </td>
-                      <td className="px-3 py-3 align-top text-muted text-xs whitespace-nowrap">
+                      </td>}
+                      {visibleColumns.registeredAt && <td className="px-3 py-3 align-top text-muted text-xs whitespace-nowrap">
                         {formatDateTime(g.registered_at || g.created_at)}
-                      </td>
+                      </td>}
                     </tr>
                   );
                 })}
                 {!visibleGuests.length && (
-                  <tr><td colSpan={9} className="py-10 text-center text-muted">Không có khách khớp bộ lọc</td></tr>
+                  <tr><td colSpan={visibleColumnCount} className="py-10 text-center text-muted">Không có khách khớp bộ lọc</td></tr>
                 )}
               </tbody>
             </table>

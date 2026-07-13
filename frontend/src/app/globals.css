@@ -38,9 +38,38 @@ html, body {
 }
 .animate-pulse-live { animation: pulse-live 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
 
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.animate-sheet-up { animation: sheet-up 240ms cubic-bezier(0.32, 0.72, 0, 1); }
+
 @media (prefers-reduced-motion: reduce) {
   .animate-toast-in,
-  .animate-pulse-live {
+  .animate-pulse-live,
+  .animate-sheet-up {
     animation: none;
+  }
+}
+
+@layer components {
+  .admin-table-scroll {
+    max-height: min(60vh, 42rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .admin-table-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #f3f7f7;
+  }
+
+  .admin-table-pagination {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    background: white;
   }
 }

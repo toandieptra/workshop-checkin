@@ -14,9 +14,24 @@ from sqlalchemy.exc import OperationalError
 from .config import settings
 from .db import engine
 from .ws import manager
-from .routers import workshops, guests, checkin, search, import_export, lark_sync, registration_forms
+from .routers import workshops, guests, checkin, search, import_export, lark_sync, registration_forms, auth, admin_users
+from .auth.bootstrap import bootstrap_super_admin
+from .services import admin_directory_sync
+from .db import async_session_maker
 
 log = logging.getLogger("app.lifespan")
+_directory_sync_task: asyncio.Task | None = None
+
+
+async def _directory_sync_loop():
+    await asyncio.sleep(60)
+    while True:
+        try:
+            async with async_session_maker() as db:
+                await admin_directory_sync.sync_directory(db)
+        except Exception as exc:
+            log.warning("Lark directory sync failed: %s", exc)
+        await asyncio.sleep(max(300, settings.LARK_DIRECTORY_SYNC_INTERVAL_SECONDS))
 
 
 @asynccontextmanager
@@ -41,13 +56,20 @@ async def lifespan(app: FastAPI):
         log.error("DB unreachable after retries: %s", last_err)
         raise last_err
 
+    await bootstrap_super_admin()
+
     # Start Lark polling background task
     lark_sync.start_lark_poll()
+    global _directory_sync_task
+    if settings.LARK_DIRECTORY_SYNC_ENABLED:
+        _directory_sync_task = asyncio.create_task(_directory_sync_loop())
 
     yield
 
     # Shutdown
     lark_sync.stop_lark_poll()
+    if _directory_sync_task:
+        _directory_sync_task.cancel()
 
 
 app = FastAPI(title="workshop-checkin-backend", lifespan=lifespan)
@@ -66,6 +88,8 @@ app.include_router(search.router)
 app.include_router(import_export.router)
 app.include_router(lark_sync.router)
 app.include_router(registration_forms.router)
+app.include_router(auth.router)
+app.include_router(admin_users.router)
 
 _upload_dir = Path(settings.UPLOAD_DIR)
 _upload_dir.mkdir(parents=True, exist_ok=True)

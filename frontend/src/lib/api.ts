@@ -5,26 +5,64 @@ export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || (typeof window !== "unde
   ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`
   : "ws://localhost/ws");
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
+function authHeaders(init?: RequestInit): Headers {
+  const headers = new Headers(init?.headers);
+  return headers;
+}
+
+async function throwApiError(res: Response): Promise<never> {
+  const text = await res.text().catch(() => "");
+  if (typeof window !== "undefined" && res.status === 401 && !location.pathname.startsWith("/admin/login")) {
+    location.assign(`/admin/login?redirect=${encodeURIComponent(location.pathname + location.search)}`);
+  }
+  if (typeof window !== "undefined" && res.status === 403) window.dispatchEvent(new CustomEvent("auth:forbidden"));
+  throw new ApiError(res.status, `${res.status}${text ? ": " + text : ""}`);
+}
+
 export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init.body !== null && init.body !== "";
-  const headers: Record<string, string> = { ...(init?.headers as Record<string, string> | undefined) };
-  if (hasBody && !("Content-Type" in headers)) headers["Content-Type"] = "application/json";
+  const headers = authHeaders(init);
+  if (hasBody && !headers.has("Content-Type") && !(init?.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers,
     cache: "no-store",
+    credentials: "include",
   });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`${res.status}: ${txt}`);
-  }
+  if (!res.ok) await throwApiError(res);
   if (res.status === 204) return undefined as T;
   return res.json();
 }
 
 export async function apiForm<T = any>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { method: "POST", body: form, cache: "no-store" });
-  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  const res = await fetch(`${API_URL}${path}`, { method: "POST", body: form, cache: "no-store", credentials: "include", headers: authHeaders({ method: "POST" }) });
+  if (!res.ok) await throwApiError(res);
+  return res.json();
+}
+
+/**
+ * Admin identity APIs live under `/api/admin` while business APIs use the
+ * configured API base. Normalize both local proxy and absolute API builds.
+ */
+export async function adminApi<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const prefix = API_URL.endsWith("/api") ? `${API_URL}/admin` : "/api/admin";
+  const hasBody = init?.body !== undefined && init.body !== null && init.body !== "";
+  const headers = authHeaders(init);
+  if (hasBody && !headers.has("Content-Type") && !(init?.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+  const res = await fetch(`${prefix}${path}`, {
+    ...init,
+    headers,
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (!res.ok) await throwApiError(res);
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
@@ -46,7 +84,7 @@ export async function downloadGuestsXlsx(params: {
     qs.set("workshop_ids", params.workshopIds.join(","));
   }
   const res = await fetch(`${API_URL}/export/guests?${qs.toString()}`, {
-    credentials: "same-origin",
+    credentials: "include",
     cache: "no-store",
   });
   if (!res.ok) {
@@ -56,7 +94,8 @@ export async function downloadGuestsXlsx(params: {
     } catch {
       /* ignore */
     }
-    throw new Error(`${res.status}${detail ? ": " + detail : ""}`);
+    if (res.status === 401 || res.status === 403) await throwApiError(res);
+    throw new ApiError(res.status, `${res.status}${detail ? ": " + detail : ""}`);
   }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);

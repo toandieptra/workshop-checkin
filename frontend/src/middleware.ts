@@ -1,68 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { CSRF_HEADER, SESSION_COOKIE, verifySession } from "@/lib/admin-session";
 
 export const config = {
-  // Áp dụng cho UI admin + API admin (trừ /api/admin/login để cho phép POST login).
-  matcher: ["/admin/:path*", "/api/admin/:path*"],
+  // Chỉ hỗ trợ redirect UX cho UI; backend vẫn xác thực và phân quyền.
+  matcher: ["/admin/:path*"],
 };
 
 /**
- * Middleware bảo vệ segment /admin/* và /api/admin/*.
+ * Middleware hỗ trợ redirect nhanh cho segment /admin/*.
  *
  * Quy tắc:
  * - /admin/login  → cho qua (để user đăng nhập).
- * - /api/admin/login → cho qua (login phải khả dụng trước khi có session).
- * - Mọi path khác trong matcher → yêu cầu cookie admin_session hợp lệ.
- *   Thiếu / sai / hết hạn → redirect (UI) hoặc 401 (API).
- * - CSRF: với mọi method không phải GET/HEAD/OPTIONS, yêu cầu header
- *   `x-admin-session: 1` mà browser không gửi cross-site mặc định.
- *   Trình duyệt fetch same-origin set header thủ công ⇒ client phải set.
+ * - Mọi path khác chỉ kiểm tra sự hiện diện của opaque session cookie.
+ * - Tính hợp lệ, trạng thái active và permission luôn do backend kiểm tra.
  */
-export async function middleware(req: NextRequest) {
+export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Bỏ qua login.
   if (
     pathname === "/admin/login" ||
-    pathname === "/admin/login/" ||
-    pathname === "/api/admin/login" ||
-    pathname === "/api/admin/login/"
+    pathname === "/admin/login/"
   ) {
     return NextResponse.next();
   }
 
-  const cookie = req.cookies.get(SESSION_COOKIE)?.value;
-  const result = await verifySession(cookie);
-
-  if (!result.ok) {
-    // API → trả JSON 401. UI → redirect sang /admin/login.
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        { ok: false, error: "Chưa đăng nhập." },
-        { status: 401 },
-      );
-    }
+  // Chỉ kiểm tra sự hiện diện để UX redirect nhanh. Opaque cookie phải do backend
+  // xác thực qua /api/auth/me; middleware không kết luận cookie hợp lệ.
+  const cookieName = process.env.AUTH_SESSION_COOKIE || "workshop_admin_session";
+  const hasAuthCookie = Boolean(req.cookies.get(cookieName)?.value);
+  if (!hasAuthCookie) {
     const url = req.nextUrl.clone();
     url.pathname = "/admin/login";
-    url.search = "";
+    url.searchParams.set("redirect", pathname + req.nextUrl.search);
     return NextResponse.redirect(url);
   }
-
-  // CSRF cho non-safe methods.
-  const method = req.method.toUpperCase();
-  const isSafe = method === "GET" || method === "HEAD" || method === "OPTIONS";
-  if (!isSafe) {
-    const csrf = req.headers.get(CSRF_HEADER);
-    if (csrf !== "1") {
-      return NextResponse.json(
-        { ok: false, error: "CSRF: thiếu header x-admin-session." },
-        { status: 403 },
-      );
-    }
-  }
-
-  // Gắn header để handler downstream (RSC, route handler) biết đã verify.
-  const res = NextResponse.next();
-  res.headers.set(CSRF_HEADER, "1");
-  return res;
+  return NextResponse.next();
 }

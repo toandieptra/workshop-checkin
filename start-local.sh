@@ -122,8 +122,8 @@ start_frontend() {
   # frontend` directly (without starting the backend first).
   load_env
 
-  if [[ ! -d "$ROOT/frontend/.next/standalone" ]]; then
-    warn "Frontend standalone build missing. Building..."
+  if [[ ! -d "$ROOT/frontend/.next/standalone" || ! -d "$ROOT/frontend/.next/standalone/.next/static" ]]; then
+    warn "Frontend standalone build or static assets missing. Building..."
     rebuild_frontend
   else
     # Detect if built with the right API URL — rebuild if config changed.
@@ -132,7 +132,9 @@ start_frontend() {
     # This script always targets the local backend. Do not reuse a production
     # NEXT_PUBLIC_API_URL loaded from the root .env, otherwise every local
     # restart incorrectly decides that the build is stale.
-    local want_url="http://localhost:$BACKEND_PORT/api"
+    # Keep browser requests same-origin. Next.js proxies /api/* to the local
+    # backend, which also ensures the auth cookie set on :4317 is included.
+    local want_url=""
     if [[ "$current_url" != "$want_url" ]]; then
       warn "Frontend built with NEXT_PUBLIC_API_URL=$current_url, want $want_url — rebuilding"
       rebuild_frontend
@@ -145,6 +147,7 @@ start_frontend() {
   (
     cd "$ROOT/frontend/.next/standalone"
     PORT="$FRONTEND_PORT" \
+    BACKEND_INTERNAL_URL="http://127.0.0.1:$BACKEND_PORT" \
     ADMIN_COOKIE_SECURE=false \
     nohup node server.js > "$FRONTEND_LOG" 2>&1 &
     echo $! > /tmp/frontend.pid
@@ -164,12 +167,13 @@ start_frontend() {
 }
 
 rebuild_frontend() {
-  log "Building frontend (NEXT_PUBLIC_API_URL=http://localhost:$BACKEND_PORT/api)..."
+  log "Building frontend with same-origin API proxy..."
   (
     cd "$ROOT/frontend"
     rm -rf .next
-    NEXT_PUBLIC_API_URL="http://localhost:$BACKEND_PORT/api" \
-    NEXT_PUBLIC_WS_URL="ws://localhost:$BACKEND_PORT/ws" \
+    NEXT_PUBLIC_API_URL="" \
+    NEXT_PUBLIC_WS_URL="" \
+    BACKEND_INTERNAL_URL="http://127.0.0.1:$BACKEND_PORT" \
     npm run build
     cp -r .next/static .next/standalone/.next/static
     cp -r public .next/standalone/public 2>/dev/null || true

@@ -16,6 +16,14 @@ import {
   type WorkshopStatus,
   type WorkshopWriteBody,
 } from "@/lib/api";
+import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
+
+type ColumnKey = "name" | "date" | "branch" | "location" | "status" | "form" | "media" | "actions";
+const TABLE_COLUMNS = [
+  { key: "name", label: "Tên" }, { key: "date", label: "Ngày giờ" }, { key: "branch", label: "Chi nhánh" },
+  { key: "location", label: "Địa điểm" }, { key: "status", label: "Trạng thái" },
+  { key: "form", label: "Form đăng ký" }, { key: "media", label: "Media" }, { key: "actions", label: "Thao tác" },
+] as const;
 
 const STATUS_OPTIONS: { value: WorkshopStatus; label: string }[] = [
   { value: "draft", label: "Nháp" },
@@ -134,6 +142,8 @@ export default function AdminWorkshopPage() {
     index: number;
     workshopName: string;
   } | null>(null);
+  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
+    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -379,6 +389,9 @@ export default function AdminWorkshopPage() {
             </button>
           ))}
         </div>
+        <div className="mb-3 flex justify-end">
+          <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
+        </div>
 
         {loading ? (
           <div className="text-sm text-muted py-12 text-center">Đang tải…</div>
@@ -387,30 +400,30 @@ export default function AdminWorkshopPage() {
             Chưa có workshop nào.
           </div>
         ) : (
-          <div className="overflow-x-auto border border-line rounded-md bg-surface">
+          <div className="admin-table-scroll border border-line rounded-md bg-surface">
             <table className="w-full text-sm">
               <thead className="bg-surface-muted text-left text-muted">
                 <tr>
-                  <th className="px-3 py-2 font-medium">Tên</th>
-                  <th className="px-3 py-2 font-medium">Ngày giờ</th>
-                  <th className="px-3 py-2 font-medium">Chi nhánh</th>
-                  <th className="px-3 py-2 font-medium">Địa điểm</th>
-                  <th className="px-3 py-2 font-medium">Trạng thái</th>
-                  <th className="px-3 py-2 font-medium">Form đăng ký</th>
-                  <th className="px-3 py-2 font-medium">Media</th>
-                  <th className="px-3 py-2 font-medium text-right">Thao tác</th>
+                  {visibleColumns.name && <th className="px-3 py-2 font-medium">Tên</th>}
+                  {visibleColumns.date && <th className="px-3 py-2 font-medium">Ngày giờ</th>}
+                  {visibleColumns.branch && <th className="px-3 py-2 font-medium">Chi nhánh</th>}
+                  {visibleColumns.location && <th className="px-3 py-2 font-medium">Địa điểm</th>}
+                  {visibleColumns.status && <th className="px-3 py-2 font-medium">Trạng thái</th>}
+                  {visibleColumns.form && <th className="px-3 py-2 font-medium">Form đăng ký</th>}
+                  {visibleColumns.media && <th className="px-3 py-2 font-medium">Media</th>}
+                  {visibleColumns.actions && <th className="px-3 py-2 font-medium text-right">Thao tác</th>}
                 </tr>
               </thead>
               <tbody>
                 {items.map((w) => (
                   <tr key={w.id} className="border-t border-line align-top">
-                    <td className="px-3 py-2">
+                    {visibleColumns.name && <td className="px-3 py-2">
                       <div className="font-medium text-brand-teal">{w.name}</div>
                       <div className="text-xs text-muted">{w.slug}</div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{formatDate(w.event_date, w.event_time)}</td>
-                    <td className="px-3 py-2">{w.branch || "—"}</td>
-                    <td className="px-3 py-2 max-w-[180px]">
+                    </td>}
+                    {visibleColumns.date && <td className="px-3 py-2 whitespace-nowrap">{formatDate(w.event_date, w.event_time)}</td>}
+                    {visibleColumns.branch && <td className="px-3 py-2">{w.branch || "—"}</td>}
+                    {visibleColumns.location && <td className="px-3 py-2 max-w-[180px]">
                       <div className="line-clamp-2">{w.location || "—"}</div>
                       {w.maps_url && (
                         <a
@@ -422,8 +435,8 @@ export default function AdminWorkshopPage() {
                           Maps
                         </a>
                       )}
-                    </td>
-                    <td className="px-3 py-2">
+                    </td>}
+                    {visibleColumns.status && <td className="px-3 py-2">
                       <span
                         className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
                           STATUS_CLASS[w.status] || STATUS_CLASS.draft
@@ -431,8 +444,8 @@ export default function AdminWorkshopPage() {
                       >
                         {statusLabel(w.status)}
                       </span>
-                    </td>
-                    <td className="px-3 py-2 max-w-[280px]">
+                    </td>}
+                    {visibleColumns.form && <td className="px-3 py-2 max-w-[280px]">
                       {(w.registration_forms || []).length === 0 ? (
                         <span className="text-xs text-muted">—</span>
                       ) : (
@@ -456,8 +469,8 @@ export default function AdminWorkshopPage() {
                           })}
                         </span>
                       )}
-                    </td>
-                    <td className="px-3 py-2">
+                    </td>}
+                    {visibleColumns.media && <td className="px-3 py-2">
                       {(w.media || []).length === 0 ? (
                         <span className="text-xs text-muted">—</span>
                       ) : (
@@ -495,8 +508,8 @@ export default function AdminWorkshopPage() {
                           )}
                         </div>
                       )}
-                    </td>
-                    <td className="px-3 py-2">
+                    </td>}
+                    {visibleColumns.actions && <td className="px-3 py-2">
                       <div className="flex flex-wrap justify-end gap-1">
                         <button
                           onClick={() => openEdit(w)}
@@ -539,7 +552,7 @@ export default function AdminWorkshopPage() {
                           Xóa
                         </button>
                       </div>
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>

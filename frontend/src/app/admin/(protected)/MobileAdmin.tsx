@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
 import QrDisplay from "@/components/QrDisplay";
-import { useAdminGuests, type Guest } from "@/hooks/useAdminGuests";
+import { useAdminGuests, type Guest, type NewGuestInput } from "@/hooks/useAdminGuests";
+import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
 
 // =============================================================================
 // Inline SVG icon set — stroke 1.8-2, kế thừa color qua currentColor.
@@ -96,6 +97,25 @@ function IconQrCode(props: IconProps) {
       <rect x="14" y="3" width="7" height="7" />
       <rect x="3" y="14" width="7" height="7" />
       <path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20v.01" />
+    </svg>
+  );
+}
+
+function IconPlus(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function IconUser(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
     </svg>
   );
 }
@@ -198,9 +218,13 @@ export default function MobileAdmin() {
     copyPhone,
     msg,
     setMsg,
+    newGuest,
+    setNewGuest,
+    createGuest,
   } = useAdminGuests();
 
   const [linkCopied, setLinkCopied] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   const welcomeUrl =
     typeof window !== "undefined" && currentWorkshop
@@ -221,6 +245,17 @@ export default function MobileAdmin() {
   const notCheckedIn = Math.max(0, totalRegistered - totalCheckedIn);
   const { host: welcomeHost, rest: welcomeRest } = splitUrl(welcomeUrl);
   const filterActive = statusFilter !== "all" || search.trim().length > 0;
+
+  const openAddForm = (prefillPhone?: string) => {
+    setNewGuest({
+      full_name: "",
+      phone: (prefillPhone ?? search).trim(),
+      business_model: "",
+      party_size: 1,
+      is_vip: false,
+    });
+    setShowAddForm(true);
+  };
 
   return (
     <div className="pb-20">
@@ -329,7 +364,7 @@ export default function MobileAdmin() {
         </section>
       )}
 
-      {/* ======= 4. Search + filter chips + results meta ======= */}
+      {/* ======= 4. Search + status dropdown + Thêm khách ======= */}
       <section className="px-3 mt-3">
         <div className="relative">
           <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
@@ -352,31 +387,27 @@ export default function MobileAdmin() {
           )}
         </div>
 
-        <div className="flex gap-1.5 mt-2 overflow-x-auto">
-          <FilterChip
-            active={statusFilter === "all"}
-            onClick={() => setStatusFilter("all")}
-            tone="default"
-            count={totalRegistered}
+        <div className="flex gap-2 mt-2">
+          <div className="relative flex-1 min-w-0">
+            <IconChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
+            <select
+              className="w-full appearance-none border border-line rounded-md pl-3 pr-8 py-2.5 text-sm bg-surface text-brand-teal font-semibold focus:border-brand focus:ring-2 focus:ring-brand/20"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+              aria-label="Lọc trạng thái check-in"
+            >
+              <option value="all">Tất cả ({totalRegistered})</option>
+              <option value="not_checked_in">Chưa check-in ({notCheckedIn})</option>
+              <option value="checked_in">Đã check-in ({totalCheckedIn})</option>
+            </select>
+          </div>
+          <button
+            onClick={() => openAddForm()}
+            className="inline-flex items-center justify-center gap-1 h-[42px] px-3 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 shrink-0"
           >
-            Tất cả
-          </FilterChip>
-          <FilterChip
-            active={statusFilter === "not_checked_in"}
-            onClick={() => setStatusFilter("not_checked_in")}
-            tone="warn"
-            count={notCheckedIn}
-          >
-            Chưa check-in
-          </FilterChip>
-          <FilterChip
-            active={statusFilter === "checked_in"}
-            onClick={() => setStatusFilter("checked_in")}
-            tone="ok"
-            count={totalCheckedIn}
-          >
-            Đã check-in
-          </FilterChip>
+            <IconPlus className="w-3.5 h-3.5" />
+            Thêm khách
+          </button>
         </div>
 
         {filterActive && (
@@ -390,9 +421,16 @@ export default function MobileAdmin() {
       {/* ======= 5. Guest card list ======= */}
       <section className="px-3 mt-3 flex flex-col gap-2.5">
         {visibleGuests.length === 0 ? (
-          <div className="py-10 text-center text-muted text-sm bg-surface border border-line rounded-md">
-            Không có khách khớp bộ lọc
-          </div>
+          filterActive ? (
+            <EmptyStateAddCustomer
+              query={search.trim()}
+              onAdd={() => openAddForm(search.trim())}
+            />
+          ) : (
+            <div className="py-10 text-center text-muted text-sm bg-surface border border-line rounded-md">
+              Không có khách khớp bộ lọc
+            </div>
+          )
         ) : (
           visibleGuests.map((g) => (
             <GuestCard
@@ -407,7 +445,23 @@ export default function MobileAdmin() {
         )}
       </section>
 
-      {/* ======= 6. Home indicator — iOS-style, mờ ======= */}
+      {/* ======= 6. Add-customer bottom sheet ======= */}
+      {showAddForm && (
+        <AddCustomerSheet
+          newGuest={newGuest}
+          setNewGuest={setNewGuest}
+          onClose={() => setShowAddForm(false)}
+          onSubmit={async () => {
+            const ok = await createGuest();
+            if (ok) {
+              setShowAddForm(false);
+              setSearch("");
+            }
+          }}
+        />
+      )}
+
+      {/* ======= 7. Home indicator — iOS-style, mờ ======= */}
       <div className="h-6 flex items-center justify-center pb-[env(safe-area-inset-bottom)]">
         <div className="w-[120px] h-1 rounded-full bg-border-strong opacity-40" />
       </div>
@@ -458,62 +512,6 @@ function KpiCard({
       <div className={`text-[10px] font-medium tracking-wide leading-tight ${labelCls}`}>{label}</div>
       <div className={`text-[18px] font-bold leading-tight mt-0.5 font-heading ${valueCls}`}>{value}</div>
     </div>
-  );
-}
-
-function CountBadge({ children }: { children: number }) {
-  return (
-    <span className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1.5 rounded-full bg-surface-muted text-text-secondary text-[10px] font-semibold">
-      {children}
-    </span>
-  );
-}
-
-function FilterChip({
-  active,
-  onClick,
-  tone = "default",
-  count,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  tone?: "default" | "ok" | "warn";
-  count: number;
-  children: React.ReactNode;
-}) {
-  // Tone palette:
-  //  - default: cyan primary (brand)
-  //  - ok: success teal
-  //  - warn: warm amber
-  // WCAG: dùng dark text khi active trên nền sáng để đảm bảo ≥4.5:1.
-  let cls = "border-line text-muted bg-surface";
-  if (active) {
-    if (tone === "ok") cls = "border-green-600 bg-green-600 text-white";
-    else if (tone === "warn") cls = "border-warning bg-warning text-brand-teal";
-    else cls = "border-brand bg-brand text-brand-teal";
-  }
-
-  return (
-    <button
-      onClick={onClick}
-      role="tab"
-      aria-selected={active}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-[12px] font-semibold border ${cls} active:opacity-80 shrink-0`}
-    >
-      {children}
-      <span
-        className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold ${
-          active
-            ? tone === "ok"
-              ? "bg-white/20 text-white"
-              : "bg-white/20 text-brand-teal"
-            : "bg-surface-muted text-text-secondary"
-        }`}
-      >
-        {count}
-      </span>
-    </button>
   );
 }
 
@@ -634,5 +632,226 @@ function GuestCard({
         </button>
       </div>
     </div>
+  );
+}
+
+// =============================================================================
+// Empty state — search SĐT không khớp → gợi ý thêm nhanh
+// =============================================================================
+
+function EmptyStateAddCustomer({
+  query,
+  onAdd,
+}: {
+  query: string;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="py-8 px-3 text-center bg-surface border border-dashed border-brand/40 rounded-md">
+      <div className="w-10 h-10 mx-auto rounded-full bg-brand/10 text-brand inline-flex items-center justify-center mb-2">
+        <IconSearch className="w-5 h-5" />
+      </div>
+      <p className="text-sm text-brand-teal font-semibold leading-snug">
+        Không có khách khớp
+        {query ? (
+          <>
+            {" "}
+            <span className="font-mono text-brand">“{query}”</span>
+          </>
+        ) : null}
+      </p>
+      <p className="text-[11px] text-muted mt-1">
+        Có thể khách ngoài danh sách — thêm nhanh để check-in.
+      </p>
+      <button
+        onClick={onAdd}
+        className="mt-3 inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90"
+      >
+        <IconPlus className="w-3.5 h-3.5" />
+        Thêm khách
+      </button>
+    </div>
+  );
+}
+
+// =============================================================================
+// AddCustomerSheet — bottom-sheet form thêm khách nhanh (mobile)
+// =============================================================================
+
+function AddCustomerSheet({
+  newGuest,
+  setNewGuest,
+  onClose,
+  onSubmit,
+}: {
+  newGuest: NewGuestInput;
+  setNewGuest: React.Dispatch<React.SetStateAction<NewGuestInput>>;
+  onClose: () => void;
+  onSubmit: () => void | Promise<void>;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Thêm khách nhanh"
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+        aria-label="Đóng"
+      />
+
+      {/* Sheet — trượt từ dưới lên, chiếm phần dưới màn hình */}
+      <div className="relative w-full max-w-md bg-surface rounded-t-2xl shadow-xl animate-sheet-up pb-[env(safe-area-inset-bottom)]">
+        {/* Handle */}
+        <div className="pt-2 flex justify-center">
+          <div className="w-10 h-1 rounded-full bg-border-strong opacity-50" />
+        </div>
+
+        {/* Header */}
+        <div className="px-4 pt-2 pb-3 flex items-center gap-2 border-b border-line">
+          <div className="w-7 h-7 rounded-full bg-brand/10 text-brand inline-flex items-center justify-center shrink-0">
+            <IconUser className="w-3.5 h-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-heading font-bold text-[15px] text-brand-teal leading-tight">
+              Thêm khách nhanh
+            </div>
+            <p className="text-[11px] text-muted leading-tight">
+              Thêm và check-in sau khi xác minh
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Đóng"
+            className="w-8 h-8 rounded-md text-text-secondary hover:bg-brand/5 hover:text-brand-teal inline-flex items-center justify-center"
+          >
+            <IconClose className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Form */}
+        <div className="px-4 py-3 space-y-3 max-h-[70vh] overflow-y-auto">
+          <Field label="Họ tên" required>
+            <input
+              autoFocus
+              type="text"
+              value={newGuest.full_name}
+              onChange={(e) =>
+                setNewGuest({ ...newGuest, full_name: e.target.value })
+              }
+              placeholder="Nguyễn Văn A"
+              className="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-brand-teal placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
+            />
+          </Field>
+
+          <Field label="Số điện thoại" required>
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={newGuest.phone}
+              onChange={(e) =>
+                setNewGuest({ ...newGuest, phone: e.target.value })
+              }
+              placeholder="0901234567"
+              className="w-full px-3 py-2 border border-line rounded-md text-sm font-mono bg-surface text-brand-teal placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Số khách" required>
+              <input
+                type="number"
+                min={1}
+                value={newGuest.party_size}
+                onChange={(e) =>
+                  setNewGuest({
+                    ...newGuest,
+                    party_size: Math.max(1, parseInt(e.target.value) || 1),
+                  })
+                }
+                className="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-brand-teal focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
+              />
+            </Field>
+
+            <Field label="VIP">
+              <label className="h-[38px] px-3 inline-flex items-center gap-2 border border-line rounded-md text-sm text-brand-teal bg-surface">
+                <input
+                  type="checkbox"
+                  checked={newGuest.is_vip}
+                  onChange={(e) =>
+                    setNewGuest({ ...newGuest, is_vip: e.target.checked })
+                  }
+                  className="w-4 h-4 accent-brand"
+                />
+                <IconStar filled={newGuest.is_vip} className="w-3.5 h-3.5 text-brand-gold" />
+                Đánh dấu VIP
+              </label>
+            </Field>
+          </div>
+
+          <Field label="Mô hình kinh doanh" required>
+            <select
+              value={newGuest.business_model}
+              onChange={(e) =>
+                setNewGuest({ ...newGuest, business_model: e.target.value })
+              }
+              className="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-brand-teal focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
+            >
+              <option value="">— Chọn —</option>
+              {BUSINESS_MODEL_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        {/* Footer */}
+        <div className="px-4 py-3 border-t border-line grid grid-cols-2 gap-2">
+          <button
+            onClick={onClose}
+            className="h-10 rounded-md text-[13px] font-semibold border border-line bg-surface text-brand-teal active:bg-cyan-pale"
+          >
+            Hủy
+          </button>
+          <button
+            onClick={onSubmit}
+            disabled={
+              !newGuest.full_name.trim() ||
+              !newGuest.phone.trim() ||
+              !newGuest.business_model
+            }
+            className="h-10 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <IconPlus className="w-3.5 h-3.5" />
+            Thêm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="block text-[11px] font-semibold text-text-secondary mb-1">
+        {label}
+        {required && <span className="text-error ml-0.5">*</span>}
+      </span>
+      {children}
+    </label>
   );
 }

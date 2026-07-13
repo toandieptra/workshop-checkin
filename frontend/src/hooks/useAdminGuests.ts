@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, API_URL } from "@/lib/api";
+import { api, apiForm } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
 export interface Workshop {
@@ -163,29 +163,35 @@ export function useAdminGuests() {
   }, [connected, wid, debouncedSearch, loadGuests]);
 
   // ----- guest actions -----
-  const createGuest = useCallback(async () => {
-    if (!wid) return;
+  const createGuest = useCallback(async (): Promise<boolean> => {
+    if (!wid) return false;
     const full_name = newGuest.full_name.trim();
     const phone = newGuest.phone.trim();
     const business_model = newGuest.business_model.trim();
     const party_size = Math.max(1, Math.floor(Number(newGuest.party_size)) || 1);
     if (!full_name || !phone || !business_model) {
       setMsg("Vui lòng nhập Họ tên, SĐT, Số khách và chọn Mô hình kinh doanh.");
-      return;
+      return false;
     }
-    await api("/workshops/" + wid + "/guests", {
-      method: "POST",
-      body: JSON.stringify({
-        full_name,
-        phone,
-        business_model,
-        party_size,
-        guest_type: newGuest.is_vip ? "vip" : null,
-      }),
-    });
-    setNewGuest(emptyNewGuest());
-    setMsg("Đã thêm khách.");
-    await loadGuests(wid, debouncedSearch);
+    try {
+      await api("/workshops/" + wid + "/guests", {
+        method: "POST",
+        body: JSON.stringify({
+          full_name,
+          phone,
+          business_model,
+          party_size,
+          guest_type: newGuest.is_vip ? "vip" : null,
+        }),
+      });
+      setNewGuest(emptyNewGuest());
+      setMsg("Đã thêm khách.");
+      await loadGuests(wid, debouncedSearch);
+      return true;
+    } catch (e: any) {
+      setMsg("Lỗi thêm khách: " + (e?.message || "không rõ"));
+      return false;
+    }
   }, [newGuest, wid, debouncedSearch, loadGuests]);
 
   const delGuest = useCallback(
@@ -282,8 +288,7 @@ export function useAdminGuests() {
       setMsg("Đang nhập dữ liệu...");
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch(API_URL + "/workshops/" + wid + "/import", { method: "POST", body: fd });
-      const data = await res.json();
+      const data = await apiForm<any>("/workshops/" + wid + "/import", fd);
       setMsg("Nhập: " + data.imported + "/" + data.total_rows + " dòng");
       await loadGuests(wid, debouncedSearch);
     },

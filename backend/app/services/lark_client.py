@@ -25,9 +25,18 @@ def _ensure_config():
         raise LarkError(f"Thiếu cấu hình Lark: {', '.join(missing)}")
 
 
+def _ensure_app_config():
+    missing = [
+        key for key in ("LARK_APP_ID", "LARK_APP_SECRET")
+        if not getattr(settings, key)
+    ]
+    if missing:
+        raise LarkError(f"Thiếu cấu hình Lark: {', '.join(missing)}")
+
+
 async def get_tenant_token() -> str:
     """Lấy tenant_access_token, cache trong Redis theo TTL."""
-    _ensure_config()
+    _ensure_app_config()
     redis = get_redis()
     cached = await redis.get(_TOKEN_KEY)
     if cached:
@@ -80,6 +89,70 @@ async def list_records(table_id: str, page_size: int = 100) -> list[dict]:
                 continue
             break
     return out
+
+
+async def _list_contact_pages(url: str, params: dict) -> list[dict]:
+    """List a paginated Lark Contacts endpoint (maximum page size is 50)."""
+    out: list[dict] = []
+    page_token: str | None = None
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        while True:
+            page_params = {**params, "page_size": 50}
+            if page_token:
+                page_params["page_token"] = page_token
+            response = await _request_with_retry(client, "GET", url, params=page_params)
+            data = response.json()
+            if data.get("code") != 0:
+                raise LarkError(f"Lark Contacts lỗi: {data.get('msg')} (code={data.get('code')})")
+            payload = data.get("data") or {}
+            out.extend(payload.get("items") or [])
+            if payload.get("has_more") and payload.get("page_token"):
+                page_token = payload["page_token"]
+                continue
+            return out
+
+
+async def list_contact_departments() -> list[dict]:
+    """List every department visible to the app, recursively from root."""
+    _ensure_app_config()
+    url = f"{settings.lark_base_url}/contact/v3/departments/0/children"
+    return await _list_contact_pages(url, {
+        "department_id_type": "open_department_id",
+        "user_id_type": "user_id",
+        "fetch_child": "true",
+    })
+
+
+async def list_contact_users_by_department(department_id: str) -> list[dict]:
+    """List users directly under one department."""
+    _ensure_app_config()
+    url = f"{settings.lark_base_url}/contact/v3/users/find_by_department"
+    return await _list_contact_pages(url, {
+        "department_id": department_id,
+        "department_id_type": "open_department_id",
+        "user_id_type": "user_id",
+    })
+
+
+async def list_contact_users() -> list[dict]:
+    """List unique users across root and all visible departments."""
+    departments = await list_contact_departments()
+    department_ids = ["0"]
+    department_ids.extend(
+        str(item.get("open_department_id") or item.get("department_id"))
+        for item in departments
+        if item.get("open_department_id") or item.get("department_id")
+    )
+    unique: dict[str, dict] = {}
+    for department_id in dict.fromkeys(department_ids):
+        for user in await list_contact_users_by_department(department_id):
+            key = str(
+                user.get("union_id") or user.get("open_id") or user.get("user_id")
+                or user.get("enterprise_email") or user.get("email") or ""
+            ).strip().lower()
+            if key:
+                unique[key] = user
+    return list(unique.values())
 
 
 async def update_record(table_id: str, record_id: str, fields: dict) -> None:

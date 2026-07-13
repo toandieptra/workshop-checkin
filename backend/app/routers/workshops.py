@@ -32,6 +32,7 @@ from ..schemas import (
     WORKSHOP_MEDIA_TYPES,
     WORKSHOP_STATUSES,
 )
+from ..auth.dependencies import require_permission
 
 logger = logging.getLogger("workshops")
 router = APIRouter(prefix="/api", tags=["workshops"])
@@ -209,7 +210,7 @@ async def list_workshops(
     return [await _to_out(db, w, include_forms=True) for w in rows]
 
 
-@router.post("/workshops", response_model=WorkshopOut, status_code=201)
+@router.post("/workshops", response_model=WorkshopOut, status_code=201, dependencies=[Depends(require_permission("workshops.write"))])
 async def create_workshop(body: WorkshopCreate, db: AsyncSession = Depends(get_db)):
     slug = body.slug.strip() if body.slug else _slugify(body.name)
     if not slug:
@@ -234,7 +235,7 @@ async def get_workshop(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db
     return await _to_out(db, w)
 
 
-@router.patch("/workshops/{workshop_id}", response_model=WorkshopOut)
+@router.patch("/workshops/{workshop_id}", response_model=WorkshopOut, dependencies=[Depends(require_permission("workshops.write"))])
 async def update_workshop(
     workshop_id: uuid.UUID,
     body: WorkshopUpdate,
@@ -264,7 +265,7 @@ async def update_workshop(
     return await _to_out(db, w)
 
 
-@router.patch("/workshops/{workshop_id}/status", response_model=WorkshopOut)
+@router.patch("/workshops/{workshop_id}/status", response_model=WorkshopOut, dependencies=[Depends(require_permission("workshops.write"))])
 async def update_workshop_status(
     workshop_id: uuid.UUID,
     body: WorkshopStatusUpdate,
@@ -279,7 +280,7 @@ async def update_workshop_status(
     return await _to_out(db, w)
 
 
-@router.delete("/workshops/{workshop_id}")
+@router.delete("/workshops/{workshop_id}", dependencies=[Depends(require_permission("workshops.delete"))])
 async def delete_workshop(
     workshop_id: uuid.UUID,
     hard: bool = Query(False),
@@ -302,13 +303,13 @@ async def delete_workshop(
     return await _to_out(db, w)
 
 
-@router.get("/workshops/{workshop_id}/registration-forms", response_model=list[WorkshopLinkedFormOut])
+@router.get("/workshops/{workshop_id}/registration-forms", response_model=list[WorkshopLinkedFormOut], dependencies=[Depends(require_permission("registration_forms.read"))])
 async def list_workshop_forms(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await _get_workshop(db, workshop_id)
     return await _linked_forms(db, workshop_id)
 
 
-@router.post("/workshops/{workshop_id}/media", response_model=list[WorkshopMediaOut], status_code=201)
+@router.post("/workshops/{workshop_id}/media", response_model=list[WorkshopMediaOut], status_code=201, dependencies=[Depends(require_permission("workshops.write"))])
 async def upload_workshop_media(
     workshop_id: uuid.UUID,
     media_type: str = Form("banner"),
@@ -359,7 +360,7 @@ async def upload_workshop_media(
     return [WorkshopMediaOut.model_validate(m) for m in created]
 
 
-@router.delete("/workshops/{workshop_id}/media/{media_id}", status_code=204)
+@router.delete("/workshops/{workshop_id}/media/{media_id}", status_code=204, dependencies=[Depends(require_permission("workshops.write"))])
 async def delete_workshop_media(
     workshop_id: uuid.UUID,
     media_id: uuid.UUID,
@@ -382,7 +383,7 @@ async def delete_workshop_media(
     return None
 
 
-@router.patch("/workshops/{workshop_id}/media/reorder", response_model=list[WorkshopMediaOut])
+@router.patch("/workshops/{workshop_id}/media/reorder", response_model=list[WorkshopMediaOut], dependencies=[Depends(require_permission("workshops.write"))])
 async def reorder_workshop_media(
     workshop_id: uuid.UUID,
     body: list[uuid.UUID],
@@ -414,7 +415,7 @@ def _delete_media_file(file_url: str | None) -> None:
         logger.warning("cannot delete media file %s: %s", path, e)
 
 
-@router.get("/workshops/{workshop_id}/guests", response_model=list[GuestOut])
+@router.get("/workshops/{workshop_id}/guests", response_model=list[GuestOut], dependencies=[Depends(require_permission("guests.read"))])
 async def list_guests(
     workshop_id: uuid.UUID,
     search: str | None = None,
@@ -439,7 +440,7 @@ async def list_guests(
     return rows
 
 
-@router.post("/workshops/{workshop_id}/guests", response_model=GuestOut, status_code=201)
+@router.post("/workshops/{workshop_id}/guests", response_model=GuestOut, status_code=201, dependencies=[Depends(require_permission("guests.write"))])
 async def create_guest(workshop_id: uuid.UUID, body: GuestCreate, db: AsyncSession = Depends(get_db)):
     w = await db.get(Workshop, workshop_id)
     if not w:

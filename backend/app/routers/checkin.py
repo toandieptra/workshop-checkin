@@ -11,6 +11,7 @@ from ..db import get_db
 from ..models import CheckinLog, Guest, WelcomeEvent
 from ..schemas import CheckinLogOut
 from ..ws import manager
+from ..auth.dependencies import require_permission
 
 router = APIRouter(prefix="/api/checkin", tags=["checkin"])
 
@@ -42,7 +43,7 @@ async def _broadcast_welcome(db: AsyncSession, workshop_id: uuid.UUID, guest: Gu
 # -----------------------------------------------------------------
 # GET /api/checkin/logs
 # -----------------------------------------------------------------
-@router.get("/logs", response_model=list[CheckinLogOut])
+@router.get("/logs", response_model=list[CheckinLogOut], dependencies=[Depends(require_permission("checkin.read"))])
 async def get_logs(
     workshop_id: uuid.UUID,
     limit: int = 100,
@@ -74,7 +75,7 @@ async def get_logs(
 # -----------------------------------------------------------------
 # POST /api/checkin/reset  (backward-compatible alias for uncheckin)
 # -----------------------------------------------------------------
-@router.post("/reset")
+@router.post("/reset", dependencies=[Depends(require_permission("checkin.manage"))])
 async def reset_checkin(
     guest_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
