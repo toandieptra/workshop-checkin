@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.dependencies import current_user
@@ -31,6 +31,84 @@ async def _user_payload(user: AdminUser, db: AsyncSession) -> dict:
 
 def _safe_return_to(value: str | None) -> str:
     return value if value and value.startswith("/") and not value.startswith("//") else "/admin"
+
+
+def _role_rank(role: str | None) -> int:
+    order = {"super_admin": 0, "admin": 1, "editor": 2, "viewer": 3, "user": 4}
+    return order.get((role or "").strip(), 99)
+
+
+async def _resolve_login_user(
+    db: AsyncSession,
+    *,
+    email: str,
+    open_id: str | None,
+    union_id: str | None,
+) -> AdminUser | None:
+    """Pick one admin row when bootstrap email and directory sync diverge.
+
+    Prefer active accounts, then higher roles (super_admin first). Email-only
+    bootstrap rows must win over inactive directory clones of the same person.
+    """
+    candidates: list[AdminUser] = []
+    seen: set = set()
+
+    async def _add(query):
+        for row in (await db.execute(query)).scalars().all():
+            if row.id not in seen:
+                seen.add(row.id)
+                candidates.append(row)
+
+    if open_id:
+        await _add(select(AdminUser).where(AdminUser.lark_open_id == open_id))
+    if union_id:
+        await _add(select(AdminUser).where(AdminUser.lark_union_id == union_id))
+    await _add(select(AdminUser).where(func.lower(AdminUser.email) == email))
+
+    if not candidates:
+        return None
+    active = [u for u in candidates if u.is_active]
+    pool = active or candidates
+    pool.sort(key=lambda u: (_role_rank(u.role), str(u.created_at or "")))
+    return pool[0]
+
+
+async def _claim_lark_identity(
+    db: AsyncSession,
+    user: AdminUser,
+    *,
+    open_id: str | None,
+    union_id: str | None,
+) -> None:
+    """Move unique Lark ids onto the chosen user; clear duplicates on others."""
+    if open_id:
+        others = (
+            await db.execute(
+                select(AdminUser).where(
+                    AdminUser.lark_open_id == open_id,
+                    AdminUser.id != user.id,
+                )
+            )
+        ).scalars().all()
+        for other in others:
+            other.lark_open_id = None
+            other.updated_at = datetime.now(timezone.utc)
+            logger.info("Cleared duplicate lark_open_id from admin_users.id=%s", other.id)
+        user.lark_open_id = open_id
+    if union_id:
+        others = (
+            await db.execute(
+                select(AdminUser).where(
+                    AdminUser.lark_union_id == union_id,
+                    AdminUser.id != user.id,
+                )
+            )
+        ).scalars().all()
+        for other in others:
+            other.lark_union_id = None
+            other.updated_at = datetime.now(timezone.utc)
+            logger.info("Cleared duplicate lark_union_id from admin_users.id=%s", other.id)
+        user.lark_union_id = union_id
 
 
 @router.get("/lark/login")
@@ -77,20 +155,15 @@ async def lark_callback(code: str, state: str, request: Request, db: AsyncSessio
         )
         raise HTTPException(403, "Lark tenant is not allowed")
 
-    open_id = profile.get("open_id")
-    union_id = profile.get("union_id")
-    user = (await db.execute(select(AdminUser).where(or_(
-        func.lower(AdminUser.email) == email,
-        AdminUser.lark_open_id == open_id if open_id else False,
-        AdminUser.lark_union_id == union_id if union_id else False,
-    )))).scalars().first()
+    open_id = (profile.get("open_id") or "").strip() or None
+    union_id = (profile.get("union_id") or "").strip() or None
+    user = await _resolve_login_user(db, email=email, open_id=open_id, union_id=union_id)
     if not user or not user.is_active:
         raise HTTPException(403, "account is not pre-provisioned or is inactive")
     user.email = email
     user.name = profile.get("name") or profile.get("en_name") or user.name
     user.avatar_url = profile.get("avatar_url") or profile.get("avatar_big") or user.avatar_url
-    user.lark_open_id = open_id or user.lark_open_id
-    user.lark_union_id = union_id or user.lark_union_id
+    await _claim_lark_identity(db, user, open_id=open_id, union_id=union_id)
     user.lark_tenant_key = tenant_key
     user.last_login_at = datetime.now(timezone.utc)
     user.updated_at = datetime.now(timezone.utc)
