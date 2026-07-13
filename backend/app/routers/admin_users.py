@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.dependencies import require_permission
@@ -87,7 +88,11 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db), _=De
     user = AdminUser(email=email, name=body.name, role=body.role, is_active=body.is_active,
                      permission_overrides=body.permission_overrides)
     db.add(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(400, f"could not create user: {exc.orig}") from exc
     await db.refresh(user)
     return await _out(user, db)
 
@@ -204,6 +209,10 @@ async def update_user(user_id: uuid.UUID, body: UserUpdate, db: AsyncSession = D
     user.updated_at = datetime.now(timezone.utc)
     if changes.get("is_active") is False:
         await db.execute(delete(AdminSession).where(AdminSession.user_id == user.id))
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(400, f"could not update user: {exc.orig}") from exc
     await db.refresh(user)
     return await _out(user, db)
