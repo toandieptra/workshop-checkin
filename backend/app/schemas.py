@@ -74,6 +74,7 @@ class WorkshopOut(BaseModel):
     maps_url: str | None = None
     registration_short_url: str | None = None
     lark_workshop_name: str | None = None
+    lark_record_id: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
     last_synced_at: datetime | None = None

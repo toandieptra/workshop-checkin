@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import QrDisplay from "@/components/QrDisplay";
 import { useAdminGuests, type Guest, type NewGuestInput } from "@/hooks/useAdminGuests";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
@@ -106,6 +106,24 @@ function IconPlus(props: IconProps) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
       strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function IconMinus(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function IconTrash(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />
     </svg>
   );
 }
@@ -221,6 +239,7 @@ export default function MobileAdmin() {
     newGuest,
     setNewGuest,
     createGuest,
+    delGuest,
   } = useAdminGuests();
 
   const [linkCopied, setLinkCopied] = useState(false);
@@ -440,6 +459,7 @@ export default function MobileAdmin() {
               onUncheckin={() => doUncheckin(g)}
               onToggleVip={() => toggleVip(g)}
               onCopyPhone={() => g.phone && copyPhone(g.phone)}
+              onDelete={() => delGuest(g.id)}
             />
           ))
         )}
@@ -515,32 +535,108 @@ function KpiCard({
   );
 }
 
+const SWIPE_REVEAL_WIDTH = 88; // px — bề rộng nút Xoá lộ ra khi vuốt trái
+
 function GuestCard({
   g,
   onCheckin,
   onUncheckin,
   onToggleVip,
   onCopyPhone,
+  onDelete,
 }: {
   g: Guest;
   onCheckin: () => void;
   onUncheckin: () => void;
   onToggleVip: () => void;
   onCopyPhone: () => void;
+  onDelete: () => void;
 }) {
   const vip = isVip(g);
   const checked = g.checkin_status === "checked_in";
   const delta = partyDelta(g);
   const registered = g.party_size || 1;
 
+  const [offset, setOffset] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startX = useRef(0);
+  const startY = useRef(0);
+  const startOffset = useRef(0);
+  const axis = useRef<"none" | "x" | "y">("none");
+
+  const open = offset > 0;
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    startX.current = t.clientX;
+    startY.current = t.clientY;
+    startOffset.current = offset;
+    axis.current = "none";
+    setDragging(true);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    const dx = t.clientX - startX.current;
+    const dy = t.clientY - startY.current;
+    if (axis.current === "none") {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      axis.current = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    }
+    if (axis.current !== "x") return; // để cuộn dọc bình thường
+    const next = Math.min(SWIPE_REVEAL_WIDTH, Math.max(0, startOffset.current - dx));
+    setOffset(next);
+  };
+
+  const onTouchEnd = () => {
+    setDragging(false);
+    if (axis.current === "x") {
+      setOffset(offset > SWIPE_REVEAL_WIDTH * 0.4 ? SWIPE_REVEAL_WIDTH : 0);
+    }
+    axis.current = "none";
+  };
+
+  // Nếu đang mở, chạm vào nội dung sẽ đóng swipe thay vì kích hoạt action
+  const guardAction = (fn: () => void) => () => {
+    if (open) {
+      setOffset(0);
+      return;
+    }
+    fn();
+  };
+
   return (
-    <div
-      className={`bg-surface border rounded-md p-3 shadow-sm ${
-        vip
-          ? "border-brand ring-1 ring-brand bg-gradient-to-b from-cyan-bg to-white"
-          : "border-line"
-      }`}
-    >
+    <div className="relative overflow-hidden rounded-md">
+      {/* Lớp dưới: nút Xoá lộ ra khi vuốt trái */}
+      <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL_WIDTH }}>
+        <button
+          onClick={() => {
+            onDelete();
+            setOffset(0);
+          }}
+          aria-label="Xoá khách"
+          className="flex-1 flex flex-col items-center justify-center gap-1 bg-error text-white text-[12px] font-semibold active:opacity-90"
+        >
+          <IconTrash className="w-4 h-4" />
+          Xoá
+        </button>
+      </div>
+
+      {/* Lớp trên: nội dung card, trượt theo offset */}
+      <div
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{
+          transform: `translateX(-${offset}px)`,
+          transition: dragging ? "none" : "transform 0.2s ease-out",
+        }}
+        className={`relative bg-surface border rounded-md p-3 shadow-sm ${
+          vip
+            ? "border-brand ring-1 ring-brand bg-gradient-to-b from-cyan-bg to-white"
+            : "border-line"
+        }`}
+      >
       {/* Row 1: name + badges | count chip */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -581,7 +677,7 @@ function GuestCard({
       <div className="mt-2 flex items-center gap-2 flex-wrap text-[12px]">
         {g.phone ? (
           <button
-            onClick={onCopyPhone}
+            onClick={guardAction(onCopyPhone)}
             className="inline-flex items-center gap-1 bg-surface-muted font-mono px-2 py-1 rounded-md text-text-secondary active:bg-cyan-bg"
             title="Sao chép SĐT"
           >
@@ -603,7 +699,7 @@ function GuestCard({
       <div className="mt-3 grid grid-cols-[1fr_40px] gap-2">
         {checked ? (
           <button
-            onClick={onUncheckin}
+            onClick={guardAction(onUncheckin)}
             className="inline-flex items-center justify-center gap-1.5 h-10 rounded-md text-[13px] font-semibold border bg-success-soft text-success border-success-border active:opacity-90"
           >
             <IconCheck className="w-3.5 h-3.5" />
@@ -611,7 +707,7 @@ function GuestCard({
           </button>
         ) : (
           <button
-            onClick={onCheckin}
+            onClick={guardAction(onCheckin)}
             className="inline-flex items-center justify-center gap-1.5 h-10 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90"
           >
             <IconCheck className="w-3.5 h-3.5" />
@@ -619,7 +715,7 @@ function GuestCard({
           </button>
         )}
         <button
-          onClick={onToggleVip}
+          onClick={guardAction(onToggleVip)}
           aria-label={vip ? "Bỏ đánh dấu VIP" : "Đánh dấu VIP"}
           title={vip ? "Bỏ VIP" : "Đánh dấu VIP"}
           className={`inline-flex items-center justify-center h-10 rounded-md border ${
@@ -630,6 +726,7 @@ function GuestCard({
         >
           <IconStar filled={vip} className="w-4 h-4" />
         </button>
+      </div>
       </div>
     </div>
   );
@@ -762,18 +859,47 @@ function AddCustomerSheet({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Số khách" required>
-              <input
-                type="number"
-                min={1}
-                value={newGuest.party_size}
-                onChange={(e) =>
-                  setNewGuest({
-                    ...newGuest,
-                    party_size: Math.max(1, parseInt(e.target.value) || 1),
-                  })
-                }
-                className="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-brand-teal focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
-              />
+              <div className="flex items-stretch h-[38px] border border-line rounded-md overflow-hidden bg-surface focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20">
+                <button
+                  type="button"
+                  aria-label="Giảm số khách"
+                  disabled={newGuest.party_size <= 1}
+                  onClick={() =>
+                    setNewGuest({
+                      ...newGuest,
+                      party_size: Math.max(1, newGuest.party_size - 1),
+                    })
+                  }
+                  className="px-3 flex items-center justify-center text-brand-teal disabled:opacity-40 active:bg-brand/10"
+                >
+                  <IconMinus className="w-3.5 h-3.5" />
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  value={newGuest.party_size}
+                  onChange={(e) =>
+                    setNewGuest({
+                      ...newGuest,
+                      party_size: Math.max(1, parseInt(e.target.value) || 1),
+                    })
+                  }
+                  className="flex-1 w-full min-w-0 text-center text-sm bg-surface text-brand-teal border-x border-line focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <button
+                  type="button"
+                  aria-label="Tăng số khách"
+                  onClick={() =>
+                    setNewGuest({
+                      ...newGuest,
+                      party_size: newGuest.party_size + 1,
+                    })
+                  }
+                  className="px-3 flex items-center justify-center text-brand-teal active:bg-brand/10"
+                >
+                  <IconPlus className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </Field>
 
             <Field label="VIP">

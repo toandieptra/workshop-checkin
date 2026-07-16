@@ -206,6 +206,51 @@ async def download_bitable_media(
         return r.content, r.headers.get("content-type")
 
 
+async def upload_bitable_media(
+    file_name: str,
+    data: bytes,
+    content_type: str | None = None,
+) -> str:
+    """Upload 1 file lên Lark Drive gắn vào Bitable, trả file_token.
+
+    Dùng cho field attachment (vd 'Ảnh WS'). Endpoint multipart nên không đi
+    qua _request_with_retry (vốn chỉ hỗ trợ json body).
+    """
+    _ensure_config()
+    if not data:
+        raise LarkError("File rỗng, không upload được")
+    base = settings.LARK_BASE_TOKEN
+    url = f"{settings.lark_base_url}/drive/v1/medias/upload_all"
+    form = {
+        "file_name": file_name or "image.jpg",
+        "parent_type": "bitable_file",
+        "parent_node": base,
+        "size": str(len(data)),
+    }
+    files = {"file": (file_name or "image.jpg", data, content_type or "application/octet-stream")}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        for attempt in range(3):
+            token = await get_tenant_token()
+            headers = {"Authorization": f"Bearer {token}"}
+            r = await client.post(url, data=form, files=files, headers=headers)
+            if r.status_code == 401 and attempt < 2:
+                await get_redis().delete(_TOKEN_KEY)
+                continue
+            if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            r.raise_for_status()
+            payload = r.json()
+            if payload.get("code") != 0:
+                raise LarkError(f"Lark upload media lỗi: {payload.get('msg')} (code={payload.get('code')})")
+            file_token = payload.get("data", {}).get("file_token")
+            if not file_token:
+                raise LarkError("Lark upload media không trả file_token")
+            return file_token
+    raise LarkError("Lark upload media thất bại sau nhiều lần thử")
+
+
 async def _request_with_retry(client: httpx.AsyncClient, method: str, url: str,
                               params: dict | None = None, json_body: dict | None = None,
                               max_retry: int = 2) -> httpx.Response:

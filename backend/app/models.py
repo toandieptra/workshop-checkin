@@ -21,6 +21,7 @@ class Workshop(Base):
     maps_url: Mapped[str | None] = mapped_column(Text)
     registration_short_url: Mapped[str | None] = mapped_column(Text)
     lark_workshop_name: Mapped[str | None] = mapped_column(Text)
+    lark_record_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -111,6 +112,7 @@ class WorkshopMedia(Base):
     mime_type: Mapped[str | None] = mapped_column(Text)
     file_size: Mapped[int | None] = mapped_column(Integer)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    lark_file_token: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     workshop: Mapped["Workshop"] = relationship("Workshop", back_populates="media")
 

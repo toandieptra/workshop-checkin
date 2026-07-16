@@ -212,6 +212,7 @@ export interface WorkshopAdmin {
   maps_url?: string | null;
   registration_short_url?: string | null;
   lark_workshop_name?: string | null;
+  lark_record_id?: string | null;
   created_at: string;
   updated_at?: string | null;
   last_synced_at?: string | null;
@@ -269,6 +270,13 @@ export async function deleteWorkshop(id: string): Promise<WorkshopAdmin> {
 /** Xóa hẳn workshop (hard delete). */
 export async function hardDeleteWorkshop(id: string): Promise<void> {
   await api("/workshops/" + id + "?hard=true", { method: "DELETE" });
+}
+
+/** Đẩy 1 workshop local lên Lark config table (thủ công / backup). */
+export async function pushWorkshopToLark(
+  id: string,
+): Promise<{ workshop_id: string; lark_record_id: string | null; pushed: boolean }> {
+  return await api("/lark/sync/push-workshop/" + id, { method: "POST" });
 }
 
 export async function getWorkshopBranches(): Promise<string[]> {

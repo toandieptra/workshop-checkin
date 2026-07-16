@@ -166,6 +166,7 @@ async def _to_out(db: AsyncSession, w: Workshop, include_forms: bool = True) -> 
         maps_url=w.maps_url,
         registration_short_url=w.registration_short_url,
         lark_workshop_name=w.lark_workshop_name,
+        lark_record_id=w.lark_record_id,
         created_at=w.created_at,
         updated_at=w.updated_at,
         last_synced_at=w.last_synced_at,
@@ -226,6 +227,12 @@ async def create_workshop(body: WorkshopCreate, db: AsyncSession = Depends(get_d
     db.add(w)
     await db.commit()
     w = await _get_workshop(db, w.id)
+    try:
+        from .lark_sync import _push_workshop_to_lark
+        await _push_workshop_to_lark(db, w)
+    except Exception as e:
+        logger.warning("auto push workshop to lark failed for %s: %s", w.id, e)
+    w = await _get_workshop(db, w.id)
     return await _to_out(db, w)
 
 
@@ -261,6 +268,12 @@ async def update_workshop(
         setattr(w, k, v)
     w.updated_at = datetime.now(timezone.utc)
     await db.commit()
+    w = await _get_workshop(db, workshop_id)
+    try:
+        from .lark_sync import _push_workshop_to_lark
+        await _push_workshop_to_lark(db, w)
+    except Exception as e:
+        logger.warning("auto push workshop (update) to lark failed for %s: %s", w.id, e)
     w = await _get_workshop(db, workshop_id)
     return await _to_out(db, w)
 
@@ -357,7 +370,14 @@ async def upload_workshop_media(
     await db.commit()
     for m in created:
         await db.refresh(m)
-    return [WorkshopMediaOut.model_validate(m) for m in created]
+    result = [WorkshopMediaOut.model_validate(m) for m in created]
+    try:
+        from .lark_sync import _push_workshop_to_lark
+        w = await _get_workshop(db, workshop_id)
+        await _push_workshop_to_lark(db, w)
+    except Exception as e:
+        logger.warning("auto push workshop media to lark failed for %s: %s", workshop_id, e)
+    return result
 
 
 @router.delete("/workshops/{workshop_id}/media/{media_id}", status_code=204, dependencies=[Depends(require_permission("workshops.write"))])

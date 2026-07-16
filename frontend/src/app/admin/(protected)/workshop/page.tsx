@@ -11,12 +11,14 @@ import {
   updateWorkshop,
   updateWorkshopStatus,
   uploadWorkshopMedia,
+  pushWorkshopToLark,
   type WorkshopAdmin,
   type WorkshopMedia,
   type WorkshopStatus,
   type WorkshopWriteBody,
 } from "@/lib/api";
 import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
+import Can from "@/components/Can";
 
 type ColumnKey = "name" | "date" | "branch" | "location" | "status" | "form" | "media" | "actions";
 const TABLE_COLUMNS = [
@@ -249,6 +251,21 @@ export default function AdminWorkshopPage() {
       setMsg(`Đã đổi trạng thái → ${statusLabel(status)}`);
     } catch (e: any) {
       setMsg("Lỗi đổi status: " + (e?.message || "không rõ"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const pushLark = async (w: WorkshopAdmin) => {
+    setBusyId(w.id);
+    try {
+      const res = await pushWorkshopToLark(w.id);
+      setItems((prev) =>
+        prev.map((x) => (x.id === w.id ? { ...x, lark_record_id: res.lark_record_id } : x)),
+      );
+      setMsg(`Đã đẩy "${w.name}" lên Lark`);
+    } catch (e: any) {
+      setMsg("Lỗi đẩy lên Lark: " + (e?.message || "không rõ"));
     } finally {
       setBusyId(null);
     }
@@ -535,6 +552,16 @@ export default function AdminWorkshopPage() {
                             Hoàn thành
                           </button>
                         )}
+                        <Can permission="lark.sync">
+                          <button
+                            disabled={busyId === w.id}
+                            onClick={() => pushLark(w)}
+                            title={w.lark_record_id ? "Cập nhật lên Lark" : "Đẩy lên Lark"}
+                            className="px-2 py-1 border border-line rounded-sm text-xs hover:bg-surface-muted"
+                          >
+                            {w.lark_record_id ? "Cập nhật Lark" : "Đẩy lên Lark"}
+                          </button>
+                        </Can>
                         {w.status !== "cancelled" && (
                           <button
                             disabled={busyId === w.id}
