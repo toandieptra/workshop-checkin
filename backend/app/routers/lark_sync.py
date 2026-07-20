@@ -17,6 +17,7 @@ from ..db import get_db
 from ..config import settings
 from ..models import Guest, Workshop, WorkshopMedia, SyncLog
 from ..services import lark_client
+from ..services.zbs import enqueue_registration, normalize_phone
 from ..services.lark_client import LarkError
 from ..auth.dependencies import require_permission
 
@@ -33,6 +34,8 @@ F_WORKSHOP_SALE = "Workshop (sale)"
 F_REGISTERED_AT = "Ngày tạo"
 F_REGISTERED_AT_FALLBACK = "ngày tạo"
 F_CHECKIN = "Check-in"
+F_SOURCE = "Nguồn"
+F_CREATOR = "Người tạo"
 
 # ===== Field names in Lark workshop config table =====
 WF_NAME = "Workshop"
@@ -55,6 +58,20 @@ SYNC_ERROR = "error"
 
 # ===== Background poll interval =====
 SYNC_INTERVAL = 30
+
+
+def _source_to_lark(source: str | None, detail: str | None) -> str:
+    if source == "Khác" and detail:
+        return f"Khác: {detail}"
+    return source or ""
+
+
+def _source_from_lark(value: str) -> tuple[str | None, str | None]:
+    normalized = (value or "").strip()
+    if normalized.lower().startswith("khác:"):
+        detail = normalized.split(":", 1)[1].strip()
+        return "Khác", detail or None
+    return normalized or None, None
 
 # -----------------------------------------------------------------
 # Internal helpers (not FastAPI handlers)
@@ -270,8 +287,20 @@ def _parse_lark_datetime_ms(raw) -> datetime | None:
     return None
 
 
-def _record_checksum(full_name: str, phone: str, checkin_status: str) -> str:
-    key = f"{full_name or ''}|{phone or ''}|{checkin_status or ''}"
+def _record_checksum(
+    full_name: str,
+    phone: str,
+    checkin_status: str,
+    source: str | None = None,
+    creator_name: str | None = None,
+) -> str:
+    key = "|".join([
+        full_name or "",
+        phone or "",
+        checkin_status or "",
+        source or "",
+        creator_name or "",
+    ])
     return hashlib.md5(key.encode()).hexdigest()[:16]
 
 
@@ -508,6 +537,8 @@ async def _push_guest_to_lark(db: AsyncSession, guest: Guest) -> str | None:
         F_BUSINESS_MODEL: guest.business_model or "",
         F_TICKETS: max(1, int(guest.party_size or 1)),
         F_WORKSHOP_SALE: lark_workshop_name,
+        F_SOURCE: _source_to_lark(guest.source, guest.source_detail),
+        F_CREATOR: guest.creator_name or "",
     }
     record_id = await lark_client.create_record(settings.LARK_TABLE_REGISTRATIONS, fields)
     guest.lark_record_id = record_id
@@ -683,19 +714,25 @@ async def _sync_pull_to_local(
 
         phone = lark_client.field_text(fields, F_PHONE)
         business_model = lark_client.field_text(fields, F_BUSINESS_MODEL)
+        source, source_detail = _source_from_lark(lark_client.field_text(fields, F_SOURCE))
+        creator_name = lark_client.field_text(fields, F_CREATOR) or None
         party_size = lark_client.field_int(fields, F_TICKETS, default=1)
         registered_at = _parse_lark_datetime_ms(
             fields.get(F_REGISTERED_AT) or fields.get(F_REGISTERED_AT_FALLBACK)
         )
         checkin_raw = fields.get(F_CHECKIN)
         lark_checkin = _parse_checkin_bool(checkin_raw)
-        lark_checksum = _record_checksum(full_name, phone, str(lark_checkin))
+        lark_checksum = _record_checksum(full_name, phone, str(lark_checkin),
+                                         _source_to_lark(source, source_detail), creator_name)
 
         if rid in existing:
             g = existing[rid]
             # Phục hồi nếu bản ghi đã bị soft-delete (vẫn còn lark_record_id)
             g.deleted_at = None
-            local_checksum = _record_checksum(g.full_name, g.phone or "", g.checkin_status)
+            local_checksum = _record_checksum(
+                g.full_name, g.phone or "", g.checkin_status,
+                _source_to_lark(g.source, g.source_detail), g.creator_name,
+            )
             lark_changed = lark_checksum != local_checksum
             local_changed_after_sync = (
                 g.local_updated_at is not None
@@ -716,9 +753,14 @@ async def _sync_pull_to_local(
                     error_message="conflict: both sides changed",
                 )
             elif lark_changed:
+                old_phone = g.phone
                 g.full_name = full_name
-                g.phone = phone
+                g.phone = normalize_phone(phone) or None
                 g.business_model = business_model
+                g.source = source
+                g.source_detail = source_detail
+                g.creator_name = creator_name
+                g.creator_user_id = None
                 g.party_size = party_size
                 g.registered_at = registered_at or g.registered_at
                 g.checkin_status = "checked_in" if lark_checkin else "not_checked_in"
@@ -726,17 +768,21 @@ async def _sync_pull_to_local(
                 g.last_synced_at = datetime.now(timezone.utc)
                 g.sync_status = SYNC_OK
                 g.sync_error = None
+                await enqueue_registration(db, g, old_phone=old_phone)
                 pulled += 1
                 await _log_sync(
                     db, "lark_to_local", "guest", g.id, rid, SYNC_OK,
-                    payload={"fields_updated": ["full_name", "phone", "business_model", "party_size", "checkin_status"]},
+                    payload={"fields_updated": ["full_name", "phone", "business_model", "party_size", "source", "creator_name", "checkin_status"]},
                 )
         else:
             g = Guest(
                 workshop_id=workshop.id,
                 full_name=full_name,
-                phone=phone,
+                phone=normalize_phone(phone) or None,
                 business_model=business_model,
+                source=source,
+                source_detail=source_detail,
+                creator_name=creator_name,
                 party_size=party_size,
                 lark_record_id=rid,
                 registered_at=registered_at,
@@ -747,6 +793,8 @@ async def _sync_pull_to_local(
                 sync_status=SYNC_OK,
             )
             db.add(g)
+            await db.flush()
+            await enqueue_registration(db, g)
             pulled += 1
             await _log_sync(db, "lark_to_local", "guest", None, rid, SYNC_OK)
 
@@ -956,9 +1004,15 @@ async def resolve_conflict(
             )
             if not lark_rec:
                 raise HTTPException(404, "Lark record not found")
+            old_phone = guest.phone
             guest.full_name = lark_client.field_text(lark_rec, F_FULL_NAME) or guest.full_name
-            guest.phone = lark_client.field_text(lark_rec, F_PHONE)
+            guest.phone = normalize_phone(lark_client.field_text(lark_rec, F_PHONE)) or None
             guest.business_model = lark_client.field_text(lark_rec, F_BUSINESS_MODEL)
+            guest.source, guest.source_detail = _source_from_lark(
+                lark_client.field_text(lark_rec, F_SOURCE)
+            )
+            guest.creator_name = lark_client.field_text(lark_rec, F_CREATOR) or None
+            guest.creator_user_id = None
             guest.party_size = lark_client.field_int(lark_rec, F_TICKETS, default=1)
             checkin_raw = lark_rec.get(F_CHECKIN)
             guest.checkin_status = "checked_in" if _parse_checkin_bool(checkin_raw) else "not_checked_in"
@@ -966,6 +1020,7 @@ async def resolve_conflict(
             guest.sync_error = None
             guest.lark_updated_at = datetime.now(timezone.utc)
             guest.last_synced_at = datetime.now(timezone.utc)
+            await enqueue_registration(db, guest, old_phone=old_phone)
             await db.commit()
             await _log_sync(db, "lark_to_local", "guest", guest.id, guest.lark_record_id, SYNC_OK)
         except HTTPException:
@@ -986,6 +1041,8 @@ async def resolve_conflict(
                     F_BUSINESS_MODEL: guest.business_model or "",
                     F_TICKETS: max(1, int(guest.party_size or 1)),
                     F_CHECKIN: guest.checkin_status == "checked_in",
+                    F_SOURCE: _source_to_lark(guest.source, guest.source_detail),
+                    F_CREATOR: guest.creator_name or "",
                 }
                 await lark_client.update_record(
                     settings.LARK_TABLE_REGISTRATIONS,

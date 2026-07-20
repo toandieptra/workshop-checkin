@@ -30,6 +30,7 @@ def _parse_int(v, default: int = 1) -> int:
 
 @router.post("/workshops/{workshop_id}/import", dependencies=[Depends(require_permission("guests.write"))])
 async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    from ..services.zbs import enqueue_registration, normalize_phone
     w = await db.get(Workshop, workshop_id)
     if not w:
         raise HTTPException(404, "workshop not found")
@@ -56,7 +57,7 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
         g = Guest(
             workshop_id=workshop_id,
             full_name=full_name,
-            phone=(row.get("phone") or None),
+            phone=normalize_phone(row.get("phone")) or None,
             email=(row.get("email") or None),
             business_model=(row.get("business_model") or row.get("mô hình kinh doanh") or row.get("mo hinh kinh doanh") or None),
             registered_at=datetime.now(timezone.utc),
@@ -68,6 +69,8 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
             ),
         )
         db.add(g)
+        await db.flush()
+        await enqueue_registration(db, g)
         created += 1
     await db.commit()
     return {"imported": created, "total_rows": len(rows)}

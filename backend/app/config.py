@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     LARK_OAUTH_REDIRECT_URI: str | None = None
     LARK_ALLOWED_TENANT_KEYS: str = "145765cccf8c5743"
     AUTH_SESSION_COOKIE: str = "workshop_admin_session"
-    AUTH_SESSION_TTL_SECONDS: int = 86400
+    AUTH_SESSION_TTL_SECONDS: int = 604800
     AUTH_COOKIE_SECURE: bool = True
     AUTH_BOOTSTRAP_SUPER_ADMIN_EMAIL: str | None = None
 
@@ -47,6 +47,15 @@ class Settings(BaseSettings):
 
     # ===== Background sync =====
     LARK_SYNC_INTERVAL_SECONDS: int = 30
+
+    # ===== Zalo Business Solutions / ZBS =====
+    ZBS_ENABLED: bool = False
+    ZBS_API_URL: str = "https://business.openapi.zalo.me/message/template"
+    ZBS_ACCESS_TOKEN: str | None = None
+    ZBS_REGISTRATION_TEMPLATE_ID: str | None = None
+    ZBS_WEBHOOK_SECRET: str | None = None
+    ZBS_WORKER_INTERVAL_SECONDS: int = 5
+    ZBS_REQUEST_TIMEOUT_SECONDS: float = 10.0
 
     @property
     def database_url(self) -> str:

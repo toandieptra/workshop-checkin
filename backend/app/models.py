@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date, time
 
-from sqlalchemy import String, Text, Boolean, ForeignKey, Date, DateTime, Time, Float, Integer, func
+from sqlalchemy import String, Text, Boolean, ForeignKey, Date, DateTime, Time, Float, Integer, BigInteger, Identity, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -129,6 +129,12 @@ class Guest(Base):
     role_title: Mapped[str | None] = mapped_column(Text)
     guest_type: Mapped[str | None] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(Text)
+    source_detail: Mapped[str | None] = mapped_column(Text)
+    creator_name: Mapped[str | None] = mapped_column(Text)
+    creator_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL")
+    )
     party_size: Mapped[int] = mapped_column(Integer, default=1)
     actual_party_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     checkin_status: Mapped[str] = mapped_column(Text, default="not_checked_in")
@@ -204,7 +210,41 @@ class RegistrationSubmission(Base):
     phone: Mapped[str] = mapped_column(Text, nullable=False)
     party_size: Mapped[int] = mapped_column(Integer, default=1)
     business_model: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(Text)
+    source_detail: Mapped[str | None] = mapped_column(Text)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GuestCreatorAlias(Base):
+    __tablename__ = "guest_creator_aliases"
+    alias_number: Mapped[int] = mapped_column(
+        BigInteger, Identity(start=1001), primary_key=True
+    )
+    ip_address: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ZbsDelivery(Base):
+    __tablename__ = "zbs_deliveries"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    guest_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("guests.id", ondelete="CASCADE"), nullable=False)
+    workshop_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    event_key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    phone: Mapped[str | None] = mapped_column(Text)
+    template_id: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="pending", nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    msg_id: Mapped[str | None] = mapped_column(Text)
+    sent_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivery_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    provider_response: Mapped[dict | None] = mapped_column(JSONB)
+    sending_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class SyncLog(Base):

@@ -12,12 +12,14 @@ from ..config import settings
 from ..models import CheckinLog, Guest, WelcomeEvent, Workshop
 from ..schemas import (
     GuestOut, GuestUpdate, GuestUpdateResult, CheckinResult,
-    CheckinSelfRequest, LookupByPhoneResult, SelfRegisterRequest, SelfRegisterResult,
+    CheckinSelfRequest, GuestQrInfo, LookupByPhoneResult, SelfRegisterRequest,
+    SelfRegisterResult,
 )
 from ..services import lark_client
+from ..services.zbs import enqueue_registration, normalize_phone as normalize_zbs_phone
 from ..redis_client import is_duplicate, mark_checked_in, clear_dedup
 from ..ws import manager
-from .lark_sync import _push_guest_to_lark
+from .lark_sync import _push_guest_to_lark, _source_to_lark
 from ..auth.dependencies import require_permission
 
 router = APIRouter(prefix="/api", tags=["guests"])
@@ -176,6 +178,51 @@ async def _do_checkin(
 # để FastAPI match đúng route (static path > dynamic path)
 # =================================================================
 
+@router.get("/guests/{guest_id}/qr-info", response_model=GuestQrInfo)
+async def get_guest_qr_info(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Thông tin tối thiểu để xác nhận khách từ QR, không lộ dữ liệu liên hệ."""
+    row = (await db.execute(
+        select(Guest, Workshop)
+        .join(Workshop, Workshop.id == Guest.workshop_id)
+        .where(Guest.id == guest_id, Guest.deleted_at.is_(None))
+    )).first()
+    if not row:
+        raise HTTPException(404, "guest not found")
+    guest, workshop = row
+    return GuestQrInfo(
+        id=guest.id,
+        full_name=guest.full_name,
+        company=guest.company,
+        party_size=guest.party_size or 1,
+        actual_party_size=guest.actual_party_size,
+        checkin_status=guest.checkin_status,
+        checked_in_at=guest.checked_in_at,
+        workshop_id=workshop.id,
+        workshop_name=workshop.name,
+        workshop_slug=workshop.slug,
+    )
+
+
+@router.post("/guests/{guest_id}/qr-checkin", response_model=CheckinResult)
+async def qr_checkin_guest(
+    guest_id: uuid.UUID,
+    body: CheckinSelfRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Check-in bằng QR cá nhân do khách hoặc nhân viên quét."""
+    guest = await db.scalar(
+        select(Guest).where(Guest.id == guest_id, Guest.deleted_at.is_(None)).with_for_update()
+    )
+    if not guest:
+        raise HTTPException(404, "guest not found")
+    actual = body.actual_party_size if body else None
+    guest, lark_error = await _do_checkin(db, guest, actual, method="guest_qr")
+    return CheckinResult(
+        guest=GuestOut.model_validate(guest),
+        lark_synced=(lark_error is None),
+        lark_error=lark_error,
+    )
+
 @router.get("/guests/lookup-by-phone", response_model=LookupByPhoneResult)
 async def lookup_by_phone(
     phone: str = Query(..., min_length=3),
@@ -259,7 +306,7 @@ async def self_register_and_checkin(
     guest = Guest(
         workshop_id=workshop.id,
         full_name=body.full_name.strip(),
-        phone=body.phone.strip(),
+        phone=normalize_zbs_phone(body.phone) or None,
         email=body.email or None,
         company=body.company or None,
         business_model=body.business_model or None,
@@ -274,6 +321,7 @@ async def self_register_and_checkin(
     )
     db.add(guest)
     await db.flush()
+    await enqueue_registration(db, guest)
 
     log = CheckinLog(
         workshop_id=workshop.id,
@@ -315,9 +363,13 @@ async def update_guest(
     db: AsyncSession = Depends(get_db),
 ):
     g = await _load_guest(db, guest_id)
+    old_phone = g.phone
     changes = body.model_dump(exclude_unset=True)
     for k, v in changes.items():
         setattr(g, k, v)
+    if "phone" in changes:
+        g.phone = normalize_zbs_phone(g.phone) or None
+        await enqueue_registration(db, g, old_phone=old_phone)
     g.local_updated_at = _now()
     await db.commit()
 
@@ -330,6 +382,8 @@ async def update_guest(
                     "Số điện thoại": g.phone or "",
                     "Mô hình kinh doanh": g.business_model or "",
                     "Số vé đăng ký": max(1, int(g.party_size or 1)),
+                    "Nguồn": _source_to_lark(g.source, g.source_detail),
+                    "Người tạo": g.creator_name or "",
                 }
                 await lark_client.update_record(
                     settings.LARK_TABLE_REGISTRATIONS, g.lark_record_id, fields,
@@ -376,7 +430,11 @@ async def checkin_guest(
     body: CheckinSelfRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    guest = await _load_guest(db, guest_id)
+    guest = await db.scalar(
+        select(Guest).where(Guest.id == guest_id, Guest.deleted_at.is_(None)).with_for_update()
+    )
+    if not guest:
+        raise HTTPException(404, "guest not found")
     actual = body.actual_party_size if body else None
     guest, lark_error = await _do_checkin(db, guest, actual, method="admin")
     return CheckinResult(

@@ -172,6 +172,30 @@ export async function checkinGuestById(
   });
 }
 
+export interface GuestQrInfo {
+  id: string;
+  full_name: string;
+  company?: string | null;
+  party_size: number;
+  actual_party_size?: number | null;
+  checkin_status: string;
+  checked_in_at?: string | null;
+  workshop_id: string;
+  workshop_name: string;
+  workshop_slug: string;
+}
+
+export async function getGuestQrInfo(id: string): Promise<GuestQrInfo> {
+  return await api(`/guests/${encodeURIComponent(id)}/qr-info`);
+}
+
+export async function checkinGuestByQr(id: string, actualPartySize: number): Promise<any> {
+  return await api(`/guests/${encodeURIComponent(id)}/qr-checkin`, {
+    method: "POST",
+    body: JSON.stringify({ actual_party_size: actualPartySize }),
+  });
+}
+
 export async function getWorkshopBySlug(slug: string): Promise<any> {
   return await api("/public/workshops/by-slug/" + encodeURIComponent(slug));
 }
@@ -370,7 +394,7 @@ export async function getPublicRegistrationForm(
 
 export async function submitPublicRegistrationForm(
   token: string,
-  body: { workshop_id: string; full_name: string; phone: string; party_size: number; business_model?: string },
+  body: { workshop_id: string; full_name: string; phone: string; party_size: number; business_model?: string; source: string; source_detail?: string },
 ): Promise<any> {
   return await api("/public/registration-forms/" + encodeURIComponent(token) + "/submit", {
     method: "POST",

@@ -15,8 +15,10 @@ WORKDIR /app
 # can talk to the right backend without a server-side runtime env.
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_WS_URL
+ARG BACKEND_INTERNAL_URL=http://backend:8427
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+ENV BACKEND_INTERNAL_URL=$BACKEND_INTERNAL_URL
 
 # Admin auth — đọc ở runtime (KHÔNG prefix NEXT_PUBLIC_), nên chỉ cần ARG
 # để build-time fail-fast nếu thiếu, không ENV inline vào image.

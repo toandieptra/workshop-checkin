@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import (
+    AdminUser,
     Guest,
     RegistrationForm,
     RegistrationFormWorkshop,
@@ -33,6 +34,7 @@ from ..schemas import (
     WORKSHOP_STATUSES,
 )
 from ..auth.dependencies import require_permission
+from ..services.guest_provenance import normalize_guest_source
 
 logger = logging.getLogger("workshops")
 router = APIRouter(prefix="/api", tags=["workshops"])
@@ -460,13 +462,28 @@ async def list_guests(
     return rows
 
 
-@router.post("/workshops/{workshop_id}/guests", response_model=GuestOut, status_code=201, dependencies=[Depends(require_permission("guests.write"))])
-async def create_guest(workshop_id: uuid.UUID, body: GuestCreate, db: AsyncSession = Depends(get_db)):
+@router.post("/workshops/{workshop_id}/guests", response_model=GuestOut, status_code=201)
+async def create_guest(
+    workshop_id: uuid.UUID,
+    body: GuestCreate,
+    user: AdminUser = Depends(require_permission("guests.write")),
+    db: AsyncSession = Depends(get_db),
+):
     w = await db.get(Workshop, workshop_id)
     if not w:
         raise HTTPException(404, "workshop not found")
-    g = Guest(workshop_id=workshop_id, registered_at=datetime.now(timezone.utc), **body.model_dump())
+    values = body.model_dump()
+    values["source"], values["source_detail"] = normalize_guest_source(
+        values.get("source"), values.get("source_detail")
+    )
+    values["creator_user_id"] = user.id
+    values["creator_name"] = user.name or user.email
+    from ..services.zbs import enqueue_registration, normalize_phone
+    values["phone"] = normalize_phone(values.get("phone")) or None
+    g = Guest(workshop_id=workshop_id, registered_at=datetime.now(timezone.utc), **values)
     db.add(g)
+    await db.flush()
+    await enqueue_registration(db, g)
     await db.commit()
     await db.refresh(g)
     try:

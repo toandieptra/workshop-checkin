@@ -4,7 +4,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +21,7 @@ from ..schemas import (
     RegistrationWorkshopOption,
 )
 from ..auth.dependencies import require_permission
+from ..services.guest_provenance import normalize_guest_source, resolve_public_creator
 
 logger = logging.getLogger("registration_forms")
 router = APIRouter(prefix="/api", tags=["registration-forms"])
@@ -223,6 +224,7 @@ async def get_public_registration_form(token: str, db: AsyncSession = Depends(ge
 async def submit_registration_form(
     token: str,
     body: RegistrationSubmitRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     form = (await db.execute(
@@ -253,6 +255,8 @@ async def submit_registration_form(
 
     party_size = int(body.party_size)
     business_model = (body.business_model or "").strip() or None
+    source, source_detail = normalize_guest_source(body.source, body.source_detail)
+    creator_name, creator_user_id = await resolve_public_creator(request, db)
 
     # Tạo guest (giống flow admin thêm khách)
     guest = Guest(
@@ -260,6 +264,10 @@ async def submit_registration_form(
         full_name=full_name,
         phone=phone,
         business_model=business_model,
+        source=source,
+        source_detail=source_detail,
+        creator_name=creator_name,
+        creator_user_id=creator_user_id,
         party_size=party_size,
         checkin_status="not_checked_in",
         registered_at=_now(),
@@ -267,8 +275,26 @@ async def submit_registration_form(
         sync_status="pending_push",
     )
     db.add(guest)
+    await db.flush()
+    from ..services.zbs import enqueue_registration
+    await enqueue_registration(db, guest)
+
+    submission = RegistrationSubmission(
+        form_id=form.id,
+        workshop_id=workshop.id,
+        guest_id=guest.id,
+        full_name=full_name,
+        phone=phone,
+        party_size=party_size,
+        business_model=business_model,
+        source=source,
+        source_detail=source_detail,
+        submitted_at=_now(),
+    )
+    db.add(submission)
     await db.commit()
     await db.refresh(guest)
+    await db.refresh(submission)
 
     # Auto push lên Lark (best-effort, không chặn đăng ký)
     lark_synced = False
@@ -280,20 +306,6 @@ async def submit_registration_form(
         logger.warning("auto push registration guest to lark failed for %s: %s", guest.id, e)
 
     guest = await db.get(Guest, guest.id)
-
-    submission = RegistrationSubmission(
-        form_id=form.id,
-        workshop_id=workshop.id,
-        guest_id=guest.id,
-        full_name=full_name,
-        phone=phone,
-        party_size=party_size,
-        business_model=business_model,
-        submitted_at=_now(),
-    )
-    db.add(submission)
-    await db.commit()
-    await db.refresh(submission)
 
     return RegistrationSubmitResult(
         guest=GuestOut.model_validate(guest),

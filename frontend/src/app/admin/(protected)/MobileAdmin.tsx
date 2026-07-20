@@ -1,8 +1,11 @@
 "use client";
 import { useRef, useState } from "react";
 import QrDisplay from "@/components/QrDisplay";
-import { useAdminGuests, type Guest, type NewGuestInput } from "@/hooks/useAdminGuests";
+import { useAdminGuests, type Guest, type NewGuestInput, type ZbsDelivery } from "@/hooks/useAdminGuests";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
+import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
+import GuestQr from "@/components/GuestQr";
+import GuestQrScanner from "@/components/GuestQrScanner";
 
 // =============================================================================
 // Inline SVG icon set — stroke 1.8-2, kế thừa color qua currentColor.
@@ -172,6 +175,13 @@ function SyncBadge({ status }: { status?: string }) {
   return null;
 }
 
+function ZbsBadge({ label, delivery, onRetry }: { label: string; delivery?: ZbsDelivery; onRetry: (delivery: ZbsDelivery) => void }) {
+  if (!delivery) return null;
+  const failed = delivery.status === "failed";
+  const text = delivery.status === "delivered" ? "✓" : delivery.status === "sent" ? "đã gửi" : delivery.status === "pending" ? "chờ" : delivery.status === "sending" ? "đang" : delivery.status === "expired" ? "quá hạn" : delivery.status === "cancelled" ? "đã hủy" : "lỗi";
+  return <span className={`text-[10px] ${failed ? "text-red-600" : "text-muted"}`} title={delivery.last_error || ""}>{label}:{text}{failed && <button className="ml-1 underline" onClick={() => onRetry(delivery)}>lại</button>}</span>;
+}
+
 /** Format ISO date → "HH:MM". Trả "—" nếu không parse được. */
 function formatHm(v?: string | null): string {
   if (!v) return "—";
@@ -240,10 +250,13 @@ export default function MobileAdmin() {
     setNewGuest,
     createGuest,
     delGuest,
+    retryZbs,
+    reload,
   } = useAdminGuests();
 
   const [linkCopied, setLinkCopied] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   const welcomeUrl =
     typeof window !== "undefined" && currentWorkshop
@@ -272,6 +285,8 @@ export default function MobileAdmin() {
       business_model: "",
       party_size: 1,
       is_vip: false,
+      source: "",
+      source_detail: "",
     });
     setShowAddForm(true);
   };
@@ -421,11 +436,19 @@ export default function MobileAdmin() {
             </select>
           </div>
           <button
+            onClick={() => setShowScanner(true)}
+            disabled={!currentWorkshop}
+            className="inline-flex items-center justify-center gap-1 h-[42px] px-3 rounded-md text-[13px] font-bold border border-brand text-brand-teal bg-surface active:bg-cyan-pale shrink-0 disabled:opacity-40"
+          >
+            <IconQrCode className="w-3.5 h-3.5" />
+            Quét QR
+          </button>
+          <button
             onClick={() => openAddForm()}
             className="inline-flex items-center justify-center gap-1 h-[42px] px-3 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 shrink-0"
           >
             <IconPlus className="w-3.5 h-3.5" />
-            Thêm khách
+            Thêm
           </button>
         </div>
 
@@ -460,6 +483,9 @@ export default function MobileAdmin() {
               onToggleVip={() => toggleVip(g)}
               onCopyPhone={() => g.phone && copyPhone(g.phone)}
               onDelete={() => delGuest(g.id)}
+              onRetryZbs={retryZbs}
+              workshopSlug={currentWorkshop?.slug || ""}
+              workshopName={currentWorkshop?.name || "Workshop"}
             />
           ))
         )}
@@ -477,6 +503,18 @@ export default function MobileAdmin() {
               setShowAddForm(false);
               setSearch("");
             }
+          }}
+        />
+      )}
+
+      {showScanner && currentWorkshop && (
+        <GuestQrScanner
+          workshopId={currentWorkshop.id}
+          workshopSlug={currentWorkshop.slug}
+          onClose={() => setShowScanner(false)}
+          onCheckedIn={async (guestName, actualPartySize) => {
+            setMsg(`Đã check-in ${guestName} (${actualPartySize} khách)`);
+            await reload();
           }}
         />
       )}
@@ -544,6 +582,9 @@ function GuestCard({
   onToggleVip,
   onCopyPhone,
   onDelete,
+  onRetryZbs,
+  workshopSlug,
+  workshopName,
 }: {
   g: Guest;
   onCheckin: () => void;
@@ -551,6 +592,9 @@ function GuestCard({
   onToggleVip: () => void;
   onCopyPhone: () => void;
   onDelete: () => void;
+  onRetryZbs: (delivery: ZbsDelivery) => void;
+  workshopSlug: string;
+  workshopName: string;
 }) {
   const vip = isVip(g);
   const checked = g.checkin_status === "checked_in";
@@ -656,6 +700,7 @@ function GuestCard({
               </span>
             )}
             <SyncBadge status={g.sync_status} />
+            <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={onRetryZbs} />
           </div>
         </div>
         <span
@@ -694,9 +739,14 @@ function GuestCard({
           </span>
         )}
       </div>
+      <div className="mt-2 text-[11px] leading-5 text-muted">
+        <span>Nguồn: <strong className="font-medium text-brand-teal">{g.source === "Khác" && g.source_detail ? `Khác: ${g.source_detail}` : g.source || "—"}</strong></span>
+        <span className="mx-1.5">·</span>
+        <span>Người tạo: <strong className="font-medium text-brand-teal">{g.creator_name || "—"}</strong></span>
+      </div>
 
       {/* Row 3: CTA + VIP toggle */}
-      <div className="mt-3 grid grid-cols-[1fr_40px] gap-2">
+      <div className="mt-3 grid grid-cols-[1fr_40px_76px] gap-2">
         {checked ? (
           <button
             onClick={guardAction(onUncheckin)}
@@ -726,6 +776,12 @@ function GuestCard({
         >
           <IconStar filled={vip} className="w-4 h-4" />
         </button>
+        <GuestQr
+          guestId={g.id}
+          guestName={g.full_name}
+          workshopSlug={workshopSlug}
+          workshopName={workshopName}
+        />
       </div>
       </div>
     </div>
@@ -934,6 +990,27 @@ function AddCustomerSheet({
               ))}
             </select>
           </Field>
+
+          <Field label="Nguồn" required>
+            <select
+              value={newGuest.source}
+              onChange={(e) => setNewGuest({ ...newGuest, source: e.target.value, source_detail: "" })}
+              className="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-brand-teal focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
+            >
+              <option value="">— Chọn —</option>
+              {GUEST_SOURCE_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+          </Field>
+          {newGuest.source === "Khác" && (
+            <Field label="Ghi rõ nguồn" required>
+              <input
+                value={newGuest.source_detail}
+                onChange={(e) => setNewGuest({ ...newGuest, source_detail: e.target.value })}
+                placeholder="Nhập nguồn cụ thể"
+                className="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-brand-teal placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
+              />
+            </Field>
+          )}
         </div>
 
         {/* Footer */}
@@ -950,6 +1027,8 @@ function AddCustomerSheet({
               !newGuest.full_name.trim() ||
               !newGuest.phone.trim() ||
               !newGuest.business_model
+              || !newGuest.source
+              || (newGuest.source === "Khác" && !newGuest.source_detail.trim())
             }
             className="h-10 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
           >

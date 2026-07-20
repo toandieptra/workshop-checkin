@@ -14,13 +14,14 @@ from sqlalchemy.exc import OperationalError
 from .config import settings
 from .db import engine
 from .ws import manager
-from .routers import workshops, guests, checkin, search, import_export, lark_sync, registration_forms, auth, admin_users
+from .routers import workshops, guests, checkin, search, import_export, lark_sync, registration_forms, auth, admin_users, zbs
 from .auth.bootstrap import bootstrap_super_admin
 from .services import admin_directory_sync
 from .db import async_session_maker
 
 log = logging.getLogger("app.lifespan")
 _directory_sync_task: asyncio.Task | None = None
+_zbs_task: asyncio.Task | None = None
 
 
 async def _directory_sync_loop():
@@ -63,6 +64,10 @@ async def lifespan(app: FastAPI):
     global _directory_sync_task
     if settings.LARK_DIRECTORY_SYNC_ENABLED:
         _directory_sync_task = asyncio.create_task(_directory_sync_loop())
+    global _zbs_task
+    if settings.ZBS_ENABLED:
+        from .services import zbs
+        _zbs_task = asyncio.create_task(zbs.worker_loop(async_session_maker))
 
     yield
 
@@ -70,6 +75,8 @@ async def lifespan(app: FastAPI):
     lark_sync.stop_lark_poll()
     if _directory_sync_task:
         _directory_sync_task.cancel()
+    if _zbs_task:
+        _zbs_task.cancel()
 
 
 app = FastAPI(title="workshop-checkin-backend", lifespan=lifespan)
@@ -90,6 +97,7 @@ app.include_router(lark_sync.router)
 app.include_router(registration_forms.router)
 app.include_router(auth.router)
 app.include_router(admin_users.router)
+app.include_router(zbs.router)
 
 _upload_dir = Path(settings.UPLOAD_DIR)
 _upload_dir.mkdir(parents=True, exist_ok=True)

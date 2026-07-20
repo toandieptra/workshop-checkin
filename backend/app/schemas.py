@@ -93,6 +93,8 @@ class GuestCreate(BaseModel):
     role_title: str | None = None
     guest_type: str | None = None
     note: str | None = None
+    source: str
+    source_detail: str | None = None
     party_size: int = 1
 
 
@@ -120,6 +122,10 @@ class GuestOut(BaseModel):
     role_title: str | None
     guest_type: str | None
     note: str | None
+    source: str | None = None
+    source_detail: str | None = None
+    creator_name: str | None = None
+    creator_user_id: uuid.UUID | None = None
     party_size: int
     actual_party_size: int | None = None
     checkin_status: str
@@ -165,6 +171,19 @@ class CheckinLogOut(BaseModel):
 class CheckinSelfRequest(BaseModel):
     """Body cho endpoint check-in (admin flow + self QR flow)."""
     actual_party_size: int | None = None
+
+
+class GuestQrInfo(BaseModel):
+    id: uuid.UUID
+    full_name: str
+    company: str | None = None
+    party_size: int
+    actual_party_size: int | None = None
+    checkin_status: str
+    checked_in_at: datetime | None = None
+    workshop_id: uuid.UUID
+    workshop_name: str
+    workshop_slug: str
 
 
 class LookupByPhoneResult(BaseModel):
@@ -313,6 +332,8 @@ class RegistrationSubmitRequest(BaseModel):
     phone: str
     party_size: int
     business_model: str | None = None
+    source: str
+    source_detail: str | None = None
 
 
 class RegistrationSubmitResult(BaseModel):

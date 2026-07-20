@@ -33,6 +33,26 @@ export interface Guest {
   created_at?: string;
   sync_status?: string;
   sync_error?: string | null;
+  source?: string | null;
+  source_detail?: string | null;
+  creator_name?: string | null;
+  creator_user_id?: string | null;
+  zbs?: {
+    registration_confirmation?: ZbsDelivery;
+  };
+}
+
+export interface ZbsDelivery {
+  id: string;
+  event_type: string;
+  status: string;
+  phone?: string | null;
+  attempt_count: number;
+  msg_id?: string | null;
+  last_error?: string | null;
+  sent_time?: string | null;
+  delivery_time?: string | null;
+  updated_at?: string | null;
 }
 
 export interface LarkWorkshop {
@@ -47,6 +67,8 @@ export interface NewGuestInput {
   business_model: string;
   party_size: number;
   is_vip: boolean;
+  source: string;
+  source_detail: string;
 }
 
 export type StatusFilter = "all" | "checked_in" | "not_checked_in";
@@ -62,6 +84,7 @@ export function useAdminGuests() {
   const [wid, setWid] = useState("");
   const [guests, setGuests] = useState<Guest[]>([]);
   const [allGuests, setAllGuests] = useState<Guest[]>([]);
+  const [zbsStatus, setZbsStatus] = useState<Record<string, Record<string, ZbsDelivery>>>({});
   const [msg, setMsg] = useState("");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -73,6 +96,8 @@ export function useAdminGuests() {
     business_model: "",
     party_size: 1,
     is_vip: false,
+    source: "",
+    source_detail: "",
   });
 
   const [newGuest, setNewGuest] = useState<NewGuestInput>(emptyNewGuest);
@@ -101,6 +126,15 @@ export function useAdminGuests() {
     setAllGuests(await api<Guest[]>("/workshops/" + id + "/guests?sort_registered_at=desc"));
   }, []);
 
+  const loadZbsStatus = useCallback(async (id: string) => {
+    if (!id) return;
+    try {
+      setZbsStatus(await api<Record<string, Record<string, ZbsDelivery>>>("/workshops/" + id + "/zbs-status"));
+    } catch {
+      setZbsStatus({});
+    }
+  }, []);
+
   /** Reload danh sách khách hiện hành theo wid + search đang áp dụng. */
   const reload = useCallback(
     () => loadGuests(wid, debouncedSearch),
@@ -118,7 +152,14 @@ export function useAdminGuests() {
 
   useEffect(() => {
     loadGuests(wid, debouncedSearch);
-  }, [wid, debouncedSearch, loadGuests]);
+    loadZbsStatus(wid);
+  }, [wid, debouncedSearch, loadGuests, loadZbsStatus]);
+
+  useEffect(() => {
+    if (!wid) return;
+    const interval = setInterval(() => loadZbsStatus(wid), 5000);
+    return () => clearInterval(interval);
+  }, [wid, loadZbsStatus]);
 
   // Stats độc lập với search/filter.
   useEffect(() => {
@@ -127,6 +168,11 @@ export function useAdminGuests() {
   useEffect(() => {
     if (wid) loadAllGuests(wid);
   }, [guests, wid, loadAllGuests]);
+
+  const guestsWithZbs = useMemo(
+    () => guests.map((guest) => ({ ...guest, zbs: zbsStatus[guest.id] })),
+    [guests, zbsStatus],
+  );
 
   // ----- WS + fallback poll -----
   const { connected } = useWebSocket((data: any) => {
@@ -168,9 +214,11 @@ export function useAdminGuests() {
     const full_name = newGuest.full_name.trim();
     const phone = newGuest.phone.trim();
     const business_model = newGuest.business_model.trim();
+    const source = newGuest.source.trim();
+    const source_detail = newGuest.source_detail.trim();
     const party_size = Math.max(1, Math.floor(Number(newGuest.party_size)) || 1);
-    if (!full_name || !phone || !business_model) {
-      setMsg("Vui lòng nhập Họ tên, SĐT, Số khách và chọn Mô hình kinh doanh.");
+    if (!full_name || !phone || !business_model || !source || (source === "Khác" && !source_detail)) {
+      setMsg("Vui lòng nhập đủ thông tin khách và chọn nguồn.");
       return false;
     }
     try {
@@ -182,6 +230,8 @@ export function useAdminGuests() {
           business_model,
           party_size,
           guest_type: newGuest.is_vip ? "vip" : null,
+          source,
+          source_detail: source === "Khác" ? source_detail : undefined,
         }),
       });
       setNewGuest(emptyNewGuest());
@@ -283,6 +333,16 @@ export function useAdminGuests() {
     [wid, debouncedSearch, loadGuests],
   );
 
+  const retryZbs = useCallback(async (delivery: ZbsDelivery) => {
+    try {
+      await api("/zbs/deliveries/" + delivery.id + "/retry", { method: "POST" });
+      setMsg("Đã xếp lại tin ZBS để gửi.");
+      await loadZbsStatus(wid);
+    } catch (e: any) {
+      setMsg("Lỗi gửi lại ZBS: " + (e?.message || "không rõ"));
+    }
+  }, [wid, loadZbsStatus]);
+
   const importFile = useCallback(
     async (file: File) => {
       setMsg("Đang nhập dữ liệu...");
@@ -315,12 +375,12 @@ export function useAdminGuests() {
 
   const visibleGuests = useMemo(
     () =>
-      guests.filter((g) => {
+      guestsWithZbs.filter((g) => {
         if (statusFilter === "checked_in") return g.checkin_status === "checked_in";
         if (statusFilter === "not_checked_in") return g.checkin_status !== "checked_in";
         return true;
       }),
-    [guests, statusFilter],
+    [guestsWithZbs, statusFilter],
   );
 
   const currentWorkshop = useMemo(
@@ -333,7 +393,7 @@ export function useAdminGuests() {
     workshops,
     wid,
     setWid,
-    guests,
+    guests: guestsWithZbs,
     msg,
     setMsg,
     search,
@@ -357,6 +417,7 @@ export function useAdminGuests() {
     toggleVip,
     copyPhone,
     resolveConflict,
+    retryZbs,
     importFile,
     reload,
     refreshWorkshops,

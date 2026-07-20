@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 import {
   lookupByPhone,
   selfRegisterAndCheckin,
-  checkinGuestById,
+  checkinGuestByQr,
+  getGuestQrInfo,
   getWorkshopBySlug,
 } from "@/lib/api";
 
@@ -18,12 +19,12 @@ type Step = "loading" | "phone" | "confirm" | "register" | "success" | "error" |
 interface Guest {
   id: string;
   full_name: string;
-  company?: string;
+  company?: string | null;
   party_size: number;
   checkin_status: string;
   actual_party_size?: number | null;
   phone?: string;
-  checked_in_at?: string;
+  checked_in_at?: string | null;
 }
 
 interface Workshop {
@@ -64,6 +65,7 @@ export default function CheckinSelfPage() {
 function CheckinSelfInner() {
   const sp = useSearchParams();
   const slug = sp.get("w") || "";
+  const guestId = sp.get("g") || "";
 
   const [workshop, setWorkshop] = useState<Workshop | null>(null);
   const [step, setStep] = useState<Step>("loading");
@@ -88,13 +90,28 @@ function CheckinSelfInner() {
       try {
         const w = await getWorkshopBySlug(slug);
         setWorkshop(w);
-        setStep("phone");
+        if (guestId) {
+          const qrGuest = await getGuestQrInfo(guestId);
+          if (qrGuest.workshop_slug !== slug || qrGuest.workshop_id !== w.id) {
+            setErrMsg("QR khách mời không thuộc workshop này.");
+            setStep("error");
+            return;
+          }
+          setGuest(qrGuest);
+          const defaultActual = qrGuest.party_size || 1;
+          setPartySize(defaultActual);
+          setActual(defaultActual);
+          setExtra(1);
+          setStep("confirm");
+        } else {
+          setStep("phone");
+        }
       } catch {
-        setErrMsg("Workshop không tồn tại hoặc đã bị xoá.");
+        setErrMsg(guestId ? "QR khách mời không hợp lệ hoặc đã hết hiệu lực." : "Workshop không tồn tại hoặc đã bị xoá.");
         setStep("error");
       }
     })();
-  }, [slug]);
+  }, [guestId, slug]);
 
   // -----------------------------------------------------------------
   // Step 1: nhập SĐT → lookup
@@ -138,7 +155,7 @@ function CheckinSelfInner() {
     if (!guest) return;
     const newParty = Math.max(1, Math.floor(actual) || 1);
     try {
-      await checkinGuestById(guest.id, newParty);
+      await checkinGuestByQr(guest.id, newParty);
       setStep("success");
     } catch (e: any) {
       setErrMsg("Lỗi check-in: " + (e?.message || ""));
@@ -152,7 +169,7 @@ function CheckinSelfInner() {
     if (!guest) return;
     const added = Math.max(1, Math.floor(extra) || 1);
     try {
-      await checkinGuestById(guest.id, added);
+      await checkinGuestByQr(guest.id, added);
       setStep("success");
     } catch (e: any) {
       setErrMsg("Lỗi cập nhật: " + (e?.message || ""));

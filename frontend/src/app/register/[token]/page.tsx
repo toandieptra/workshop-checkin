@@ -5,6 +5,7 @@ import {
   submitPublicRegistrationForm,
   type RegistrationFormPublic,
 } from "@/lib/api";
+import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
 
 // Trang phụ thuộc token ở runtime → không prerender tĩnh.
 export const dynamic = "force-dynamic";
@@ -34,6 +35,8 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
   const [phone, setPhone] = useState("");
   const [partySize, setPartySize] = useState(1);
   const [businessModel, setBusinessModel] = useState("");
+  const [source, setSource] = useState("");
+  const [sourceDetail, setSourceDetail] = useState("");
 
   // Field-level errors
   const [errWorkshop, setErrWorkshop] = useState("");
@@ -41,6 +44,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
   const [errPhone, setErrPhone] = useState("");
   const [errParty, setErrParty] = useState("");
   const [errBusinessModel, setErrBusinessModel] = useState("");
+  const [errSource, setErrSource] = useState("");
 
   const BUSINESS_MODEL_OPTIONS = [
     "Đang kinh doanh cà phê / trà sữa",
@@ -105,6 +109,14 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
       ok = false;
     } else setErrBusinessModel("");
 
+    if (!source || !GUEST_SOURCE_OPTIONS.includes(source as typeof GUEST_SOURCE_OPTIONS[number])) {
+      setErrSource("Vui lòng chọn nguồn thông tin Workshop.");
+      ok = false;
+    } else if (source === "Khác" && !sourceDetail.trim()) {
+      setErrSource("Vui lòng ghi rõ nguồn thông tin.");
+      ok = false;
+    } else setErrSource("");
+
     return ok;
   };
 
@@ -120,6 +132,8 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
         phone: normalizePhone(phone),
         party_size: Math.max(1, Math.floor(partySize) || 1),
         business_model: businessModel.trim() || undefined,
+        source,
+        source_detail: source === "Khác" ? sourceDetail.trim() : undefined,
       });
       setStep("success");
     } catch (e: any) {
@@ -290,6 +304,29 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                     ))}
                   </select>
                   {errBusinessModel && <div className="mt-1.5 text-xs font-semibold text-red-600">{errBusinessModel}</div>}
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-brand-teal">
+                    Bạn biết thông tin Workshop từ đâu? <span className="text-brand-accent">*</span>
+                  </label>
+                  <select
+                    value={source}
+                    onChange={(e) => setSource(e.target.value)}
+                    className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
+                  >
+                    <option value="" disabled>— Chọn nguồn thông tin —</option>
+                    {GUEST_SOURCE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                  {source === "Khác" && (
+                    <input
+                      value={sourceDetail}
+                      onChange={(e) => setSourceDetail(e.target.value)}
+                      placeholder="Vui lòng ghi rõ"
+                      className="mt-3 min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition placeholder:text-[#7BA4AA] focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
+                    />
+                  )}
+                  {errSource && <div className="mt-1.5 text-xs font-semibold text-red-600">{errSource}</div>}
                 </div>
 
                 <button

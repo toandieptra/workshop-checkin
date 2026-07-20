@@ -3,14 +3,17 @@ import { useState } from "react";
 import QrDisplay from "@/components/QrDisplay";
 import { api, downloadGuestsXlsx } from "@/lib/api";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
-import { useAdminGuests, type Guest, type LarkWorkshop } from "@/hooks/useAdminGuests";
+import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
+import { useAdminGuests, type Guest, type LarkWorkshop, type ZbsDelivery } from "@/hooks/useAdminGuests";
 import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
+import GuestQr from "@/components/GuestQr";
 
-type ColumnKey = "name" | "phone" | "businessModel" | "registered" | "checkedIn" | "checkin" | "sync" | "actions" | "registeredAt";
+type ColumnKey = "name" | "phone" | "businessModel" | "source" | "creator" | "registered" | "checkedIn" | "checkin" | "qr" | "sync" | "actions" | "registeredAt";
 const TABLE_COLUMNS = [
   { key: "name", label: "Tên khách" }, { key: "phone", label: "SĐT" }, { key: "businessModel", label: "Mô hình kinh doanh" },
+  { key: "source", label: "Nguồn" }, { key: "creator", label: "Người tạo" },
   { key: "registered", label: "Số khách đăng ký" }, { key: "checkedIn", label: "Số khách check-in" },
-  { key: "checkin", label: "Check-in" }, { key: "sync", label: "Đồng bộ Lark" },
+  { key: "checkin", label: "Check-in" }, { key: "qr", label: "QR" }, { key: "sync", label: "Đồng bộ Lark" },
   { key: "actions", label: "Thao tác" }, { key: "registeredAt", label: "Ngày đăng ký" },
 ] as const;
 
@@ -65,6 +68,13 @@ function SyncBadge({ status, error }: { status?: string; error?: string | null }
     return <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600">Chờ đồng bộ</span>;
   }
   return <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">—</span>;
+}
+
+function ZbsBadge({ label, delivery, onRetry }: { label: string; delivery?: ZbsDelivery; onRetry: (delivery: ZbsDelivery) => void }) {
+  if (!delivery) return <span className="text-[10px] text-muted">{label}: chưa tạo</span>;
+  const failed = delivery.status === "failed";
+  const text = delivery.status === "delivered" ? "đã nhận" : delivery.status === "sent" ? "đã gửi" : delivery.status === "sending" ? "đang gửi" : delivery.status === "pending" ? "chờ gửi" : delivery.status === "expired" ? "quá hạn" : delivery.status === "cancelled" ? "đã hủy" : "lỗi";
+  return <span className={`text-[10px] ${failed ? "text-red-600" : delivery.status === "delivered" ? "text-green-700" : "text-muted"}`} title={delivery.last_error || ""}>{label}: {text}{failed && <button className="ml-1 underline" onClick={() => onRetry(delivery)}>gửi lại</button>}</span>;
 }
 
 function WelcomeLinkCard({ slug }: { slug: string }) {
@@ -149,6 +159,7 @@ export default function DesktopAdmin() {
     currentWorkshop,
     msg,
     setMsg,
+    retryZbs,
   } = useAdminGuests();
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
@@ -536,6 +547,28 @@ export default function DesktopAdmin() {
                 ))}
               </select>
             </label>
+            <label className="block min-w-[220px] flex-[1.2]">
+              <span className="block text-muted text-xs mb-1">Nguồn *</span>
+              <select
+                className="border border-line rounded-sm px-2 py-1.5 w-full bg-surface"
+                value={newGuest.source}
+                onChange={(e) => setNewGuest({ ...newGuest, source: e.target.value, source_detail: "" })}
+              >
+                <option value="" disabled>— Chọn nguồn —</option>
+                {GUEST_SOURCE_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </label>
+            {newGuest.source === "Khác" && (
+              <label className="block min-w-[200px] flex-1">
+                <span className="block text-muted text-xs mb-1">Ghi rõ nguồn *</span>
+                <input
+                  className="border border-line rounded-sm px-2 py-1.5 w-full"
+                  value={newGuest.source_detail}
+                  onChange={(e) => setNewGuest({ ...newGuest, source_detail: e.target.value })}
+                  placeholder="Nhập nguồn cụ thể"
+                />
+              </label>
+            )}
             <label className="flex items-center gap-2 text-sm cursor-pointer shrink-0 pb-2">
               <input
                 type="checkbox"
@@ -551,6 +584,8 @@ export default function DesktopAdmin() {
               !newGuest.full_name.trim() ||
               !newGuest.phone.trim() ||
               !newGuest.business_model ||
+              !newGuest.source ||
+              (newGuest.source === "Khác" && !newGuest.source_detail.trim()) ||
               !wid
             }
             className="mt-3 bg-brand text-white px-3 py-1.5 rounded-sm text-sm disabled:opacity-40"
@@ -591,10 +626,13 @@ export default function DesktopAdmin() {
                   {visibleColumns.name && <th className="text-left px-3 py-3 min-w-[200px]">Tên khách</th>}
                   {visibleColumns.phone && <th className="text-left px-3 py-3">SĐT</th>}
                   {visibleColumns.businessModel && <th className="text-left px-3 py-3 min-w-[160px]">Mô hình kinh doanh</th>}
+                  {visibleColumns.source && <th className="text-left px-3 py-3 min-w-[180px]">Nguồn</th>}
+                  {visibleColumns.creator && <th className="text-left px-3 py-3 min-w-[130px]">Người tạo</th>}
                   {visibleColumns.registered && <th className="text-center px-3 py-3 w-28">Số khách đăng ký</th>}
                   {visibleColumns.checkedIn && <th className="text-center px-3 py-3 w-28">Số khách check-in</th>}
-                  {visibleColumns.checkin && <th className="text-center px-3 py-3 w-32">Check-in</th>}
-                  {visibleColumns.sync && <th className="text-center px-3 py-3 w-28">Đồng bộ Lark</th>}
+                   {visibleColumns.checkin && <th className="text-center px-3 py-3 w-32">Check-in</th>}
+                   {visibleColumns.qr && <th className="text-center px-3 py-3 w-24">QR</th>}
+                   {visibleColumns.sync && <th className="text-center px-3 py-3 w-28">Đồng bộ Lark</th>}
                   {visibleColumns.actions && <th className="text-left px-3 py-3 min-w-[160px]">Thao tác</th>}
                   {visibleColumns.registeredAt && <th className="text-left px-3 py-3">Ngày đăng ký</th>}
                 </tr>
@@ -628,6 +666,10 @@ export default function DesktopAdmin() {
                       {visibleColumns.businessModel && <td className="px-3 py-3 align-top text-muted" title={g.business_model || ""}>
                         {truncate(g.business_model, 60)}
                       </td>}
+                      {visibleColumns.source && <td className="px-3 py-3 align-top text-muted" title={g.source_detail || g.source || ""}>
+                        {truncate(g.source === "Khác" && g.source_detail ? `Khác: ${g.source_detail}` : g.source, 60)}
+                      </td>}
+                      {visibleColumns.creator && <td className="px-3 py-3 align-top text-muted whitespace-nowrap">{g.creator_name || "—"}</td>}
                       {visibleColumns.registered && <td className="px-3 py-3 align-top text-center">{g.party_size || 1}</td>}
                       {visibleColumns.checkedIn && <td className="px-3 py-3 align-top text-center">
                         {g.checkin_status === "checked_in" ? (
@@ -645,7 +687,7 @@ export default function DesktopAdmin() {
                           "—"
                         )}
                       </td>}
-                      {visibleColumns.checkin && <td className="px-3 py-3 align-top">
+                       {visibleColumns.checkin && <td className="px-3 py-3 align-top">
                         {g.checkin_status === "checked_in" ? (
                           <button
                             onClick={() => doUncheckin(g)}
@@ -661,10 +703,22 @@ export default function DesktopAdmin() {
                             Check-in
                           </button>
                         )}
-                      </td>}
-                      {visibleColumns.sync && <td className="px-3 py-3 align-top">
+                       </td>}
+                       {visibleColumns.qr && <td className="px-3 py-3 align-top">
+                         {currentWorkshop && (
+                           <GuestQr
+                             guestId={g.id}
+                             guestName={g.full_name}
+                             workshopSlug={currentWorkshop.slug}
+                             workshopName={currentWorkshop.name}
+                             compact
+                           />
+                         )}
+                       </td>}
+                       {visibleColumns.sync && <td className="px-3 py-3 align-top">
                         <div className="flex flex-col gap-1 items-center">
-                          <SyncBadge status={g.sync_status} error={g.sync_error} />
+                           <SyncBadge status={g.sync_status} error={g.sync_error} />
+                           <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={retryZbs} />
                           {g.sync_status === "conflict" && (
                             <div className="flex gap-1 mt-1">
                               <button
