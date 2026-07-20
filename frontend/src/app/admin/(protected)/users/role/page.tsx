@@ -25,6 +25,7 @@ const GROUPS = [
   { key: "registration_forms", label: "Form đăng ký", description: "Quản lý biểu mẫu đăng ký workshop" },
   { key: "lark", label: "Đồng bộ Lark", description: "Xem và đồng bộ dữ liệu Lark" },
   { key: "uploads", label: "Tệp tải lên", description: "Tải tệp và tài nguyên lên hệ thống" },
+  { key: "zbs", label: "Mẫu tin ZBS", description: "Xem mẫu tin, đồng bộ và cấu hình gửi tự động" },
   { key: "users", label: "Người dùng & phân quyền", description: "Quản lý người dùng và vai trò" },
 ];
 

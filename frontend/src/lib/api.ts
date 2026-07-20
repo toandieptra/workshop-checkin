@@ -1,3 +1,12 @@
+import type {
+  ZbsSyncResult,
+  ZbsTaskConfig,
+  ZbsTaskKey,
+  ZbsTemplateDetail,
+  ZbsTemplateListResponse,
+  ZbsTemplateStatus,
+} from "@/types/zbs-template";
+
 // Mặc định dùng relative path để tận dụng Next.js rewrite (xem next.config.js).
 // Khi dev local nếu muốn trỏ thẳng backend, set NEXT_PUBLIC_API_URL="http://localhost:8427/api".
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
@@ -407,6 +416,47 @@ export async function submitPublicRegistrationForm(
 ): Promise<any> {
   return await api("/public/registration-forms/" + encodeURIComponent(token) + "/submit", {
     method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+// -----------------------------------------------------------------
+// Quản lý ZBS Template
+// -----------------------------------------------------------------
+
+export async function listZbsTemplates(params: {
+  offset?: number;
+  limit?: number;
+  status?: ZbsTemplateStatus | "";
+  search?: string;
+} = {}): Promise<ZbsTemplateListResponse> {
+  const query = new URLSearchParams({
+    offset: String(params.offset || 0),
+    limit: String(params.limit || 20),
+  });
+  if (params.status) query.set("status", params.status);
+  if (params.search?.trim()) query.set("search", params.search.trim());
+  return api(`/zbs/templates?${query.toString()}`);
+}
+
+export async function getZbsTemplate(templateId: string): Promise<ZbsTemplateDetail> {
+  return api(`/zbs/templates/${encodeURIComponent(templateId)}`);
+}
+
+export async function syncZbsTemplates(): Promise<ZbsSyncResult> {
+  return api("/zbs/templates/sync", { method: "POST" });
+}
+
+export async function listZbsTaskConfigs(): Promise<ZbsTaskConfig[]> {
+  return api("/zbs/task-configs");
+}
+
+export async function updateZbsTaskConfig(
+  taskKey: ZbsTaskKey,
+  body: { enabled: boolean; template_id: string | null },
+): Promise<ZbsTaskConfig> {
+  return api(`/zbs/task-configs/${encodeURIComponent(taskKey)}`, {
+    method: "PUT",
     body: JSON.stringify(body),
   });
 }

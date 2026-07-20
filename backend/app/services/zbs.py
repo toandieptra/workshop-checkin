@@ -7,9 +7,20 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import Guest, Workshop, ZbsDelivery
+from ..models import Guest, Workshop, ZbsDelivery, ZbsTaskConfig, ZbsTemplate
 
 logger = logging.getLogger("zbs")
+REGISTRATION_TASK_KEY = "registration_confirmation"
+REGISTRATION_TASK_LABEL = "Xác nhận đăng ký Workshop"
+CHECKIN_TASK_KEY = "checkin_confirmation"
+CHECKIN_TASK_LABEL = "Xác nhận Check-in Workshop"
+CHECKIN_TEMPLATE_ID = "610839"
+TASK_DEFINITIONS = (
+    (REGISTRATION_TASK_KEY, REGISTRATION_TASK_LABEL),
+    (CHECKIN_TASK_KEY, CHECKIN_TASK_LABEL),
+)
+TEMPLATE_LIST_URL = "https://business.openapi.zalo.me/template/all"
+TEMPLATE_DETAIL_URL = "https://business.openapi.zalo.me/template/info/v2"
 
 
 def normalize_phone(phone: str | None) -> str:
@@ -56,22 +67,48 @@ def _template_data(guest: Guest, workshop: Workshop, phone: str) -> dict:
 
 
 async def enqueue_registration(db: AsyncSession, guest: Guest, old_phone: str | None = None) -> None:
+    await _enqueue_task(db, guest, REGISTRATION_TASK_KEY, old_phone=old_phone)
+
+
+async def enqueue_checkin(db: AsyncSession, guest: Guest) -> None:
+    await _enqueue_task(db, guest, CHECKIN_TASK_KEY)
+
+
+async def _enqueue_task(
+    db: AsyncSession,
+    guest: Guest,
+    task_key: str,
+    old_phone: str | None = None,
+) -> None:
+    task_config = await db.get(ZbsTaskConfig, task_key)
+    if task_key == CHECKIN_TASK_KEY and task_config is None:
+        return
+    if task_config and not task_config.enabled:
+        return
+    default_template_id = CHECKIN_TEMPLATE_ID if task_key == CHECKIN_TASK_KEY else settings.ZBS_REGISTRATION_TEMPLATE_ID
+    template_id = task_config.template_id if task_config else default_template_id
+    if not template_id:
+        return
     phone = normalize_phone(guest.phone)
     if old_phone is not None and normalize_phone(old_phone) == phone:
         return
     previous = (await db.execute(select(ZbsDelivery).where(
         ZbsDelivery.guest_id == guest.id,
-        ZbsDelivery.event_type == "registration_confirmation",
+        ZbsDelivery.event_type == task_key,
     ).order_by(ZbsDelivery.created_at.desc()))).scalars().all()
-    if old_phone is not None and any(item.status in ("sent", "delivered", "sending") for item in previous):
+    if task_key == REGISTRATION_TASK_KEY and old_phone is not None and any(item.status in ("sent", "delivered", "sending") for item in previous):
         return
-    event_key = f"registration_confirmation:{guest.id}:{phone}"
+    event_key = (
+        f"{task_key}:{guest.id}"
+        if task_key == CHECKIN_TASK_KEY
+        else f"{task_key}:{guest.id}:{phone}"
+    )
     if any(item.event_key == event_key for item in previous):
         return
-    if old_phone is not None:
+    if task_key == REGISTRATION_TASK_KEY and old_phone is not None:
         await db.execute(update(ZbsDelivery).where(
             ZbsDelivery.guest_id == guest.id,
-            ZbsDelivery.event_type == "registration_confirmation",
+            ZbsDelivery.event_type == task_key,
             ZbsDelivery.phone == normalize_phone(old_phone),
             ZbsDelivery.status.in_(["pending", "failed"]),
         ).values(status="cancelled", updated_at=datetime.now(timezone.utc)))
@@ -79,15 +116,25 @@ async def enqueue_registration(db: AsyncSession, guest: Guest, old_phone: str | 
     if not workshop:
         return
     registered_at = _registered_at(guest)
+    event_at = guest.checked_in_at if task_key == CHECKIN_TASK_KEY else registered_at
+    event_at = event_at or datetime.now(timezone.utc)
+    event_at = event_at if event_at.tzinfo else event_at.replace(tzinfo=timezone.utc)
+    template_data = _template_data(guest, workshop, phone)
+    if task_key == CHECKIN_TASK_KEY:
+        template_data = {
+            "customer_name": template_data["customer_name"],
+            "workshop": template_data["workshop"],
+        }
     db.add(ZbsDelivery(
         guest_id=guest.id, workshop_id=guest.workshop_id,
-        event_type="registration_confirmation", event_key=event_key,
-        phone=phone or None, template_id=settings.ZBS_REGISTRATION_TEMPLATE_ID,
+        event_type=task_key, event_key=event_key,
+        phone=phone or None, template_id=template_id,
         payload={
-            "template_data": _template_data(guest, workshop, phone),
+            "template_data": template_data,
             "registered_at": registered_at.isoformat(),
+            "event_at": event_at.isoformat(),
         },
-        status="expired" if datetime.now(timezone.utc) > registered_at + timedelta(days=7) else "pending",
+        status="expired" if datetime.now(timezone.utc) > event_at + timedelta(days=7) else "pending",
     ))
 
 
@@ -97,7 +144,7 @@ def _retryable(status: int, error: int | None) -> bool:
 
 def _expiry(delivery: ZbsDelivery) -> datetime | None:
     try:
-        value = datetime.fromisoformat(delivery.payload.get("registered_at", ""))
+        value = datetime.fromisoformat(delivery.payload.get("event_at") or delivery.payload.get("registered_at", ""))
         value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
         return value + timedelta(days=7)
     except (TypeError, ValueError):
@@ -106,6 +153,11 @@ def _expiry(delivery: ZbsDelivery) -> datetime | None:
 
 def _payload_error(delivery: ZbsDelivery) -> str | None:
     data = delivery.payload.get("template_data") or {}
+    if delivery.event_type == CHECKIN_TASK_KEY:
+        for key in ("customer_name", "workshop"):
+            if not data.get(key):
+                return f"missing template parameter: {key}"
+        return None
     limits = {"customer_name": 30, "workshop": 30, "customer_phone": 15, "workshop_address": 200}
     for key, limit in limits.items():
         if not data.get(key):
@@ -153,16 +205,22 @@ async def _send(delivery: ZbsDelivery) -> tuple[bool, bool, dict, str | None]:
 async def process_once(db: AsyncSession) -> None:
     if not settings.ZBS_ENABLED:
         return
+    enabled_tasks = (await db.execute(
+        select(ZbsTaskConfig.task_key).where(ZbsTaskConfig.enabled.is_(True))
+    )).scalars().all()
+    task_keys = list(enabled_tasks)
+    if not task_keys:
+        return
     now = datetime.now(timezone.utc)
     stale_before = now - timedelta(minutes=10)
     await db.execute(update(ZbsDelivery).where(
-        ZbsDelivery.event_type == "registration_confirmation",
+        ZbsDelivery.event_type.in_(task_keys),
         ZbsDelivery.status == "sending",
         ZbsDelivery.sending_started_at < stale_before,
     ).values(status="pending", next_attempt_at=now, updated_at=now))
     await db.commit()
     delivery = await db.scalar(select(ZbsDelivery).where(
-        ZbsDelivery.event_type == "registration_confirmation",
+        ZbsDelivery.event_type.in_(task_keys),
         ZbsDelivery.status.in_(["pending", "failed"]),
         ZbsDelivery.next_attempt_at <= now,
     ).order_by(ZbsDelivery.created_at).with_for_update(skip_locked=True).limit(1))
@@ -171,7 +229,7 @@ async def process_once(db: AsyncSession) -> None:
     expires_at = _expiry(delivery)
     if expires_at and now > expires_at:
         delivery.status = "expired"
-        delivery.last_error = "Quá thời hạn 7 ngày kể từ lúc đăng ký"
+        delivery.last_error = "Quá thời hạn 7 ngày kể từ lúc phát sinh tác vụ"
         delivery.updated_at = now
         await db.commit()
         return
@@ -199,6 +257,100 @@ async def process_once(db: AsyncSession) -> None:
         else:
             delivery.next_attempt_at = datetime.now(timezone.utc) + timedelta(days=3650)
     await db.commit()
+
+
+def _zalo_created_at(value: object) -> datetime | None:
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        return None
+    if timestamp > 10_000_000_000:
+        timestamp /= 1000
+    try:
+        return datetime.fromtimestamp(timestamp, timezone.utc)
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def _zalo_data(response: httpx.Response) -> object:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError("Zalo trả về dữ liệu không hợp lệ") from exc
+    if not response.is_success or payload.get("error") not in (None, 0):
+        message = payload.get("message") or f"HTTP {response.status_code}"
+        raise RuntimeError(str(message))
+    return payload.get("data")
+
+
+async def sync_templates(db: AsyncSession) -> dict[str, int]:
+    if not settings.ZBS_ACCESS_TOKEN:
+        raise RuntimeError("Chưa cấu hình ZBS_ACCESS_TOKEN")
+    headers = {"access_token": settings.ZBS_ACCESS_TOKEN}
+    remote_items: list[dict] = []
+    offset = 0
+    total = 1
+    async with httpx.AsyncClient(timeout=settings.ZBS_REQUEST_TIMEOUT_SECONDS) as client:
+        while offset < total:
+            response = await client.get(
+                TEMPLATE_LIST_URL,
+                headers=headers,
+                params={"offset": offset, "limit": 100, "filterPreset": 0},
+            )
+            data = _zalo_data(response)
+            if not isinstance(data, list):
+                raise RuntimeError("Danh sách template từ Zalo không hợp lệ")
+            remote_items.extend(item for item in data if isinstance(item, dict))
+            payload = response.json()
+            total = int((payload.get("metadata") or {}).get("total") or len(remote_items))
+            if not data:
+                break
+            offset += len(data)
+
+        created = 0
+        updated = 0
+        now = datetime.now(timezone.utc)
+        for item in remote_items:
+            template_id = str(item.get("templateId") or "").strip()
+            if not template_id:
+                continue
+            detail_response = await client.get(
+                TEMPLATE_DETAIL_URL,
+                headers=headers,
+                params={"template_id": template_id},
+            )
+            detail_value = _zalo_data(detail_response)
+            detail = detail_value if isinstance(detail_value, dict) else {}
+            template = await db.get(ZbsTemplate, template_id)
+            if template is None:
+                template = ZbsTemplate(
+                    template_id=template_id,
+                    template_name=str(item.get("templateName") or detail.get("templateName") or template_id),
+                    status=str(item.get("status") or detail.get("status") or "PENDING_REVIEW"),
+                )
+                db.add(template)
+                created += 1
+            else:
+                updated += 1
+            template.template_name = str(item.get("templateName") or detail.get("templateName") or template_id)
+            template.status = str(item.get("status") or detail.get("status") or template.status)
+            template.quality = item.get("templateQuality") or detail.get("templateQuality")
+            template.tag = detail.get("templateTag")
+            raw_type = detail.get("templateType") or detail.get("template_type")
+            try:
+                template.template_type = int(raw_type) if raw_type is not None else None
+            except (TypeError, ValueError):
+                template.template_type = None
+            template.detail = detail
+            template.preview_url = detail.get("previewUrl") or detail.get("preview_url")
+            template.price_sdt = detail.get("price_sdt")
+            template.price_uid = detail.get("price_uid")
+            template.zalo_created_at = _zalo_created_at(item.get("createdTime"))
+            template.updated_at = now
+            template.synced_at = now
+
+    await db.commit()
+    return {"synced": created + updated, "created": created, "updated": updated}
 
 
 async def worker_loop(session_maker) -> None:

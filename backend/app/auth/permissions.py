@@ -5,6 +5,7 @@ PERMISSIONS = frozenset({
     "registration_forms.read", "registration_forms.write",
     "lark.read", "lark.sync",
     "uploads.create",
+    "zbs.read", "zbs.manage",
     "users.manage",
 })
 

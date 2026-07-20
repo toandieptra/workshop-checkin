@@ -4,11 +4,11 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import CheckinLog, Guest, WelcomeEvent
+from ..models import CheckinLog, Guest, WelcomeEvent, ZbsDelivery
 from ..schemas import CheckinLogOut
 from ..ws import manager
 from ..auth.dependencies import require_permission
@@ -91,6 +91,11 @@ async def reset_checkin(
     guest.checkin_status = "not_checked_in"
     guest.checked_in_at = None
     guest.local_updated_at = _now()
+    await db.execute(update(ZbsDelivery).where(
+        ZbsDelivery.guest_id == guest.id,
+        ZbsDelivery.event_type == "checkin_confirmation",
+        ZbsDelivery.status.in_(["pending", "failed"]),
+    ).values(status="cancelled", updated_at=_now()))
     await db.commit()
     await clear_dedup(workshop_id, guest.id)
 

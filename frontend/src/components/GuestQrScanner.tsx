@@ -165,13 +165,33 @@ export default function GuestQrScanner({
             ) : (
               <label className="block">
                 <span className="block text-xs font-semibold text-text-secondary mb-1">Số khách check-in</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={actual}
-                  onChange={(event) => setActual(Math.max(1, parseInt(event.target.value, 10) || 1))}
-                  className="w-full border border-line rounded-md px-3 py-3 text-lg text-center font-bold text-brand-teal"
-                />
+                <div className="flex h-14 overflow-hidden rounded-md border border-line bg-surface focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20">
+                  <button
+                    type="button"
+                    aria-label="Giảm số khách check-in"
+                    disabled={actual <= 1}
+                    onClick={() => setActual((value) => Math.max(1, value - 1))}
+                    className="w-14 shrink-0 text-2xl font-semibold text-brand-teal active:bg-brand/10 disabled:opacity-30"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={actual}
+                    onChange={(event) => setActual(Math.max(1, parseInt(event.target.value, 10) || 1))}
+                    className="min-w-0 flex-1 border-x border-line bg-surface text-center text-xl font-bold text-brand-teal focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Tăng số khách check-in"
+                    onClick={() => setActual((value) => value + 1)}
+                    className="w-14 shrink-0 text-2xl font-semibold text-brand-teal active:bg-brand/10"
+                  >
+                    +
+                  </button>
+                </div>
               </label>
             )}
 

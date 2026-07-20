@@ -4,12 +4,12 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..config import settings
-from ..models import CheckinLog, Guest, WelcomeEvent, Workshop
+from ..models import CheckinLog, Guest, WelcomeEvent, Workshop, ZbsDelivery
 from ..schemas import (
     GuestOut, GuestUpdate, GuestUpdateResult, CheckinResult,
     CheckinSelfRequest, GuestQrInfo, GuestSelfCheckinRequest, LookupByPhoneResult,
@@ -154,6 +154,8 @@ async def _do_checkin(
         note=f"actual_party_size={added}",
     )
     db.add(log)
+    from ..services.zbs import enqueue_checkin
+    await enqueue_checkin(db, guest)
     await db.commit()
     await mark_checked_in(guest.workshop_id, guest.id)
 
@@ -332,6 +334,8 @@ async def self_register_and_checkin(
     db.add(guest)
     await db.flush()
     await enqueue_registration(db, guest)
+    from ..services.zbs import enqueue_checkin
+    await enqueue_checkin(db, guest)
 
     log = CheckinLog(
         workshop_id=workshop.id,
@@ -472,6 +476,11 @@ async def uncheckin_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db
         checked_in_by="admin",
     )
     db.add(log)
+    await db.execute(update(ZbsDelivery).where(
+        ZbsDelivery.guest_id == guest.id,
+        ZbsDelivery.event_type == "checkin_confirmation",
+        ZbsDelivery.status.in_(["pending", "failed"]),
+    ).values(status="cancelled", updated_at=_now()))
     await db.commit()
     await clear_dedup(guest.workshop_id, guest.id)
 

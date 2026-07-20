@@ -11,6 +11,7 @@ const ITEMS = [
   { href: "/admin/workshop", label: "Workshop", permission: PERMISSIONS.workshopsView },
   { href: "/admin/forms", label: "Form đăng ký", permission: PERMISSIONS.formsView },
   { href: "/admin/thong-ke", label: "Thống kê", permission: PERMISSIONS.reportsView },
+  { href: "/admin/zbs-template", label: "Mẫu tin ZBS", permission: PERMISSIONS.zbsView },
 ];
 
 const USER_ITEMS = [
@@ -88,41 +89,49 @@ export default function AdminNav() {
                 </Link>
               );
             })}
-            {can(PERMISSIONS.usersView) && (
-              <div ref={userMenuRef} className="relative">
-                <button
-                  type="button"
-                  aria-expanded={userMenuOpen}
-                  onClick={() => setUserMenuOpen((open) => !open)}
-                  className={`px-4 py-1.5 rounded-sm text-sm font-medium transition flex items-center gap-1.5 ${
-                    pathname.startsWith("/admin/users") ? "bg-brand text-white" : "text-muted hover:text-brand"
-                  }`}
-                >
-                  Người dùng
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-                    <path d="m3 4.5 3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                  </svg>
-                </button>
-                {userMenuOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-52 rounded-md border border-line bg-white p-1.5 shadow-lg">
-                    {USER_ITEMS.map((item) => (
-                      <Link
+            <div ref={userMenuRef} className="relative">
+              <button
+                type="button"
+                aria-expanded={userMenuOpen}
+                onClick={() => setUserMenuOpen((open) => !open)}
+                className={`px-4 py-1.5 rounded-sm text-sm font-medium transition flex items-center gap-1.5 ${
+                  pathname.startsWith("/admin/users") ? "bg-brand text-white" : "text-muted hover:text-brand"
+                }`}
+              >
+                Người dùng
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+                  <path d="m3 4.5 3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+              {userMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-52 rounded-md border border-line bg-white p-1.5 shadow-lg">
+                  {can(PERMISSIONS.usersView) && (
+                    <>
+                     {USER_ITEMS.map((item) => (
+                       <Link
                         key={item.href}
                         href={item.href}
                         className={`block rounded px-3 py-2 text-sm ${pathname === item.href ? "bg-surface-muted text-brand-teal font-semibold" : "text-text-secondary hover:bg-surface-muted"}`}
                       >
-                        {item.label}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            <button
-               onClick={() => void logout()}
-              className="ml-1 px-4 py-1.5 rounded-sm text-sm font-medium text-muted hover:text-red-600 transition">
-              Đăng xuất
-            </button>
+                         {item.label}
+                       </Link>
+                     ))}
+                      <div className="my-1 border-t border-line" />
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      void logout();
+                    }}
+                    className="w-full rounded px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50"
+                  >
+                    Đăng xuất
+                  </button>
+                </div>
+              )}
+            </div>
           </nav>
         )}
       </div>

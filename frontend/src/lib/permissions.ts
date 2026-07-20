@@ -20,6 +20,8 @@ export const PERMISSIONS = {
   formsDelete: "registration_forms.write",
   reportsView: "checkin.read",
   reportsExport: "guests.export",
+  zbsView: "zbs.read",
+  zbsManage: "zbs.manage",
   usersView: "users.manage",
   usersManage: "users.manage",
 } as const;

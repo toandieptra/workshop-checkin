@@ -247,6 +247,34 @@ class ZbsDelivery(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ZbsTemplate(Base):
+    __tablename__ = "zbs_templates"
+    template_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    template_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    quality: Mapped[str | None] = mapped_column(Text)
+    tag: Mapped[str | None] = mapped_column(Text)
+    template_type: Mapped[int | None] = mapped_column(Integer)
+    detail: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    preview_url: Mapped[str | None] = mapped_column(Text)
+    price_sdt: Mapped[str | None] = mapped_column(Text)
+    price_uid: Mapped[str | None] = mapped_column(Text)
+    zalo_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ZbsTaskConfig(Base):
+    __tablename__ = "zbs_task_configs"
+    task_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    task_label: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    template_id: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class SyncLog(Base):
     __tablename__ = "sync_logs"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
