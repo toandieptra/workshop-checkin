@@ -701,6 +701,7 @@ function GuestCard({
             )}
             <SyncBadge status={g.sync_status} />
             <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={onRetryZbs} />
+            <ZbsBadge label="Check-in" delivery={g.zbs?.checkin_confirmation} onRetry={onRetryZbs} />
           </div>
         </div>
         <span

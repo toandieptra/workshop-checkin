@@ -8,12 +8,13 @@ import { useAdminGuests, type Guest, type LarkWorkshop, type ZbsDelivery } from 
 import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
 import GuestQr from "@/components/GuestQr";
 
-type ColumnKey = "name" | "phone" | "businessModel" | "source" | "creator" | "registered" | "checkedIn" | "checkin" | "qr" | "sync" | "actions" | "registeredAt";
+type ColumnKey = "name" | "phone" | "businessModel" | "source" | "creator" | "registered" | "checkedIn" | "checkin" | "qr" | "sync" | "zbs" | "actions" | "registeredAt";
 const TABLE_COLUMNS = [
   { key: "name", label: "Tên khách" }, { key: "phone", label: "SĐT" }, { key: "businessModel", label: "Mô hình kinh doanh" },
   { key: "source", label: "Nguồn" }, { key: "creator", label: "Người tạo" },
   { key: "registered", label: "Số khách đăng ký" }, { key: "checkedIn", label: "Số khách check-in" },
   { key: "checkin", label: "Check-in" }, { key: "qr", label: "QR" }, { key: "sync", label: "Đồng bộ Lark" },
+  { key: "zbs", label: "ZBS" },
   { key: "actions", label: "Thao tác" }, { key: "registeredAt", label: "Ngày đăng ký" },
 ] as const;
 
@@ -360,7 +361,6 @@ export default function DesktopAdmin() {
               {workshops.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
             <div className="flex items-center gap-2 flex-wrap">
-              <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
               <button
                 onClick={runLarkWorkshopsSync}
                 disabled={larkBusy}
@@ -616,6 +616,7 @@ export default function DesktopAdmin() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
             </div>
           </div>
 
@@ -633,6 +634,7 @@ export default function DesktopAdmin() {
                    {visibleColumns.checkin && <th className="text-center px-3 py-3 w-32">Check-in</th>}
                    {visibleColumns.qr && <th className="text-center px-3 py-3 w-24">QR</th>}
                    {visibleColumns.sync && <th className="text-center px-3 py-3 w-28">Đồng bộ Lark</th>}
+                   {visibleColumns.zbs && <th className="text-center px-3 py-3 min-w-[130px]">ZBS</th>}
                   {visibleColumns.actions && <th className="text-left px-3 py-3 min-w-[160px]">Thao tác</th>}
                   {visibleColumns.registeredAt && <th className="text-left px-3 py-3">Ngày đăng ký</th>}
                 </tr>
@@ -715,11 +717,10 @@ export default function DesktopAdmin() {
                            />
                          )}
                        </td>}
-                       {visibleColumns.sync && <td className="px-3 py-3 align-top">
-                        <div className="flex flex-col gap-1 items-center">
-                           <SyncBadge status={g.sync_status} error={g.sync_error} />
-                           <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={retryZbs} />
-                          {g.sync_status === "conflict" && (
+                        {visibleColumns.sync && <td className="px-3 py-3 align-top">
+                         <div className="flex flex-col gap-1 items-center">
+                            <SyncBadge status={g.sync_status} error={g.sync_error} />
+                           {g.sync_status === "conflict" && (
                             <div className="flex gap-1 mt-1">
                               <button
                                 onClick={() => resolveConflict(g, "local")}
@@ -735,8 +736,14 @@ export default function DesktopAdmin() {
                               </button>
                             </div>
                           )}
-                        </div>
-                      </td>}
+                         </div>
+                       </td>}
+                       {visibleColumns.zbs && <td className="px-3 py-3 align-top">
+                         <div className="flex flex-col gap-1 items-start">
+                           <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={retryZbs} />
+                           <ZbsBadge label="Check-in" delivery={g.zbs?.checkin_confirmation} onRetry={retryZbs} />
+                         </div>
+                       </td>}
                       {visibleColumns.actions && <td className="px-3 py-3 align-top text-sm">
                         <div className="flex items-center gap-3 flex-wrap">
                           <button

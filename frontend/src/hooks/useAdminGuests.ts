@@ -39,6 +39,7 @@ export interface Guest {
   creator_user_id?: string | null;
   zbs?: {
     registration_confirmation?: ZbsDelivery;
+    checkin_confirmation?: ZbsDelivery;
   };
 }
 
