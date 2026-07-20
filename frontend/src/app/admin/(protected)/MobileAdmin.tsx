@@ -484,7 +484,7 @@ export default function MobileAdmin() {
               onCopyPhone={() => g.phone && copyPhone(g.phone)}
               onDelete={() => delGuest(g.id)}
               onRetryZbs={retryZbs}
-              workshopSlug={currentWorkshop?.slug || ""}
+              workshopId={currentWorkshop?.id || ""}
               workshopName={currentWorkshop?.name || "Workshop"}
             />
           ))
@@ -583,7 +583,7 @@ function GuestCard({
   onCopyPhone,
   onDelete,
   onRetryZbs,
-  workshopSlug,
+  workshopId,
   workshopName,
 }: {
   g: Guest;
@@ -593,7 +593,7 @@ function GuestCard({
   onCopyPhone: () => void;
   onDelete: () => void;
   onRetryZbs: (delivery: ZbsDelivery) => void;
-  workshopSlug: string;
+  workshopId: string;
   workshopName: string;
 }) {
   const vip = isVip(g);
@@ -779,7 +779,7 @@ function GuestCard({
         <GuestQr
           guestId={g.id}
           guestName={g.full_name}
-          workshopSlug={workshopSlug}
+          workshopId={workshopId}
           workshopName={workshopName}
         />
       </div>

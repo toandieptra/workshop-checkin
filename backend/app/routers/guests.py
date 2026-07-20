@@ -12,8 +12,8 @@ from ..config import settings
 from ..models import CheckinLog, Guest, WelcomeEvent, Workshop
 from ..schemas import (
     GuestOut, GuestUpdate, GuestUpdateResult, CheckinResult,
-    CheckinSelfRequest, GuestQrInfo, LookupByPhoneResult, SelfRegisterRequest,
-    SelfRegisterResult,
+    CheckinSelfRequest, GuestQrInfo, GuestSelfCheckinRequest, LookupByPhoneResult,
+    SelfRegisterRequest, SelfRegisterResult,
 )
 from ..services import lark_client
 from ..services.zbs import enqueue_registration, normalize_phone as normalize_zbs_phone
@@ -174,13 +174,17 @@ async def _do_checkin(
 
 
 # =================================================================
-# Self check-in (QR flow — khách tự quét)  PHẢI ĐẶT TRƯỚC /guests/{guest_id}
+# Self check-in và QR nhân viên. PHẢI ĐẶT TRƯỚC /guests/{guest_id}
 # để FastAPI match đúng route (static path > dynamic path)
 # =================================================================
 
-@router.get("/guests/{guest_id}/qr-info", response_model=GuestQrInfo)
+@router.get(
+    "/guests/{guest_id}/qr-info",
+    response_model=GuestQrInfo,
+    dependencies=[Depends(require_permission("checkin.manage"))],
+)
 async def get_guest_qr_info(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Thông tin tối thiểu để xác nhận khách từ QR, không lộ dữ liệu liên hệ."""
+    """Thông tin tối thiểu để nhân viên xác nhận khách từ QR."""
     row = (await db.execute(
         select(Guest, Workshop)
         .join(Workshop, Workshop.id == Guest.workshop_id)
@@ -203,20 +207,26 @@ async def get_guest_qr_info(guest_id: uuid.UUID, db: AsyncSession = Depends(get_
     )
 
 
-@router.post("/guests/{guest_id}/qr-checkin", response_model=CheckinResult)
-async def qr_checkin_guest(
+@router.post("/guests/{guest_id}/self-checkin", response_model=CheckinResult)
+async def self_checkin_guest(
     guest_id: uuid.UUID,
-    body: CheckinSelfRequest | None = None,
+    body: GuestSelfCheckinRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Check-in bằng QR cá nhân do khách hoặc nhân viên quét."""
-    guest = await db.scalar(
-        select(Guest).where(Guest.id == guest_id, Guest.deleted_at.is_(None)).with_for_update()
-    )
-    if not guest:
+    """Check-in sau khi khách đã tra cứu bằng SĐT tại QR chung workshop."""
+    row = (await db.execute(
+        select(Guest, Workshop)
+        .join(Workshop, Workshop.id == Guest.workshop_id)
+        .where(Guest.id == guest_id, Guest.deleted_at.is_(None))
+        .with_for_update()
+    )).first()
+    if not row:
         raise HTTPException(404, "guest not found")
-    actual = body.actual_party_size if body else None
-    guest, lark_error = await _do_checkin(db, guest, actual, method="guest_qr")
+    guest, workshop = row
+    if workshop.slug != body.workshop_slug or normalize_phone(guest.phone or "") != normalize_phone(body.phone):
+        raise HTTPException(403, "guest verification failed")
+    actual = body.actual_party_size
+    guest, lark_error = await _do_checkin(db, guest, actual, method="self_qr")
     return CheckinResult(
         guest=GuestOut.model_validate(guest),
         lark_synced=(lark_error is None),

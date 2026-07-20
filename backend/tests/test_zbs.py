@@ -25,4 +25,4 @@ def test_workshop_time_matches_template_format():
         event_date=date(2026, 7, 17),
         event_time=time(9, 0),
     )
-    assert _workshop_time(workshop) == "17/07/2026 09:00"
+    assert _workshop_time(workshop) == "09:00 17/07/2026"

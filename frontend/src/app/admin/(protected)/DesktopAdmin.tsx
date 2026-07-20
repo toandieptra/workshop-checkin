@@ -709,7 +709,7 @@ export default function DesktopAdmin() {
                            <GuestQr
                              guestId={g.id}
                              guestName={g.full_name}
-                             workshopSlug={currentWorkshop.slug}
+                             workshopId={currentWorkshop.id}
                              workshopName={currentWorkshop.name}
                              compact
                            />

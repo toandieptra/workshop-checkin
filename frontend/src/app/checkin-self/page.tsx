@@ -9,8 +9,7 @@ export const dynamic = "force-dynamic";
 import {
   lookupByPhone,
   selfRegisterAndCheckin,
-  checkinGuestByQr,
-  getGuestQrInfo,
+  selfCheckinGuestById,
   getWorkshopBySlug,
 } from "@/lib/api";
 
@@ -65,7 +64,6 @@ export default function CheckinSelfPage() {
 function CheckinSelfInner() {
   const sp = useSearchParams();
   const slug = sp.get("w") || "";
-  const guestId = sp.get("g") || "";
 
   const [workshop, setWorkshop] = useState<Workshop | null>(null);
   const [step, setStep] = useState<Step>("loading");
@@ -90,28 +88,13 @@ function CheckinSelfInner() {
       try {
         const w = await getWorkshopBySlug(slug);
         setWorkshop(w);
-        if (guestId) {
-          const qrGuest = await getGuestQrInfo(guestId);
-          if (qrGuest.workshop_slug !== slug || qrGuest.workshop_id !== w.id) {
-            setErrMsg("QR khách mời không thuộc workshop này.");
-            setStep("error");
-            return;
-          }
-          setGuest(qrGuest);
-          const defaultActual = qrGuest.party_size || 1;
-          setPartySize(defaultActual);
-          setActual(defaultActual);
-          setExtra(1);
-          setStep("confirm");
-        } else {
-          setStep("phone");
-        }
+        setStep("phone");
       } catch {
-        setErrMsg(guestId ? "QR khách mời không hợp lệ hoặc đã hết hiệu lực." : "Workshop không tồn tại hoặc đã bị xoá.");
+        setErrMsg("Workshop không tồn tại hoặc đã bị xoá.");
         setStep("error");
       }
     })();
-  }, [guestId, slug]);
+  }, [slug]);
 
   // -----------------------------------------------------------------
   // Step 1: nhập SĐT → lookup
@@ -155,7 +138,7 @@ function CheckinSelfInner() {
     if (!guest) return;
     const newParty = Math.max(1, Math.floor(actual) || 1);
     try {
-      await checkinGuestByQr(guest.id, newParty);
+      await selfCheckinGuestById(guest.id, slug, normalizePhone(phone), newParty);
       setStep("success");
     } catch (e: any) {
       setErrMsg("Lỗi check-in: " + (e?.message || ""));
@@ -169,7 +152,7 @@ function CheckinSelfInner() {
     if (!guest) return;
     const added = Math.max(1, Math.floor(extra) || 1);
     try {
-      await checkinGuestByQr(guest.id, added);
+      await selfCheckinGuestById(guest.id, slug, normalizePhone(phone), added);
       setStep("success");
     } catch (e: any) {
       setErrMsg("Lỗi cập nhật: " + (e?.message || ""));

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { checkinGuestByQr, getGuestQrInfo, type GuestQrInfo } from "@/lib/api";
+import { checkinGuestById, getGuestQrInfo, type GuestQrInfo } from "@/lib/api";
 
 interface GuestQrScannerProps {
   workshopId: string;
@@ -12,16 +12,11 @@ interface GuestQrScannerProps {
 
 type ScannerStep = "camera" | "confirm" | "success" | "error";
 
-function parseGuestQr(decodedText: string): { guestId: string; workshopSlug: string } | null {
-  try {
-    const url = new URL(decodedText);
-    const guestId = url.searchParams.get("g") || "";
-    const workshopSlug = url.searchParams.get("w") || "";
-    if (url.pathname !== "/checkin-self" || !guestId || !workshopSlug) return null;
-    return { guestId, workshopSlug };
-  } catch {
-    return null;
-  }
+function parseGuestQr(decodedText: string): { guestId: string; workshopId: string } | null {
+  const match = decodedText.trim().match(
+    /^WORKSHOP_CHECKIN:v1:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
+  );
+  return match ? { workshopId: match[1], guestId: match[2] } : null;
 }
 
 export default function GuestQrScanner({
@@ -74,7 +69,7 @@ export default function GuestQrScanner({
               handlingRef.current = false;
               return;
             }
-            if (parsed.workshopSlug !== workshopSlug) {
+            if (parsed.workshopId !== workshopId) {
               await stopScanner();
               setMessage("QR thuộc workshop khác với workshop đang chọn.");
               setStep("error");
@@ -126,7 +121,7 @@ export default function GuestQrScanner({
     const count = Math.max(1, Math.floor(actual) || 1);
     setBusy(true);
     try {
-      await checkinGuestByQr(guest.id, count);
+      await checkinGuestById(guest.id, count);
       setStep("success");
       await onCheckedIn(guest.full_name, count);
     } catch (error: any) {

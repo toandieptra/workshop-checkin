@@ -30,7 +30,13 @@ def _workshop_time(workshop: Workshop) -> str:
     date_value = workshop.event_date.strftime("%d/%m/%Y")
     if not workshop.event_time:
         return date_value
-    return f"{date_value} {workshop.event_time.strftime('%H:%M')}"
+    # Zalo template accepts "HH:MM DD/MM/YYYY", not "DD/MM/YYYY HH:MM".
+    return f"{workshop.event_time.strftime('%H:%M')} {date_value}"
+
+
+def _clip(value: str | None, limit: int) -> str:
+    text = (value or "").strip()
+    return text if len(text) <= limit else text[:limit]
 
 
 def _registered_at(guest: Guest) -> datetime:
@@ -40,10 +46,10 @@ def _registered_at(guest: Guest) -> datetime:
 
 def _template_data(guest: Guest, workshop: Workshop, phone: str) -> dict:
     return {
-        "customer_name": guest.full_name,
-        "workshop": workshop.name,
+        "customer_name": _clip(guest.full_name, 30),
+        "workshop": _clip(workshop.name, 30),
         "customer_phone": zbs_phone(phone),
-        "workshop_address": workshop.location or "",
+        "workshop_address": _clip(workshop.location, 200),
         "workshop_time": _workshop_time(workshop),
         "customer_qty": int(guest.party_size or 1),
     }

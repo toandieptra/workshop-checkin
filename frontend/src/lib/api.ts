@@ -116,7 +116,7 @@ export function maskPhone(phone?: string | null): string {
 }
 
 // -----------------------------------------------------------------
-// Self check-in (QR flow) — dùng cho trang guest
+// Self check-in từ QR chung workshop — dùng cho trang guest
 // -----------------------------------------------------------------
 
 export interface LookupResult {
@@ -189,10 +189,19 @@ export async function getGuestQrInfo(id: string): Promise<GuestQrInfo> {
   return await api(`/guests/${encodeURIComponent(id)}/qr-info`);
 }
 
-export async function checkinGuestByQr(id: string, actualPartySize: number): Promise<any> {
-  return await api(`/guests/${encodeURIComponent(id)}/qr-checkin`, {
+export async function selfCheckinGuestById(
+  id: string,
+  workshopSlug: string,
+  phone: string,
+  actualPartySize: number,
+): Promise<any> {
+  return await api(`/guests/${encodeURIComponent(id)}/self-checkin`, {
     method: "POST",
-    body: JSON.stringify({ actual_party_size: actualPartySize }),
+    body: JSON.stringify({
+      workshop_slug: workshopSlug,
+      phone,
+      actual_party_size: actualPartySize,
+    }),
   });
 }
 

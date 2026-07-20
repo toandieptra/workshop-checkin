@@ -166,10 +166,16 @@ class CheckinLogOut(BaseModel):
     created_at: datetime
 
 
-# ===== Self check-in (khách quét QR) =====
+# ===== Self check-in và QR nhân viên =====
 
 class CheckinSelfRequest(BaseModel):
-    """Body cho endpoint check-in (admin flow + self QR flow)."""
+    """Body dùng chung cho admin và self check-in."""
+    actual_party_size: int | None = None
+
+
+class GuestSelfCheckinRequest(BaseModel):
+    workshop_slug: str
+    phone: str
     actual_party_size: int | None = None
 
 

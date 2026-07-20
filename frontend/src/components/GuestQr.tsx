@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import QRCode from "react-qr-code";
 
 interface GuestQrProps {
   guestId: string;
   guestName: string;
-  workshopSlug: string;
+  workshopId: string;
   workshopName?: string;
   compact?: boolean;
 }
@@ -20,25 +20,20 @@ function safeFileName(value: string): string {
     .toLowerCase() || "khach-moi";
 }
 
-export function buildGuestQrUrl(origin: string, workshopSlug: string, guestId: string): string {
-  const params = new URLSearchParams({ w: workshopSlug, g: guestId });
-  return `${origin}/checkin-self?${params.toString()}`;
+export function buildGuestQrPayload(workshopId: string, guestId: string): string {
+  return `WORKSHOP_CHECKIN:v1:${workshopId}:${guestId}`;
 }
 
 export default function GuestQr({
   guestId,
   guestName,
-  workshopSlug,
+  workshopId,
   workshopName = "Workshop",
   compact = false,
 }: GuestQrProps) {
-  const [origin, setOrigin] = useState("");
   const [open, setOpen] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => setOrigin(window.location.origin), []);
-
-  const url = origin ? buildGuestQrUrl(origin, workshopSlug, guestId) : "";
+  const payload = buildGuestQrPayload(workshopId, guestId);
 
   const downloadQr = () => {
     const svg = qrRef.current?.querySelector("svg");
@@ -80,35 +75,32 @@ export default function GuestQr({
   return (
     <>
       <div className={compact ? "flex flex-col items-center gap-1.5" : ""}>
-        {compact && url && (
+        {compact && (
           <button
             type="button"
             onClick={() => setOpen(true)}
             className="bg-white p-1 border border-line rounded-sm hover:border-brand"
             aria-label={`Xem QR của ${guestName}`}
           >
-            <QRCode value={url} size={54} level="M" />
+            <QRCode value={payload} size={54} level="M" />
           </button>
         )}
         <button
           type="button"
           onClick={compact ? downloadQr : () => setOpen(true)}
-          disabled={!url}
           className={compact
-            ? "text-[11px] text-brand underline disabled:opacity-40"
-            : "inline-flex items-center justify-center gap-1 h-10 px-3 rounded-md border border-line text-brand-teal font-semibold text-xs bg-surface active:bg-cyan-pale disabled:opacity-40"}
+            ? "text-[11px] text-brand underline"
+            : "inline-flex items-center justify-center gap-1 h-10 px-3 rounded-md border border-line text-brand-teal font-semibold text-xs bg-surface active:bg-cyan-pale"}
         >
           {compact ? "Tải QR" : "QR khách"}
         </button>
       </div>
 
-      {url && (
-        <div ref={qrRef} className="fixed -left-[9999px] top-0" aria-hidden="true">
-          <QRCode value={url} size={240} level="M" />
-        </div>
-      )}
+      <div ref={qrRef} className="fixed -left-[9999px] top-0" aria-hidden="true">
+        <QRCode value={payload} size={240} level="M" />
+      </div>
 
-      {open && url && (
+      {open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           role="dialog"
@@ -119,10 +111,11 @@ export default function GuestQr({
           <div className="w-full max-w-sm bg-surface rounded-lg border border-line p-5 text-center" onClick={(event) => event.stopPropagation()}>
             <h3 className="font-heading font-bold text-lg text-brand-teal">{guestName}</h3>
             <p className="text-xs text-muted mt-1">{workshopName}</p>
+            <p className="text-xs font-semibold text-brand mt-2">QR dành cho nhân viên check-in</p>
             <div className="inline-block bg-white p-4 border border-line rounded-lg mt-4">
-              <QRCode value={url} size={240} level="M" />
+              <QRCode value={payload} size={240} level="M" />
             </div>
-            <p className="text-[10px] text-muted break-all mt-2">{url}</p>
+            <p className="text-[10px] text-muted mt-2">Khách đưa mã này cho nhân viên tại quầy. Mã không dùng để tự check-in.</p>
             <div className="grid grid-cols-2 gap-2 mt-4">
               <button type="button" onClick={() => setOpen(false)} className="h-10 rounded-md border border-line text-sm text-brand-teal">
                 Đóng
