@@ -51,7 +51,10 @@ class Settings(BaseSettings):
     # ===== Zalo Business Solutions / ZBS =====
     ZBS_ENABLED: bool = False
     ZBS_API_URL: str = "https://business.openapi.zalo.me/message/template"
+    ZBS_APP_ID: str | None = None
+    ZBS_APP_SECRET: str | None = None
     ZBS_ACCESS_TOKEN: str | None = None
+    ZBS_REFRESH_TOKEN: str | None = None
     ZBS_REGISTRATION_TEMPLATE_ID: str | None = None
     ZBS_WEBHOOK_SECRET: str | None = None
     ZBS_WORKER_INTERVAL_SECONDS: int = 5

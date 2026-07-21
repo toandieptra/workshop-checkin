@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Guest, Workshop, ZbsDelivery, ZbsTaskConfig, ZbsTemplate
+from .zbs_auth import request_with_token
 
 logger = logging.getLogger("zbs")
 REGISTRATION_TASK_KEY = "registration_confirmation"
@@ -253,14 +254,14 @@ def _payload_error(delivery: ZbsDelivery) -> str | None:
     return None
 
 
-async def _send(delivery: ZbsDelivery) -> tuple[bool, bool, dict, str | None]:
+async def _send(db: AsyncSession, delivery: ZbsDelivery) -> tuple[bool, bool, dict, str | None]:
     if not settings.ZBS_ENABLED:
         return False, False, {}, "ZBS is disabled"
     if not delivery.phone:
         return False, False, {}, "missing phone"
     template_id = delivery.template_id or settings.ZBS_REGISTRATION_TEMPLATE_ID
-    if not settings.ZBS_ACCESS_TOKEN or not template_id:
-        return False, False, {}, "missing ZBS access token or template id"
+    if not template_id:
+        return False, False, {}, "missing ZBS template id"
     payload_error = _payload_error(delivery)
     if payload_error:
         return False, False, {}, payload_error
@@ -271,9 +272,11 @@ async def _send(delivery: ZbsDelivery) -> tuple[bool, bool, dict, str | None]:
         "tracking_id": str(delivery.id),
     }
     async with httpx.AsyncClient(timeout=settings.ZBS_REQUEST_TIMEOUT_SECONDS) as client:
-        response = await client.post(
+        response = await request_with_token(
+            db,
+            client,
+            "POST",
             settings.ZBS_API_URL,
-            headers={"access_token": settings.ZBS_ACCESS_TOKEN},
             json=request,
         )
     data = response.json() if response.content else {}
@@ -325,7 +328,7 @@ async def process_once(db: AsyncSession) -> None:
     delivery.updated_at = now
     await db.commit()
     try:
-        ok, retryable, response, error = await _send(delivery)
+        ok, retryable, response, error = await _send(db, delivery)
     except Exception as exc:
         ok, retryable, response, error = False, True, {}, str(exc)
     delivery.provider_response = response
@@ -370,17 +373,16 @@ def _zalo_data(response: httpx.Response) -> object:
 
 
 async def sync_templates(db: AsyncSession) -> dict[str, int]:
-    if not settings.ZBS_ACCESS_TOKEN:
-        raise RuntimeError("Chưa cấu hình ZBS_ACCESS_TOKEN")
-    headers = {"access_token": settings.ZBS_ACCESS_TOKEN}
     remote_items: list[dict] = []
     offset = 0
     total = 1
     async with httpx.AsyncClient(timeout=settings.ZBS_REQUEST_TIMEOUT_SECONDS) as client:
         while offset < total:
-            response = await client.get(
+            response = await request_with_token(
+                db,
+                client,
+                "GET",
                 TEMPLATE_LIST_URL,
-                headers=headers,
                 params={"offset": offset, "limit": 100, "filterPreset": 0},
             )
             data = _zalo_data(response)
@@ -400,9 +402,11 @@ async def sync_templates(db: AsyncSession) -> dict[str, int]:
             template_id = str(item.get("templateId") or "").strip()
             if not template_id:
                 continue
-            detail_response = await client.get(
+            detail_response = await request_with_token(
+                db,
+                client,
+                "GET",
                 TEMPLATE_DETAIL_URL,
-                headers=headers,
                 params={"template_id": template_id},
             )
             detail_value = _zalo_data(detail_response)

@@ -29,7 +29,16 @@ async function throwApiError(res: Response): Promise<never> {
     location.assign(`/admin/login?redirect=${encodeURIComponent(location.pathname + location.search)}`);
   }
   if (typeof window !== "undefined" && res.status === 403) window.dispatchEvent(new CustomEvent("auth:forbidden"));
-  throw new ApiError(res.status, `${res.status}${text ? ": " + text : ""}`);
+  let message = text;
+  try {
+    const payload = JSON.parse(text);
+    message = typeof payload.detail === "string" ? payload.detail : text;
+  } catch {
+    if (text.trimStart().startsWith("<")) {
+      message = "Máy chủ tạm thời không phản hồi. Vui lòng thử lại sau.";
+    }
+  }
+  throw new ApiError(res.status, `${res.status}${message ? ": " + message : ""}`);
 }
 
 export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {

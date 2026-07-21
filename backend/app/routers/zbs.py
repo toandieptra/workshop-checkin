@@ -16,6 +16,7 @@ from ..services.zbs import (
     REGISTRATION_TASK_KEY,
     TASK_DEFINITIONS,
 )
+from ..services.zbs_auth import ZbsAuthError
 
 router = APIRouter(prefix="/api", tags=["zbs"])
 
@@ -210,6 +211,9 @@ async def sync_zbs_templates(db: AsyncSession = Depends(get_db)):
     from ..services.zbs import sync_templates
     try:
         result = await sync_templates(db)
+    except ZbsAuthError as exc:
+        await db.rollback()
+        raise HTTPException(503, str(exc)) from exc
     except Exception as exc:
         await db.rollback()
         raise HTTPException(502, f"Không thể đồng bộ template từ Zalo: {exc}") from exc
