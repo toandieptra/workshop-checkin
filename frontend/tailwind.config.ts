@@ -18,7 +18,7 @@ const config: Config = {
         surface: "#FFFFFF",
         "surface-muted": "#E8F4F5",
         ink: "#0D3B42",
-        muted: "#5A8A92",
+        muted: "#3A6B74",
         line: "#D0E5E8",
         "border-strong": "#7AA5A8",
         success: "#2E8B8F",
@@ -30,7 +30,7 @@ const config: Config = {
         text: {
           primary: "#0D3B42",
           secondary: "#3A6B74",
-          muted: "#5A8A92",
+          muted: "#3A6B74",
         },
         cyan: {
           soft: "#A8D8E0",

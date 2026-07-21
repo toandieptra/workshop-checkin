@@ -30,9 +30,18 @@ function publicUrl(token: string): string {
   return `${origin}/register/${token}`;
 }
 
-function FormQr({ token }: { token: string }) {
+function FormQr({ token, compact = false }: { token: string; compact?: boolean }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const url = publicUrl(token);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [open]);
 
   const downloadQr = () => {
     const svg = wrapRef.current?.querySelector("svg");
@@ -64,12 +73,19 @@ function FormQr({ token }: { token: string }) {
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <div ref={wrapRef} className="bg-white p-2 rounded-lg border border-line" style={{ width: 136, height: 136 }}>
+      <div ref={wrapRef} className={compact ? "fixed -left-[9999px] top-0" : "bg-white p-2 rounded-lg border border-line"} style={compact ? undefined : { width: 136, height: 136 }} aria-hidden={compact}>
         <QRCode value={url} size={120} level="M" style={{ height: "auto", maxWidth: "100%", width: "100%" }} />
       </div>
-      <button onClick={downloadQr} className="text-xs text-brand underline min-h-[28px]">
-        Tải QR
-      </button>
+      {compact ? <button type="button" onClick={() => setOpen(true)} className="min-h-10 rounded-md border border-line px-3 text-xs font-semibold text-brand-teal">Xem QR</button> : <button onClick={downloadQr} className="text-xs text-brand underline min-h-10">Tải QR</button>}
+      {open && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="QR form đăng ký" onClick={() => setOpen(false)}>
+        <div className="w-full max-w-sm rounded-lg bg-surface p-5 text-center" onClick={(event) => event.stopPropagation()}>
+          <div className="mx-auto w-fit rounded-lg border border-line bg-white p-3"><QRCode value={url} size={240} level="M" /></div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-md border border-line text-brand-teal">Đóng</button>
+            <button type="button" onClick={downloadQr} className="h-11 rounded-md bg-brand font-semibold text-brand-teal">Tải QR</button>
+          </div>
+        </div>
+      </div>}
     </div>
   );
 }
@@ -82,7 +98,7 @@ export default function AdminFormsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
-    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
+    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, key !== "qr"])) as Record<ColumnKey, boolean>);
   const visibleColumnCount = TABLE_COLUMNS.filter(({ key }) => visibleColumns[key]).length;
 
   const load = async () => {
@@ -193,7 +209,7 @@ export default function AdminFormsPage() {
                 <tr>
                   {visibleColumns.workshop && <th className="text-left px-3 py-3 min-w-[220px]">Workshop</th>}
                   {visibleColumns.link && <th className="text-left px-3 py-3 min-w-[280px]">Link</th>}
-                  {visibleColumns.qr && <th className="text-center px-3 py-3 w-40">QR</th>}
+                  {visibleColumns.qr && <th className="text-center px-3 py-3 w-24">QR</th>}
                   {visibleColumns.status && <th className="text-center px-3 py-3 w-28">Trạng thái</th>}
                   {visibleColumns.submissions && <th className="text-center px-3 py-3 w-28">Submit</th>}
                   {visibleColumns.created && <th className="text-left px-3 py-3 min-w-[180px]">Ngày tạo</th>}
@@ -235,7 +251,7 @@ export default function AdminFormsPage() {
                         </div>
                       </td>}
                       {visibleColumns.qr && <td className="px-3 py-3 align-top text-center">
-                        <FormQr token={f.token} />
+                        <FormQr token={f.token} compact />
                       </td>}
                       {visibleColumns.status && <td className="px-3 py-3 align-top text-center">
                         <span className={`text-xs px-2 py-0.5 rounded ${f.is_active ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"}`}>

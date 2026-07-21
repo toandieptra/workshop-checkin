@@ -9,14 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..config import settings
-from ..models import CheckinLog, Guest, WelcomeEvent, Workshop, ZbsDelivery
+from ..models import AdminUser, CheckinLog, Guest, WelcomeEvent, Workshop, ZbsDelivery
 from ..schemas import (
     GuestOut, GuestUpdate, GuestUpdateResult, CheckinResult,
     CheckinSelfRequest, GuestQrInfo, GuestSelfCheckinRequest, LookupByPhoneResult,
     SelfRegisterRequest, SelfRegisterResult,
 )
 from ..services import lark_client
-from ..services.zbs import enqueue_registration, normalize_phone as normalize_zbs_phone
+from ..services.registration_confirmation import confirm_registration
+from ..services.zbs import normalize_phone as normalize_zbs_phone, refresh_registration_recipient
 from ..redis_client import is_duplicate, mark_checked_in, clear_dedup
 from ..ws import manager
 from .lark_sync import _push_guest_to_lark, _source_to_lark
@@ -113,6 +114,8 @@ async def _do_checkin(
       - Nếu đã check-in: cộng dồn actual_party_size vào giá trị hiện tại,
         KHÔNG đổi checked_in_at, KHÔNG tạo log mới (chỉ update note cộng dồn).
     """
+    if guest.registration_status != "confirmed":
+        raise HTTPException(409, "Khách đang chờ xác nhận đăng ký")
     added = max(1, actual_party_size or guest.party_size or 1)
 
     if guest.checkin_status == "checked_in":
@@ -323,17 +326,18 @@ async def self_register_and_checkin(
         company=body.company or None,
         business_model=body.business_model or None,
         party_size=actual,
+        registration_status="pending",
         actual_party_size=actual,
         checkin_status="checked_in",
         checked_in_at=_now(),
         registered_at=_now(),
         local_updated_at=_now(),
         sync_status="pending_push",
-        note="Đăng ký ngoài danh sách qua QR — staff sẽ xác minh sau",
+        note="Đăng ký và xác nhận tại sự kiện qua QR",
     )
     db.add(guest)
     await db.flush()
-    await enqueue_registration(db, guest)
+    await confirm_registration(db, guest)
     from ..services.zbs import enqueue_checkin
     await enqueue_checkin(db, guest)
 
@@ -356,7 +360,7 @@ async def self_register_and_checkin(
     return SelfRegisterResult(
         guest=GuestOut.model_validate(guest),
         lark_synced=False,
-        warning="Bạn đang đăng ký ngoài danh sách. Nhân viên sẽ xác minh sau.",
+        warning="Đăng ký tại sự kiện đã được xác nhận và Check-in thành công.",
     )
 
 
@@ -377,13 +381,12 @@ async def update_guest(
     db: AsyncSession = Depends(get_db),
 ):
     g = await _load_guest(db, guest_id)
-    old_phone = g.phone
     changes = body.model_dump(exclude_unset=True)
     for k, v in changes.items():
         setattr(g, k, v)
     if "phone" in changes:
         g.phone = normalize_zbs_phone(g.phone) or None
-        await enqueue_registration(db, g, old_phone=old_phone)
+        await refresh_registration_recipient(db, g)
     g.local_updated_at = _now()
     await db.commit()
 
@@ -432,6 +435,23 @@ async def delete_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     g.deleted_at = _now()
     g.local_updated_at = _now()
     await db.commit()
+
+
+@router.post("/guests/{guest_id}/confirm", response_model=GuestOut)
+async def confirm_guest_registration(
+    guest_id: uuid.UUID,
+    user: AdminUser = Depends(require_permission("guests.write")),
+    db: AsyncSession = Depends(get_db),
+):
+    guest = await db.scalar(
+        select(Guest).where(Guest.id == guest_id, Guest.deleted_at.is_(None)).with_for_update()
+    )
+    if not guest:
+        raise HTTPException(404, "guest not found")
+    await confirm_registration(db, guest, confirmed_by=user.id)
+    await db.commit()
+    await db.refresh(guest)
+    return guest
 
 
 # =================================================================

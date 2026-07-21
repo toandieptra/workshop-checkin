@@ -22,6 +22,7 @@ from ..schemas import (
 )
 from ..auth.dependencies import require_permission
 from ..services.guest_provenance import normalize_guest_source, resolve_public_creator
+from ..services.registration_confirmation import apply_registration_policy
 
 logger = logging.getLogger("registration_forms")
 router = APIRouter(prefix="/api", tags=["registration-forms"])
@@ -70,6 +71,7 @@ def _option(w: Workshop) -> RegistrationWorkshopOption:
         name=w.name,
         event_date=w.event_date,
         location=w.location,
+        auto_confirm_registration=w.auto_confirm_registration,
     )
 
 
@@ -269,6 +271,7 @@ async def submit_registration_form(
         creator_name=creator_name,
         creator_user_id=creator_user_id,
         party_size=party_size,
+        registration_status="pending",
         checkin_status="not_checked_in",
         registered_at=_now(),
         local_updated_at=_now(),
@@ -276,8 +279,11 @@ async def submit_registration_form(
     )
     db.add(guest)
     await db.flush()
-    from ..services.zbs import enqueue_registration
-    await enqueue_registration(db, guest)
+    await apply_registration_policy(
+        db,
+        guest,
+        auto_confirm=workshop.auto_confirm_registration,
+    )
 
     submission = RegistrationSubmission(
         form_id=form.id,
@@ -310,5 +316,6 @@ async def submit_registration_form(
     return RegistrationSubmitResult(
         guest=GuestOut.model_validate(guest),
         submission_id=submission.id,
+        registration_status=guest.registration_status,
         lark_synced=lark_synced,
     )

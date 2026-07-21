@@ -87,6 +87,7 @@ function emptyForm(): WorkshopWriteBody {
     event_time: "",
     location: "",
     status: "draft",
+    auto_confirm_registration: true,
     branch: "",
     maps_url: "",
     registration_short_url: "",
@@ -102,6 +103,7 @@ function formFromWorkshop(w: WorkshopAdmin): WorkshopWriteBody {
     event_time: w.event_time ? normalizeTime(w.event_time) : "",
     location: w.location || "",
     status: w.status || "draft",
+    auto_confirm_registration: w.auto_confirm_registration ?? true,
     branch: w.branch || "",
     maps_url: w.maps_url || "",
     registration_short_url: w.registration_short_url || "",
@@ -117,6 +119,7 @@ function cleanBody(form: WorkshopWriteBody): WorkshopWriteBody {
     event_time: form.event_time || null,
     location: form.location?.trim() || null,
     status: form.status || "draft",
+    auto_confirm_registration: form.auto_confirm_registration,
     branch: form.branch?.trim() || null,
     maps_url: form.maps_url?.trim() || null,
     registration_short_url: form.registration_short_url?.trim() || null,
@@ -382,31 +385,31 @@ export default function AdminWorkshopPage() {
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2 mb-4">
-          <button
-            onClick={() => setStatusFilter("")}
-            className={`px-3 py-1.5 rounded-sm text-sm border ${
-              !statusFilter ? "bg-brand text-brand-teal border-brand" : "border-line text-muted"
-            }`}
-          >
-            Tất cả ({statusFilter ? "…" : counts.all})
-          </button>
-          {STATUS_OPTIONS.map((o) => (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
             <button
-              key={o.value}
-              onClick={() => setStatusFilter(o.value)}
+              onClick={() => setStatusFilter("")}
               className={`px-3 py-1.5 rounded-sm text-sm border ${
-                statusFilter === o.value
-                  ? "bg-brand text-brand-teal border-brand"
-                  : "border-line text-muted"
+                !statusFilter ? "bg-brand text-brand-teal border-brand" : "border-line text-muted"
               }`}
             >
-              {o.label}
-              {!statusFilter && counts.by[o.value] ? ` (${counts.by[o.value]})` : ""}
+              Tất cả ({statusFilter ? "…" : counts.all})
             </button>
-          ))}
-        </div>
-        <div className="mb-3 flex justify-end">
+            {STATUS_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                onClick={() => setStatusFilter(o.value)}
+                className={`px-3 py-1.5 rounded-sm text-sm border ${
+                  statusFilter === o.value
+                    ? "bg-brand text-brand-teal border-brand"
+                    : "border-line text-muted"
+                }`}
+              >
+                {o.label}
+                {!statusFilter && counts.by[o.value] ? ` (${counts.by[o.value]})` : ""}
+              </button>
+            ))}
+          </div>
           <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
         </div>
 
@@ -635,6 +638,22 @@ export default function AdminWorkshopPage() {
                       </option>
                     ))}
                   </select>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border border-line bg-surface-muted p-3 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-describedby="auto-confirm-help"
+                    className="mt-0.5 h-5 w-5 accent-brand"
+                    checked={form.auto_confirm_registration}
+                    onChange={(e) => setField("auto_confirm_registration", e.target.checked)}
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-brand-teal">Tự động xác nhận đăng ký</span>
+                    <span id="auto-confirm-help" className="mt-1 block text-xs leading-5 text-muted">
+                      Khi bật, khách được xác nhận và nhận ZNS ngay sau khi đăng ký. Khi tắt, Admin cần xác nhận khách thủ công.
+                    </span>
+                  </span>
                 </label>
                 <label className="block">
                   <span className="text-xs text-muted">Ngày sự kiện</span>

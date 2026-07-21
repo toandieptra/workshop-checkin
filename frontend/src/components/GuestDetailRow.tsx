@@ -12,6 +12,7 @@ export default function GuestDetailRow({
   onRetryLoad,
   onEdit,
   onCheckin,
+  onConfirmRegistration,
   onUncheckin,
   onToggleVip,
   onDelete,
@@ -26,6 +27,7 @@ export default function GuestDetailRow({
   onRetryLoad: () => void;
   onEdit: (guest: Guest) => void;
   onCheckin: (guest: Guest) => void;
+  onConfirmRegistration: (guest: Guest) => void;
   onUncheckin: (guest: Guest) => void;
   onToggleVip: (guest: Guest) => void;
   onDelete: (guest: Guest) => void;
@@ -65,6 +67,7 @@ export default function GuestDetailRow({
           workshopId={workshopId}
           onEdit={onEdit}
           onCheckin={onCheckin}
+          onConfirmRegistration={onConfirmRegistration}
           onUncheckin={onUncheckin}
           onToggleVip={onToggleVip}
           onDelete={onDelete}

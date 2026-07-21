@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { checkinGuestById, getGuestQrInfo, type GuestQrInfo } from "@/lib/api";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 
 interface GuestQrScannerProps {
   workshopId: string;
@@ -34,6 +35,8 @@ export default function GuestQrScanner({
   const [actual, setActual] = useState(1);
   const [message, setMessage] = useState("Đưa mã QR khách mời vào khung hình");
   const [busy, setBusy] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, dialogRef);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -142,7 +145,7 @@ export default function GuestQrScanner({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" role="dialog" aria-modal="true" aria-label="Quét QR check-in">
-      <div className="w-full max-w-md bg-surface rounded-t-2xl overflow-hidden pb-[env(safe-area-inset-bottom)]">
+      <div ref={dialogRef} tabIndex={-1} className="w-full max-w-md bg-surface rounded-t-2xl overflow-hidden pb-[env(safe-area-inset-bottom)]">
         <div className="px-4 py-3 flex items-center justify-between border-b border-line">
           <div>
             <h2 className="font-heading font-bold text-brand-teal">Quét QR check-in</h2>

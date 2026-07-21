@@ -84,24 +84,15 @@ export default function GuestQr({
   return (
     <>
       <div className={compact ? "flex flex-col items-center gap-1.5" : ""}>
-        {compact && (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="bg-white p-1 border border-line rounded-sm hover:border-brand"
-            aria-label={`Xem QR của ${guestName}`}
-          >
-            <QRCode value={payload} size={54} level="M" />
-          </button>
-        )}
         <button
           type="button"
-          onClick={compact ? downloadQr : () => setOpen(true)}
+          onClick={() => setOpen(true)}
           className={compact
-            ? "text-[11px] text-brand underline"
+            ? "min-h-10 rounded-md border border-line px-3 text-xs font-semibold text-brand-teal"
             : "inline-flex items-center justify-center gap-1 h-10 px-3 rounded-md border border-line text-brand-teal font-semibold text-xs bg-surface active:bg-cyan-pale"}
+          aria-label={`Xem QR của ${guestName}`}
         >
-          {compact ? "Tải QR" : "QR khách"}
+          {compact ? "Xem QR" : "QR khách"}
         </button>
       </div>
 

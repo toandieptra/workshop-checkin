@@ -250,6 +250,7 @@ export interface WorkshopAdmin {
   event_time?: string | null;
   location?: string | null;
   status: WorkshopStatus | string;
+  auto_confirm_registration?: boolean;
   branch?: string | null;
   maps_url?: string | null;
   registration_short_url?: string | null;
@@ -269,6 +270,7 @@ export interface WorkshopWriteBody {
   event_time?: string | null;
   location?: string | null;
   status?: WorkshopStatus | string;
+  auto_confirm_registration: boolean;
   branch?: string | null;
   maps_url?: string | null;
   registration_short_url?: string | null;
@@ -350,6 +352,7 @@ export interface RegistrationWorkshopOption {
   name: string;
   event_date?: string | null;
   location?: string | null;
+  auto_confirm_registration: boolean;
 }
 
 export interface RegistrationForm {
@@ -413,7 +416,7 @@ export async function getPublicRegistrationForm(
 export async function submitPublicRegistrationForm(
   token: string,
   body: { workshop_id: string; full_name: string; phone: string; party_size: number; business_model?: string; source: string; source_detail?: string },
-): Promise<any> {
+): Promise<{ registration_status: "pending" | "confirmed" }> {
   return await api("/public/registration-forms/" + encodeURIComponent(token) + "/submit", {
     method: "POST",
     body: JSON.stringify(body),

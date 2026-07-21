@@ -68,6 +68,7 @@ export default function GuestDetailContent({
   workshopId,
   onEdit,
   onCheckin,
+  onConfirmRegistration,
   onUncheckin,
   onToggleVip,
   onDelete,
@@ -80,6 +81,7 @@ export default function GuestDetailContent({
   workshopId: string;
   onEdit: (guest: Guest) => void;
   onCheckin: (guest: Guest) => void;
+  onConfirmRegistration: (guest: Guest) => void;
   onUncheckin: (guest: Guest) => void;
   onToggleVip: (guest: Guest) => void;
   onDelete: (guest: Guest) => void;
@@ -99,13 +101,15 @@ export default function GuestDetailContent({
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-heading text-xl font-bold text-brand-teal">{guest.full_name}</h3>
           {vip && <span className="rounded-full bg-cyan-200 px-2.5 py-1 text-xs font-bold text-cyan-900">VIP</span>}
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${guest.registration_status === "confirmed" ? "bg-green-50 text-green-700" : "bg-amber-100 text-amber-800"}`}>{guest.registration_status === "confirmed" ? "Đã xác nhận" : "Chờ xác nhận"}</span>
           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${guest.checkin_status === "checked_in" ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"}`}>{guest.checkin_status === "checked_in" ? "Đã Check-in" : "Chưa Check-in"}</span>
         </div>
         <p className="mt-1 text-sm text-muted">{workshopName}</p>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2" data-row-action>
+        {guest.registration_status !== "confirmed" && <button type="button" onClick={() => onConfirmRegistration(guest)} className="min-h-9 rounded-md bg-brand px-3 text-xs font-semibold text-brand-teal">Xác nhận đăng ký</button>}
         <button type="button" onClick={() => onEdit(guest)} className="min-h-9 rounded-md border border-brand px-3 text-xs font-semibold text-brand">Sửa</button>
-        <button type="button" onClick={() => guest.checkin_status === "checked_in" ? onUncheckin(guest) : onCheckin(guest)} className={`min-h-9 rounded-md px-3 text-xs font-semibold ${guest.checkin_status === "checked_in" ? "bg-green-50 text-green-700" : "bg-green-700 text-white"}`}>{guest.checkin_status === "checked_in" ? "Hoàn tác Check-in" : "Check-in"}</button>
+        {guest.registration_status === "confirmed" && <button type="button" onClick={() => guest.checkin_status === "checked_in" ? onUncheckin(guest) : onCheckin(guest)} className={`min-h-9 rounded-md px-3 text-xs font-semibold ${guest.checkin_status === "checked_in" ? "bg-green-50 text-green-700" : "bg-green-700 text-white"}`}>{guest.checkin_status === "checked_in" ? "Hoàn tác Check-in" : "Check-in"}</button>}
         <button type="button" onClick={() => onToggleVip(guest)} className="min-h-9 rounded-md border border-line px-3 text-xs font-semibold text-text-secondary">{vip ? "Bỏ VIP" : "Đặt VIP"}</button>
         <div onClick={(event) => event.stopPropagation()}><GuestQr guestId={guest.id} guestName={guest.full_name} workshopId={workshopId} workshopName={workshopName} /></div>
         <button type="button" onClick={() => onDelete(guest)} className="min-h-9 rounded-md border border-red-200 px-3 text-xs font-semibold text-red-600">Xóa</button>
@@ -114,13 +118,9 @@ export default function GuestDetailContent({
 
     <div className="grid gap-4 rounded-md border border-line bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
       <DetailField label="Số điện thoại" value={guest.phone} mono />
-      <DetailField label="Email" value={guest.email} />
-      <DetailField label="Công ty" value={guest.company} />
-      <DetailField label="Chức danh" value={guest.role_title} />
       <DetailField label="Mô hình kinh doanh" value={guest.business_model} />
       <DetailField label="Nguồn" value={source} />
       <DetailField label="Người tạo" value={guest.creator_name} />
-      <DetailField label="Mã người tạo" value={guest.creator_user_id} mono />
     </div>
 
     <div className="grid gap-4 lg:grid-cols-2">
@@ -128,6 +128,8 @@ export default function GuestDetailContent({
         <h4 className="font-semibold text-ink">Đăng ký và Check-in</h4>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <DetailField label="Số khách đăng ký" value={`${registered} khách`} />
+          <DetailField label="Trạng thái xác nhận" value={guest.registration_status === "confirmed" ? "Đã xác nhận" : "Chờ xác nhận"} />
+          <DetailField label="Thời điểm xác nhận" value={formatDateTime(guest.confirmed_at)} />
           <DetailField label="Số khách thực tế" value={actual === null ? "—" : `${actual} khách`} />
           <DetailField label="Chênh lệch" value={difference === null ? "—" : difference === 0 ? "Khớp đăng ký" : `${difference > 0 ? "+" : ""}${difference} khách`} />
           <DetailField label="Thời điểm Check-in" value={formatDateTime(guest.checked_in_at)} />

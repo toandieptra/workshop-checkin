@@ -6,6 +6,7 @@ import {
   type RegistrationFormPublic,
 } from "@/lib/api";
 import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
+import { formatEventDateTime, shortLocation } from "@/lib/date-format";
 
 // Trang phụ thuộc token ở runtime → không prerender tĩnh.
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
   const [step, setStep] = useState<Step>("loading");
   const [errMsg, setErrMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [registrationStatus, setRegistrationStatus] = useState<"pending" | "confirmed">("pending");
 
   // Fields
   const [workshopId, setWorkshopId] = useState("");
@@ -143,7 +145,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
     setBusy(true);
     setErrMsg("");
     try {
-      await submitPublicRegistrationForm(token, {
+      const result = await submitPublicRegistrationForm(token, {
         workshop_id: workshopId,
         full_name: fullName.trim(),
         phone: normalizePhone(phone),
@@ -152,6 +154,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
         source,
         source_detail: source === "Khác" ? sourceDetail.trim() : undefined,
       });
+      setRegistrationStatus(result.registration_status);
       setStep("success");
     } catch (e: any) {
       if (e?.message?.includes("410")) {
@@ -194,12 +197,12 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
         {step === "form" && selectedWorkshop && (
           <aside className="hidden overflow-hidden rounded-[28px] bg-[radial-gradient(circle_at_20%_18%,rgba(0,183,204,0.34),transparent_30%),radial-gradient(circle_at_center,#1A5F6A_0%,#0D3B42_76%)] p-10 text-white shadow-[0_28px_80px_rgba(13,59,66,0.24)] lg:block" aria-label="Thông tin workshop">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-cyan-soft">Workshop Diệp Trà</p>
-            <h1 className="mt-6 font-heading text-5xl font-bold leading-tight tracking-[-0.04em]">Đăng ký tham dự workshop</h1>
+            <div className="mt-6 font-heading text-5xl font-bold leading-tight tracking-[-0.04em]">Đăng ký tham dự workshop</div>
             <p className="mt-4 max-w-xl text-base leading-7 text-white/80">Xác nhận thông tin workshop trước khi gửi đăng ký.</p>
             <div className="mt-10 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
               <h2 className="font-heading text-2xl font-bold">{selectedWorkshop.name}</h2>
               <dl className="mt-5 grid gap-4 sm:grid-cols-2">
-                {selectedWorkshop.event_date && <div><dt className="text-xs font-bold uppercase tracking-wide text-cyan-soft">Thời gian</dt><dd className="mt-1 font-semibold">{selectedWorkshop.event_date}</dd></div>}
+                {selectedWorkshop.event_date && <div><dt className="text-xs font-bold uppercase tracking-wide text-cyan-soft">Thời gian</dt><dd className="mt-1 font-semibold">{formatEventDateTime(selectedWorkshop.event_date, undefined, true)}</dd></div>}
                 {selectedWorkshop.location && <div><dt className="text-xs font-bold uppercase tracking-wide text-cyan-soft">Địa điểm</dt><dd className="mt-1 font-semibold">{selectedWorkshop.location}</dd></div>}
               </dl>
             </div>
@@ -247,30 +250,26 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                 </div>
               )}
 
+              {selectedWorkshop && <div className="mb-5 rounded-xl border border-line bg-surface-muted px-4 py-3 text-sm text-text-secondary lg:hidden">
+                <div className="font-semibold text-brand-teal">{selectedWorkshop.name}</div>
+                <div className="mt-1 text-xs">{formatEventDateTime(selectedWorkshop.event_date, undefined, true)}{selectedWorkshop.location ? ` · ${shortLocation(selectedWorkshop.location)}` : ""}</div>
+              </div>}
+
               <form className="mt-6 space-y-4" onSubmit={(event) => { event.preventDefault(); void submit(); }} noValidate>
                 <div>
-                  <label htmlFor="registration-workshop" className="mb-2 block text-sm font-bold text-brand-teal">
-                    Workshop <span className="text-brand-accent">*</span>
-                  </label>
-                  <select
-                    id="registration-workshop" name="workshop" required ref={workshopRef}
-                    value={workshopId}
-                    onChange={(e) => setWorkshopId(e.target.value)}
-                    aria-invalid={Boolean(errWorkshop)} aria-describedby={errWorkshop ? "registration-workshop-error" : undefined}
-                    className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
-                    disabled={workshopOptions.length === 1}
-                  >
-                    {workshopOptions.length > 1 && (
-                      <option value="" disabled>
-                        — Chọn workshop —
-                      </option>
-                    )}
-                    {workshopOptions.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}{w.event_date ? " — " + w.event_date : ""}
-                      </option>
-                    ))}
-                  </select>
+                  {workshopOptions.length > 1 ? <>
+                    <label htmlFor="registration-workshop" className="mb-2 block text-sm font-bold text-brand-teal">Workshop <span className="text-brand-accent">*</span></label>
+                    <select
+                      id="registration-workshop" name="workshop" required ref={workshopRef}
+                      value={workshopId}
+                      onChange={(e) => setWorkshopId(e.target.value)}
+                      aria-invalid={Boolean(errWorkshop)} aria-describedby={errWorkshop ? "registration-workshop-error" : undefined}
+                      className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
+                    >
+                      <option value="" disabled>— Chọn workshop —</option>
+                      {workshopOptions.map((w) => <option key={w.id} value={w.id}>{w.name}{w.event_date ? " — " + formatEventDateTime(w.event_date) : ""}</option>)}
+                    </select>
+                  </> : <input type="hidden" id="registration-workshop" name="workshop" value={workshopId} ref={workshopRef as unknown as React.RefObject<HTMLInputElement>} />}
                   {errWorkshop && <div id="registration-workshop-error" role="alert" className="mt-1.5 text-xs font-semibold text-red-600">{errWorkshop}</div>}
                 </div>
 
@@ -302,7 +301,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                       aria-invalid={Boolean(errPhone)} aria-describedby={`registration-phone-hint${errPhone ? " registration-phone-error" : ""}`}
                       className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 font-mono text-[15px] font-medium text-brand-teal transition placeholder:text-[#7BA4AA] focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
                     />
-                    <div id="registration-phone-hint" className="mt-1.5 text-xs leading-5 text-[#5A8A92]">Dùng để xác nhận suất tham dự.</div>
+                    <div id="registration-phone-hint" className="mt-1.5 text-xs leading-5 text-text-secondary">Dùng để xác nhận suất tham dự.</div>
                     {errPhone && <div id="registration-phone-error" role="alert" className="mt-1.5 text-xs font-semibold text-red-600">{errPhone}</div>}
                   </div>
 
@@ -310,14 +309,33 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                     <label htmlFor="registration-party" className="mb-2 block text-sm font-bold text-brand-teal">
                       Số khách <span className="text-brand-accent">*</span>
                     </label>
-                    <input
-                      id="registration-party" name="partySize" type="number" required ref={partyRef}
-                      min={1}
-                      value={partySize}
-                      onChange={(e) => setPartySize(parseInt(e.target.value) || 1)}
-                      className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 font-mono text-lg font-medium text-brand-teal transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
-                    />
-                    <div className="mt-1.5 text-xs leading-5 text-[#5A8A92]">Số người tham dự.</div>
+                    <div className="grid min-h-[52px] grid-cols-[52px_minmax(0,1fr)_52px] overflow-hidden rounded-[14px] border-[1.5px] border-line bg-white transition focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10">
+                      <button
+                        type="button"
+                        aria-label="Giảm số khách"
+                        disabled={partySize <= 1}
+                        onClick={() => setPartySize((value) => Math.max(1, value - 1))}
+                        className="grid place-items-center text-2xl font-semibold text-brand-teal transition active:bg-brand/10 disabled:opacity-30"
+                      >
+                        −
+                      </button>
+                      <input
+                        id="registration-party" name="partySize" type="number" inputMode="numeric" required ref={partyRef}
+                        min={1}
+                        value={partySize}
+                        onChange={(e) => setPartySize(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        className="min-w-0 border-x border-line bg-white px-2 py-3 text-center font-mono text-lg font-medium text-brand-teal focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Tăng số khách"
+                        onClick={() => setPartySize((value) => value + 1)}
+                        className="grid place-items-center text-2xl font-semibold text-brand-teal transition active:bg-brand/10"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div className="mt-1.5 text-xs leading-5 text-text-secondary">Số người tham dự.</div>
                     {errParty && <div className="mt-1.5 text-xs font-semibold text-red-600">{errParty}</div>}
                   </div>
                 </div>
@@ -346,7 +364,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
 
                 <div>
                   <label htmlFor="registration-source" className="mb-2 block text-sm font-bold text-brand-teal">
-                    Bạn biết thông tin Workshop từ đâu? <span className="text-brand-accent">*</span>
+                    Bạn biết workshop qua đâu? <span className="text-brand-accent">*</span>
                   </label>
                   <select
                     id="registration-source" name="source" required ref={sourceRef}
@@ -386,10 +404,20 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
 
           {step === "success" && (
             <StateCard
-              tone="success"
-              label="Đăng ký thành công"
-              title="Thông tin đã được ghi nhận"
-              description={`Cảm ơn ${fullName.trim() || "quý khách"}. Đội ngũ Hi Sweetie Việt Nam sẽ dùng số điện thoại đã cung cấp để xác nhận suất tham dự.`}
+              tone={registrationStatus === "confirmed" ? "success" : "warning"}
+              label={registrationStatus === "confirmed" ? "Đã xác nhận" : "Chờ xác nhận"}
+              title={registrationStatus === "confirmed" ? "Đăng ký thành công" : "Đăng ký đã được tiếp nhận"}
+              description={registrationStatus === "confirmed"
+                ? [
+                    `Cảm ơn ${fullName.trim() || "quý khách"} đã đăng ký tham gia workshop.`,
+                    "Suất tham dự của bạn đã được xác nhận.",
+                    "Thông tin xác nhận đã được gửi qua Zalo. Vui lòng kiểm tra tin nhắn để biết thêm chi tiết.",
+                  ]
+                : [
+                    `Cảm ơn ${fullName.trim() || "quý khách"} đã đăng ký tham gia workshop.`,
+                    "Thông tin đăng ký của bạn đã được tiếp nhận và đang chờ xác nhận từ ban tổ chức.",
+                    "Bạn sẽ nhận được thông báo qua Zalo ngay khi đăng ký được xác nhận.",
+                  ]}
               details={[
                 ["Workshop", selectedWorkshop?.name || "—"],
                 ["Số khách đăng ký", String(Math.max(1, Math.floor(partySize) || 1))],
@@ -426,13 +454,13 @@ function StateCard({
   tone,
   label,
   title,
-  description,
+   description,
   details,
 }: {
   tone: "success" | "warning" | "error";
   label: string;
   title: string;
-  description: string;
+  description: string | string[];
   details: Array<[string, string]>;
 }) {
   const toneClass = {
@@ -449,9 +477,9 @@ function StateCard({
        <h1 className="font-heading text-3xl font-bold leading-tight tracking-[-0.035em] text-brand-teal">
          {title}
        </h1>
-      <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-[#3A6B74]">
-        {description}
-      </p>
+       <div className="mx-auto mt-3 max-w-md space-y-2 text-sm leading-7 text-[#3A6B74]">
+         {(Array.isArray(description) ? description : [description]).map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+       </div>
       <div className="mt-6 grid gap-3 text-left">
         {details.map(([name, value]) => (
           <div key={name} className="rounded-2xl border border-line bg-[#F5FAFB] p-4">

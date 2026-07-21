@@ -10,6 +10,8 @@ import GuestQr from "@/components/GuestQr";
 import GuestDetailRow from "@/components/GuestDetailRow";
 import { useAuth } from "@/contexts/AuthContext";
 import { PERMISSIONS } from "@/lib/permissions";
+import WorkshopPicker from "@/components/WorkshopPicker";
+import { formatEventDateTime, formatTimestamp } from "@/lib/date-format";
 
 type ColumnKey = "name" | "phone" | "businessModel" | "source" | "creator" | "registered" | "checkedIn" | "checkin" | "qr" | "sync" | "zbs" | "actions" | "registeredAt";
 const TABLE_COLUMNS = [
@@ -20,26 +22,6 @@ const TABLE_COLUMNS = [
   { key: "zbs", label: "ZBS" },
   { key: "actions", label: "Thao tác" }, { key: "registeredAt", label: "Ngày đăng ký" },
 ] as const;
-
-function formatDateTime(v?: string | null): string {
-  if (!v) return "—";
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("vi-VN");
-}
-
-/** dd/mm/yyyy hh:mm — cùng logic cột "Ngày giờ" trang /admin/workshop */
-function formatEventDateTime(eventDate?: string | null, eventTime?: string | null): string {
-  if (!eventDate) return "—";
-  const d = new Date(eventDate.length === 10 ? eventDate + "T00:00:00" : eventDate);
-  if (Number.isNaN(d.getTime())) return eventDate;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const datePart = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
-  if (!eventTime) return datePart;
-  const m = String(eventTime).match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return datePart;
-  return `${datePart} ${m[1].padStart(2, "0")}:${m[2]}`;
-}
 
 function truncate(s: string | null | undefined, n = 40): string {
   if (!s) return "—";
@@ -146,6 +128,7 @@ export default function DesktopAdmin() {
     createGuest,
     delGuest,
     doCheckin,
+    confirmRegistration,
     doUncheckin,
     toggleVip,
     copyPhone,
@@ -169,10 +152,16 @@ export default function DesktopAdmin() {
     guestDetails,
     loadGuestDetail,
   } = useAdminGuests();
+  const defaultVisibleColumns: ColumnKey[] = [
+    "name", "phone", "businessModel", "source", "creator",
+    "registered", "checkedIn", "checkin", "actions", "registeredAt",
+  ];
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
-    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
+    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, defaultVisibleColumns.includes(key)])) as Record<ColumnKey, boolean>);
   const visibleColumnCount = TABLE_COLUMNS.filter(({ key }) => visibleColumns[key]).length;
   const [expandedGuestId, setExpandedGuestId] = useState<string | null>(null);
+  const [showAdminTools, setShowAdminTools] = useState(false);
+  const [showAddGuest, setShowAddGuest] = useState(false);
 
   const toggleGuestDetail = (guestId: string) => {
     setExpandedGuestId((current) => current === guestId ? null : guestId);
@@ -371,7 +360,7 @@ export default function DesktopAdmin() {
   // ----- Render -----
   return (
     <div className="p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto flex flex-col">
         <h1 className="text-2xl font-bold text-brand-teal mb-4">Khách mời</h1>
         {msg && (
           <div className="mb-3 p-2 bg-brand/10 text-brand-teal rounded-sm text-sm flex items-center justify-between">
@@ -381,16 +370,14 @@ export default function DesktopAdmin() {
         )}
 
         {/* Workshop info */}
-        <section className="mb-4">
-          <div className="bg-surface rounded-md border border-line p-4 mb-4 flex items-center gap-3 flex-wrap justify-between">
-            <select
-              className="border border-line rounded-sm px-3 py-2 min-w-[240px]"
-              value={wid}
-              onChange={(e) => setWid(e.target.value)}
-            >
-              {workshops.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+        <section className="contents">
+          <div className="order-1 bg-surface rounded-md border border-line p-4 mb-4 flex items-center gap-3 flex-wrap justify-between">
+            <div className="w-full max-w-xl"><WorkshopPicker workshops={workshops} value={wid} onChange={setWid} /></div>
             <div className="flex items-center gap-2 flex-wrap">
+              <button type="button" onClick={() => setShowAddGuest((value) => !value)} className="min-h-10 rounded-md border border-brand bg-brand px-4 text-sm font-semibold text-brand-teal">{showAddGuest ? "Đóng form thêm khách" : "Thêm khách"}</button>
+              <button type="button" aria-expanded={showAdminTools} onClick={() => setShowAdminTools((value) => !value)} className="min-h-10 rounded-md border border-line px-4 text-sm font-semibold text-brand-teal">{showAdminTools ? "Ẩn công cụ quản trị" : "Công cụ quản trị"}</button>
+            </div>
+            {showAdminTools && <div className="flex w-full items-center gap-2 flex-wrap border-t border-line pt-3">
               <button
                 onClick={runLarkWorkshopsSync}
                 disabled={larkBusy}
@@ -435,17 +422,17 @@ export default function DesktopAdmin() {
                   onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])}
                 />
               </label>
-            </div>
+            </div>}
           </div>
 
-          {currentWorkshop && (
-            <div className="grid lg:grid-cols-10 gap-4 mb-4 items-stretch">
+          {showAdminTools && currentWorkshop && (
+            <div className="order-4 grid lg:grid-cols-10 gap-4 mb-4 items-stretch">
               <div className="lg:col-span-7 h-full bg-surface rounded-md border border-line p-5 flex flex-col">
                 <h2 className="font-semibold text-brand-teal mb-4 flex items-center gap-1.5">
-                  <span aria-hidden>📘</span> Thông tin Workshop
+                  Thông tin Workshop
                   {currentWorkshop.last_synced_at && (
                     <span className="font-normal text-xs text-muted ml-1">
-                      (cập nhật lúc {formatDateTime(currentWorkshop.last_synced_at)})
+                      (cập nhật lúc {formatTimestamp(currentWorkshop.last_synced_at)})
                     </span>
                   )}
                 </h2>
@@ -453,7 +440,7 @@ export default function DesktopAdmin() {
                 <div className="grid sm:grid-cols-2 gap-6">
                   <div>
                     <div className="text-xs text-muted flex items-center gap-1.5 mb-1">
-                      <span aria-hidden>📍</span> Địa điểm
+                      Địa điểm
                     </div>
                     <div className="font-semibold text-ink whitespace-pre-line">{currentWorkshop.location || "—"}</div>
                     {currentWorkshop.location && (
@@ -463,16 +450,16 @@ export default function DesktopAdmin() {
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 mt-3 border border-line px-3 py-1.5 rounded-sm text-sm text-brand-teal hover:bg-brand/5"
                       >
-                        <span aria-hidden>🗺️</span> Xem trên bản đồ
+                        Xem trên bản đồ
                       </a>
                     )}
                   </div>
                   <div>
                     <div className="text-xs text-muted flex items-center gap-1.5 mb-1">
-                      <span aria-hidden>📅</span> Thời gian
+                      Thời gian
                     </div>
                     <div className="font-semibold text-ink">
-                      {formatEventDateTime(currentWorkshop.event_date, currentWorkshop.event_time)}
+                      {formatEventDateTime(currentWorkshop.event_date, currentWorkshop.event_time, true)}
                     </div>
                   </div>
                 </div>
@@ -481,28 +468,24 @@ export default function DesktopAdmin() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1 auto-rows-fr">
                   <div className="bg-surface-muted border border-line rounded-md p-4">
-                    <div className="text-xl" aria-hidden>👥</div>
                     <div className="text-sm text-muted mt-1">Khách tham gia đã đăng ký</div>
                     <div className="text-2xl font-bold text-brand-teal mt-2">
                       {totalRegistered} <span className="text-sm font-normal text-muted">khách</span>
                     </div>
                   </div>
                   <div className="bg-surface-muted border border-line rounded-md p-4">
-                    <div className="text-xl" aria-hidden>📄</div>
                     <div className="text-sm text-muted mt-1">Số phiếu đăng ký</div>
                     <div className="text-2xl font-bold text-ink mt-2">
                       {totalRecords} <span className="text-sm font-normal text-muted">phiếu</span>
                     </div>
                   </div>
                   <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                    <div className="text-xl" aria-hidden>✅</div>
                     <div className="text-sm text-muted mt-1">Khách đã check-in</div>
                     <div className="text-2xl font-bold text-green-700 mt-2">
                       {totalCheckedIn} <span className="text-sm font-normal text-muted">khách</span>
                     </div>
                   </div>
                   <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                    <div className="text-xl" aria-hidden>📋</div>
                     <div className="text-sm text-muted mt-1">Số phiếu đã check-in</div>
                     <div className="text-2xl font-bold text-green-700 mt-2">
                       {checkedInRecords} <span className="text-sm font-normal text-muted">phiếu</span>
@@ -514,7 +497,7 @@ export default function DesktopAdmin() {
               <div className="lg:col-span-3 flex flex-col gap-4 h-full">
                 <div className="bg-surface rounded-md border border-line p-5 flex flex-col items-center flex-1 justify-center">
                   <div className="font-semibold text-brand-teal mb-1 flex items-center gap-1.5">
-                    <span aria-hidden>🔳</span> QR CHECK-IN
+                    QR CHECK-IN
                   </div>
                   <div className="text-xs text-muted mb-3 text-center">Khách quét QR để tự check-in</div>
                   <QrDisplay workshopSlug={currentWorkshop.slug} size={160} showActions />
@@ -526,7 +509,7 @@ export default function DesktopAdmin() {
         </section>
 
         {/* Add guest — cùng field với form đăng ký + VIP */}
-        <section className="bg-surface rounded-md border border-line p-4 mb-4">
+        {showAddGuest && <section className="order-3 bg-surface rounded-md border border-line p-4 mb-4">
           <h2 className="font-semibold text-brand-teal mb-2">Thêm khách</h2>
           <div className="flex flex-wrap items-end gap-3 text-sm">
             <label className="block min-w-[160px] flex-1">
@@ -622,10 +605,10 @@ export default function DesktopAdmin() {
           >
             Thêm
           </button>
-        </section>
+        </section>}
 
         {/* Guest list */}
-        <section className="bg-surface rounded-md border border-line">
+        <section className="order-2 bg-surface rounded-md border border-line mb-4">
           <div className="bg-surface border-b border-line px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
             <h2 className="font-semibold text-brand-teal">
               Phiếu đã check-in: {checkedInRecords}/{totalRecords} · Khách đã check-in: {totalCheckedIn}/{totalRegistered}
@@ -692,8 +675,9 @@ export default function DesktopAdmin() {
                            <div className="font-semibold text-ink">{g.full_name}</div>
                            <svg className={`mt-0.5 shrink-0 text-muted transition-transform ${expanded ? "rotate-180" : ""}`} width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden><path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
                          </div>
-                        <div className="mt-1 flex gap-1 flex-wrap">
-                          {vip && <span className="text-xs px-2 py-0.5 rounded bg-cyan-200 text-cyan-900 font-semibold">VIP</span>}
+                         <div className="mt-1 flex gap-1 flex-wrap">
+                           {vip && <span className="text-xs px-2 py-0.5 rounded bg-cyan-200 text-cyan-900 font-semibold">VIP</span>}
+                           <span className={`text-xs px-2 py-0.5 rounded font-semibold ${g.registration_status === "confirmed" ? "bg-green-50 text-green-700" : "bg-amber-100 text-amber-800"}`}>{g.registration_status === "confirmed" ? "Đã xác nhận" : "Chờ xác nhận"}</span>
                           {g.lark_record_id
                             ? <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Đã đồng bộ</span>
                             : <span className="text-xs px-2 py-0.5 rounded bg-surface-muted text-muted">Chưa đồng bộ</span>}
@@ -720,7 +704,15 @@ export default function DesktopAdmin() {
                       {visibleColumns.creator && <td className="px-3 py-3 align-top text-muted whitespace-nowrap">{g.creator_name || "—"}</td>}
                       {visibleColumns.registered && <td className="px-3 py-3 align-top text-center">{g.party_size || 1}</td>}
                       {visibleColumns.checkedIn && <td className="px-3 py-3 align-top text-center">
-                        {g.checkin_status === "checked_in" ? (
+                         {g.registration_status !== "confirmed" ? (
+                           <button
+                             type="button"
+                             disabled
+                             className="flex min-h-[32px] w-full items-center justify-center rounded-sm border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800"
+                           >
+                             Cần xác nhận
+                           </button>
+                         ) : g.checkin_status === "checked_in" ? (
                           (() => {
                             const registered = g.party_size || 1;
                             const actual = g.actual_party_size ?? registered;
@@ -794,6 +786,12 @@ export default function DesktopAdmin() {
                        </td>}
                       {visibleColumns.actions && <td className="px-3 py-3 align-top text-sm">
                         <div className="flex items-center gap-3 flex-wrap">
+                           {g.registration_status !== "confirmed" && <button
+                             onClick={(event) => { event.stopPropagation(); void confirmRegistration(g); }}
+                             className="text-brand-teal underline min-h-[32px] flex items-center font-semibold"
+                           >
+                             Xác nhận
+                           </button>}
                            <button
                              onClick={(event) => { event.stopPropagation(); openEdit(g); }}
                             className="text-brand underline min-h-[32px] flex items-center"
@@ -815,7 +813,7 @@ export default function DesktopAdmin() {
                         </div>
                       </td>}
                       {visibleColumns.registeredAt && <td className="px-3 py-3 align-top text-muted text-xs whitespace-nowrap">
-                        {formatDateTime(g.registered_at || g.created_at)}
+                         {formatTimestamp(g.registered_at || g.created_at)}
                       </td>}
                      </tr>
                      {expanded && currentWorkshop && <GuestDetailRow
@@ -825,7 +823,8 @@ export default function DesktopAdmin() {
                        workshopId={currentWorkshop.id}
                        onRetryLoad={() => void loadGuestDetail(g.id, true)}
                        onEdit={openEdit}
-                       onCheckin={(guest) => void doCheckin(guest)}
+                        onCheckin={(guest) => void doCheckin(guest)}
+                        onConfirmRegistration={(guest) => void confirmRegistration(guest)}
                        onUncheckin={(guest) => void doUncheckin(guest)}
                        onToggleVip={(guest) => void toggleVip(guest)}
                        onDelete={(guest) => void delGuest(guest.id).then((deleted) => { if (deleted) setExpandedGuestId(null); })}

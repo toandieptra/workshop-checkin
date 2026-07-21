@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 // Trang này phụ thuộc hoàn toàn vào query param `w` (slug workshop) ở runtime
@@ -12,6 +12,7 @@ import {
   selfCheckinGuestById,
   getWorkshopBySlug,
 } from "@/lib/api";
+import { formatEventDateTime, shortLocation } from "@/lib/date-format";
 
 type Step = "loading" | "phone" | "confirm" | "register" | "success" | "error" | "wrong_workshop";
 
@@ -31,6 +32,7 @@ interface Workshop {
   name: string;
   slug: string;
   event_date?: string;
+  event_time?: string | null;
   location?: string;
 }
 
@@ -73,10 +75,19 @@ function CheckinSelfInner() {
   const [actual, setActual] = useState(1);
   const [extra, setExtra] = useState(1);
   const [errMsg, setErrMsg] = useState("");
+  const phoneRef = useRef<HTMLInputElement>(null);
 
   // Register form (khi SĐT không có trong DS)
   const [regName, setRegName] = useState("");
   const [regActual, setRegActual] = useState(1);
+
+  const resetKiosk = () => {
+    setPhone("");
+    setGuest(null);
+    setErrMsg("");
+    setStep("phone");
+    requestAnimationFrame(() => phoneRef.current?.focus());
+  };
 
   useEffect(() => {
     if (!slug) {
@@ -207,7 +218,7 @@ function CheckinSelfInner() {
             {workshop?.name || "Workshop"}
           </h1>
           {workshop?.event_date && (
-            <div className="text-xs text-muted mt-0.5">{workshop.event_date}</div>
+            <div className="text-xs text-muted mt-0.5">{formatEventDateTime(workshop.event_date, workshop.event_time, true)}{workshop.location ? ` · ${shortLocation(workshop.location)}` : ""}</div>
           )}
         </div>
 
@@ -229,6 +240,7 @@ function CheckinSelfInner() {
             </div>
             <input
               id="checkin-phone"
+              ref={phoneRef}
               name="phone"
               type="tel"
               autoFocus
@@ -326,7 +338,7 @@ function CheckinSelfInner() {
               </>
             )}
             <button
-              onClick={() => { setStep("phone"); setGuest(null); setErrMsg(""); }}
+              onClick={resetKiosk}
               className="w-full text-muted text-sm py-2"
             >
               ← Nhập lại số điện thoại
@@ -382,7 +394,7 @@ function CheckinSelfInner() {
               Đăng ký &amp; Check-in
             </button>
             <button
-              onClick={() => { setStep("phone"); setErrMsg(""); }}
+              onClick={resetKiosk}
               className="w-full text-muted text-sm py-2"
             >
               ← Thử lại số khác
@@ -410,6 +422,7 @@ function CheckinSelfInner() {
             <div className="pt-3 border-t border-line text-xs text-muted">
               Vui lòng vào khu vực workshop. Chúc anh/chị buổi trải nghiệm vui vẻ!
             </div>
+            <button type="button" onClick={resetKiosk} className="h-12 w-full rounded-md bg-brand font-semibold text-brand-teal">Check-in khách tiếp theo</button>
           </div>
         )}
 
@@ -433,7 +446,7 @@ function CheckinSelfInner() {
             <div className="text-4xl">🔀</div>
             <div className="text-sm">{errMsg}</div>
             <button
-              onClick={() => setStep("phone")}
+              onClick={resetKiosk}
               className="text-brand underline text-sm"
             >
               ← Thử số khác
@@ -442,7 +455,7 @@ function CheckinSelfInner() {
         )}
 
         {/* Footer */}
-        <div className="mt-6 text-center text-[10px] text-muted tracking-widest">
+        <div className="mt-6 text-center text-xs text-muted tracking-widest">
           HI SWEETIE VIỆT NAM · WORKSHOP
         </div>
       </div>

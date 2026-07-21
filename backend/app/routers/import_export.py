@@ -30,7 +30,8 @@ def _parse_int(v, default: int = 1) -> int:
 
 @router.post("/workshops/{workshop_id}/import", dependencies=[Depends(require_permission("guests.write"))])
 async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-    from ..services.zbs import enqueue_registration, normalize_phone
+    from ..services.registration_confirmation import apply_registration_policy
+    from ..services.zbs import normalize_phone
     w = await db.get(Workshop, workshop_id)
     if not w:
         raise HTTPException(404, "workshop not found")
@@ -50,6 +51,7 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
         rows = [{(k or "").strip().lower(): v for k, v in row.items()} for row in reader]
 
     created = 0
+    confirmed = 0
     for row in rows:
         full_name = (row.get("full_name") or row.get("ten") or "").strip()
         if not full_name:
@@ -67,13 +69,20 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
                 row.get("party_size") or row.get("so_khach") or row.get("số khách")
                 or row.get("số vé đăng ký") or row.get("so ve") or 1
             ),
+            registration_status="pending",
         )
         db.add(g)
         await db.flush()
-        await enqueue_registration(db, g)
+        if await apply_registration_policy(db, g, auto_confirm=w.auto_confirm_registration):
+            confirmed += 1
         created += 1
     await db.commit()
-    return {"imported": created, "total_rows": len(rows)}
+    return {
+        "imported": created,
+        "confirmed": confirmed,
+        "pending": created - confirmed,
+        "total_rows": len(rows),
+    }
 
 
 @router.get("/export/guests", dependencies=[Depends(require_permission("guests.export"))])

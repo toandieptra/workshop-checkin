@@ -17,7 +17,8 @@ from ..db import get_db
 from ..config import settings
 from ..models import Guest, Workshop, WorkshopMedia, SyncLog
 from ..services import lark_client
-from ..services.zbs import enqueue_registration, normalize_phone
+from ..services.registration_confirmation import apply_registration_policy
+from ..services.zbs import normalize_phone, refresh_registration_recipient
 from ..services.lark_client import LarkError
 from ..auth.dependencies import require_permission
 
@@ -768,7 +769,8 @@ async def _sync_pull_to_local(
                 g.last_synced_at = datetime.now(timezone.utc)
                 g.sync_status = SYNC_OK
                 g.sync_error = None
-                await enqueue_registration(db, g, old_phone=old_phone)
+                if old_phone != g.phone:
+                    await refresh_registration_recipient(db, g)
                 pulled += 1
                 await _log_sync(
                     db, "lark_to_local", "guest", g.id, rid, SYNC_OK,
@@ -784,6 +786,7 @@ async def _sync_pull_to_local(
                 source_detail=source_detail,
                 creator_name=creator_name,
                 party_size=party_size,
+                registration_status="pending",
                 lark_record_id=rid,
                 registered_at=registered_at,
                 checkin_status="checked_in" if lark_checkin else "not_checked_in",
@@ -794,7 +797,11 @@ async def _sync_pull_to_local(
             )
             db.add(g)
             await db.flush()
-            await enqueue_registration(db, g)
+            await apply_registration_policy(
+                db,
+                g,
+                auto_confirm=workshop.auto_confirm_registration,
+            )
             pulled += 1
             await _log_sync(db, "lark_to_local", "guest", None, rid, SYNC_OK)
 
@@ -1020,7 +1027,8 @@ async def resolve_conflict(
             guest.sync_error = None
             guest.lark_updated_at = datetime.now(timezone.utc)
             guest.last_synced_at = datetime.now(timezone.utc)
-            await enqueue_registration(db, guest, old_phone=old_phone)
+            if old_phone != guest.phone:
+                await refresh_registration_recipient(db, guest)
             await db.commit()
             await _log_sync(db, "lark_to_local", "guest", guest.id, guest.lark_record_id, SYNC_OK)
         except HTTPException:

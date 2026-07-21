@@ -38,6 +38,7 @@ class WorkshopCreate(BaseModel):
     event_time: time | None = None
     location: str | None = None
     status: str = "draft"
+    auto_confirm_registration: bool = True
     branch: str | None = None
     maps_url: str | None = None
     registration_short_url: str | None = None
@@ -51,6 +52,7 @@ class WorkshopUpdate(BaseModel):
     event_time: time | None = None
     location: str | None = None
     status: str | None = None
+    auto_confirm_registration: bool | None = None
     branch: str | None = None
     maps_url: str | None = None
     registration_short_url: str | None = None
@@ -70,6 +72,7 @@ class WorkshopOut(BaseModel):
     event_time: time | None = None
     location: str | None
     status: str = "draft"
+    auto_confirm_registration: bool = True
     branch: str | None = None
     maps_url: str | None = None
     registration_short_url: str | None = None
@@ -127,6 +130,9 @@ class GuestOut(BaseModel):
     creator_name: str | None = None
     creator_user_id: uuid.UUID | None = None
     party_size: int
+    registration_status: str = "confirmed"
+    confirmed_at: datetime | None = None
+    confirmed_by: uuid.UUID | None = None
     actual_party_size: int | None = None
     checkin_status: str
     checked_in_at: datetime | None
@@ -292,6 +298,7 @@ class RegistrationWorkshopOption(BaseModel):
     name: str
     event_date: date | None = None
     location: str | None = None
+    auto_confirm_registration: bool = True
 
 
 class RegistrationFormCreate(BaseModel):
@@ -345,4 +352,5 @@ class RegistrationSubmitRequest(BaseModel):
 class RegistrationSubmitResult(BaseModel):
     guest: GuestOut
     submission_id: uuid.UUID
+    registration_status: str
     lark_synced: bool = False

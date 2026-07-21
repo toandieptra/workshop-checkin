@@ -478,12 +478,19 @@ async def create_guest(
     )
     values["creator_user_id"] = user.id
     values["creator_name"] = user.name or user.email
-    from ..services.zbs import enqueue_registration, normalize_phone
+    from ..services.registration_confirmation import apply_registration_policy
+    from ..services.zbs import normalize_phone
     values["phone"] = normalize_phone(values.get("phone")) or None
     g = Guest(workshop_id=workshop_id, registered_at=datetime.now(timezone.utc), **values)
+    g.registration_status = "pending"
     db.add(g)
     await db.flush()
-    await enqueue_registration(db, g)
+    await apply_registration_policy(
+        db,
+        g,
+        auto_confirm=w.auto_confirm_registration,
+        confirmed_by=user.id,
+    )
     await db.commit()
     await db.refresh(g)
     try:

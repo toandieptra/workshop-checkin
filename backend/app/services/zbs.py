@@ -1,6 +1,7 @@
 import logging
 import asyncio
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import or_, select, update
@@ -21,6 +22,7 @@ TASK_DEFINITIONS = (
 )
 TEMPLATE_LIST_URL = "https://business.openapi.zalo.me/template/all"
 TEMPLATE_DETAIL_URL = "https://business.openapi.zalo.me/template/info/v2"
+VIETNAM_TIMEZONE = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 def normalize_phone(phone: str | None) -> str:
@@ -45,6 +47,13 @@ def _workshop_time(workshop: Workshop) -> str:
     return f"{workshop.event_time.strftime('%H:%M')} {date_value}"
 
 
+def _checkin_time(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return value.astimezone(VIETNAM_TIMEZONE).strftime("%H:%M %d/%m/%Y")
+
+
 def _clip(value: str | None, limit: int) -> str:
     text = (value or "").strip()
     return text if len(text) <= limit else text[:limit]
@@ -66,12 +75,28 @@ def _template_data(guest: Guest, workshop: Workshop, phone: str) -> dict:
     }
 
 
-async def enqueue_registration(db: AsyncSession, guest: Guest, old_phone: str | None = None) -> None:
-    await _enqueue_task(db, guest, REGISTRATION_TASK_KEY, old_phone=old_phone)
+async def enqueue_registration(db: AsyncSession, guest: Guest) -> None:
+    await _enqueue_task(db, guest, REGISTRATION_TASK_KEY)
 
 
 async def enqueue_checkin(db: AsyncSession, guest: Guest) -> None:
     await _enqueue_task(db, guest, CHECKIN_TASK_KEY)
+
+
+async def refresh_registration_recipient(db: AsyncSession, guest: Guest) -> None:
+    delivery = (await db.execute(select(ZbsDelivery).where(
+        ZbsDelivery.guest_id == guest.id,
+        ZbsDelivery.event_type == REGISTRATION_TASK_KEY,
+        ZbsDelivery.status.in_(["pending", "failed"]),
+    ).order_by(ZbsDelivery.created_at.desc()))).scalars().first()
+    if not delivery:
+        return
+    phone = normalize_phone(guest.phone)
+    template_data = dict(delivery.payload.get("template_data") or {})
+    template_data["customer_phone"] = zbs_phone(phone)
+    delivery.phone = phone or None
+    delivery.payload = {**delivery.payload, "template_data": template_data}
+    delivery.updated_at = datetime.now(timezone.utc)
 
 
 async def enqueue_manual(db: AsyncSession, guest: Guest, task_key: str) -> ZbsDelivery:
@@ -85,6 +110,8 @@ async def enqueue_manual(db: AsyncSession, guest: Guest, task_key: str) -> ZbsDe
         raise ValueError("Mẫu tin ZBS chưa được kích hoạt")
     if task_key == CHECKIN_TASK_KEY and guest.checkin_status != "checked_in":
         raise ValueError("Khách chưa Check-in")
+    if task_key == REGISTRATION_TASK_KEY and guest.registration_status != "confirmed":
+        raise ValueError("Khách chưa được xác nhận đăng ký")
 
     existing = (await db.execute(select(ZbsDelivery).where(
         ZbsDelivery.guest_id == guest.id,
@@ -102,6 +129,7 @@ async def enqueue_manual(db: AsyncSession, guest: Guest, task_key: str) -> ZbsDe
             template_data = {
                 "customer_name": template_data["customer_name"],
                 "workshop": template_data["workshop"],
+                "customer_checkin_time": _checkin_time(guest.checked_in_at),
             }
         now = datetime.now(timezone.utc)
         existing.status = "pending"
@@ -132,6 +160,8 @@ async def _enqueue_task(
     force: bool = False,
     manual: bool = False,
 ) -> ZbsDelivery | None:
+    if task_key == REGISTRATION_TASK_KEY and guest.registration_status != "confirmed":
+        return
     task_config = await db.get(ZbsTaskConfig, task_key)
     if not force and task_key == CHECKIN_TASK_KEY and task_config is None:
         return
@@ -150,11 +180,7 @@ async def _enqueue_task(
     ).order_by(ZbsDelivery.created_at.desc()))).scalars().all()
     if task_key == REGISTRATION_TASK_KEY and old_phone is not None and any(item.status in ("sent", "delivered", "sending") for item in previous):
         return
-    event_key = (
-        f"{task_key}:{guest.id}"
-        if task_key == CHECKIN_TASK_KEY
-        else f"{task_key}:{guest.id}:{phone}"
-    )
+    event_key = f"{task_key}:{guest.id}"
     if any(item.event_key == event_key for item in previous):
         return
     if task_key == REGISTRATION_TASK_KEY and old_phone is not None:
@@ -176,6 +202,7 @@ async def _enqueue_task(
         template_data = {
             "customer_name": template_data["customer_name"],
             "workshop": template_data["workshop"],
+            "customer_checkin_time": _checkin_time(guest.checked_in_at),
         }
     delivery = ZbsDelivery(
         guest_id=guest.id, workshop_id=guest.workshop_id,
@@ -209,7 +236,7 @@ def _expiry(delivery: ZbsDelivery) -> datetime | None:
 def _payload_error(delivery: ZbsDelivery) -> str | None:
     data = delivery.payload.get("template_data") or {}
     if delivery.event_type == CHECKIN_TASK_KEY:
-        for key in ("customer_name", "workshop"):
+        for key in ("customer_name", "workshop", "customer_checkin_time"):
             if not data.get(key):
                 return f"missing template parameter: {key}"
         return None

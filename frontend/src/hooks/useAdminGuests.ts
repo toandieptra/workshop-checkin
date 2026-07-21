@@ -12,6 +12,7 @@ export interface Workshop {
   location?: string;
   lark_workshop_name?: string;
   last_synced_at?: string | null;
+  auto_confirm_registration?: boolean;
 }
 
 export interface Guest {
@@ -26,6 +27,9 @@ export interface Guest {
   guest_type?: string;
   note?: string;
   party_size?: number;
+  registration_status: "pending" | "confirmed";
+  confirmed_at?: string | null;
+  confirmed_by?: string | null;
   checkin_status: string;
   checked_in_at?: string;
   actual_party_size?: number;
@@ -343,6 +347,17 @@ export function useAdminGuests() {
     [wid, debouncedSearch, loadGuests, refreshCachedGuestDetail],
   );
 
+  const confirmRegistration = useCallback(async (guest: Guest) => {
+    try {
+      await api("/guests/" + guest.id + "/confirm", { method: "POST" });
+      setMsg("Đã xác nhận đăng ký của " + guest.full_name);
+      await loadGuests(wid, debouncedSearch);
+      await refreshCachedGuestDetail(guest.id);
+    } catch (e: any) {
+      setMsg("Lỗi xác nhận đăng ký: " + (e?.message || "không rõ"));
+    }
+  }, [wid, debouncedSearch, loadGuests, refreshCachedGuestDetail]);
+
   const doUncheckin = useCallback(
     async (guest: Guest) => {
       if (!confirm(`Hoàn tác check-in của "${guest.full_name}"?`)) return;
@@ -493,6 +508,7 @@ export function useAdminGuests() {
     createGuest,
     delGuest,
     doCheckin,
+    confirmRegistration,
     doUncheckin,
     toggleVip,
     copyPhone,

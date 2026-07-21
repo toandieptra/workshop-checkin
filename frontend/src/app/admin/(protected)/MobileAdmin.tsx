@@ -7,6 +7,9 @@ import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
 import GuestQr from "@/components/GuestQr";
 import GuestQrScanner from "@/components/GuestQrScanner";
 import { getClientOrigin, getPublicOrigin } from "@/lib/urls";
+import WorkshopPicker from "@/components/WorkshopPicker";
+import { formatEventDateTime, shortLocation } from "@/lib/date-format";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
 
 // =============================================================================
 // Inline SVG icon set — stroke 1.8-2, kế thừa color qua currentColor.
@@ -243,6 +246,7 @@ export default function MobileAdmin() {
     totalRecords,
     checkedInRecords,
     doCheckin,
+    confirmRegistration,
     doUncheckin,
     toggleVip,
     copyPhone,
@@ -260,6 +264,7 @@ export default function MobileAdmin() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [checkinGuest, setCheckinGuest] = useState<Guest | null>(null);
+  const [showEventTools, setShowEventTools] = useState(false);
   const [origin, setOrigin] = useState(getPublicOrigin);
 
   useEffect(() => {
@@ -304,20 +309,7 @@ export default function MobileAdmin() {
       {/* ======= 1. Sticky header — workshop picker + 4 KPI cards ======= */}
       <section className="sticky top-14 z-10 bg-surface border-b border-line">
         <div className="px-3 pt-3 pb-2.5 flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <IconChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
-            <select
-              className="w-full appearance-none border border-line rounded-md pl-3 pr-8 py-2 text-sm bg-surface text-brand-teal font-semibold focus:border-brand focus:ring-2 focus:ring-brand/20"
-              value={wid}
-              onChange={(e) => setWid(e.target.value)}
-            >
-              {workshops.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="flex-1 min-w-0"><WorkshopPicker workshops={workshops} value={wid} onChange={setWid} compact /></div>
           {currentWorkshop && (
             <span
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-success shrink-0"
@@ -330,15 +322,15 @@ export default function MobileAdmin() {
         </div>
         {currentWorkshop && (currentWorkshop.event_date || currentWorkshop.event_time || currentWorkshop.location) && (
           <p className="px-3 -mt-1 pb-2 text-xs leading-5 text-text-secondary">
-            {[currentWorkshop.event_date, currentWorkshop.event_time, currentWorkshop.location].filter(Boolean).join(" · ")}
+            {formatEventDateTime(currentWorkshop.event_date, currentWorkshop.event_time, true)}{currentWorkshop.location ? ` · ${shortLocation(currentWorkshop.location)}` : ""}
           </p>
         )}
 
         <div className="grid grid-cols-4 gap-1.5 px-3 pb-3">
-          <KpiCard label="Khách ĐK" value={totalRegistered} tone="default" />
-          <KpiCard label="Phiếu" value={totalRecords} tone="default" />
-          <KpiCard label="Check-in" value={totalCheckedIn} tone="success" />
-          <KpiCard label="Phiếu đã" value={checkedInRecords} tone="success" />
+          <KpiCard label="Khách đăng ký" value={totalRegistered} tone="default" />
+          <KpiCard label="Phiếu đăng ký" value={totalRecords} tone="default" />
+          <KpiCard label="Khách đã vào" value={totalCheckedIn} tone="success" />
+          <KpiCard label="Phiếu đã xử lý" value={checkedInRecords} tone="success" />
         </div>
       </section>
 
@@ -367,55 +359,7 @@ export default function MobileAdmin() {
         </div>
       )}
 
-      {/* ======= 3. QR + Link cards ======= */}
-      {currentWorkshop && (
-        <section className="grid grid-cols-2 gap-3 px-3 mt-3">
-          <div className="bg-surface border border-line rounded-md p-3 flex flex-col items-center shadow-sm">
-            <PanelLabel icon={<IconQrCode className="w-3 h-3" />}>QR Check-in</PanelLabel>
-            <div className="flex-1 flex items-center justify-center w-full">
-              <QrDisplay workshopSlug={currentWorkshop.slug} size={108} showUrl={false} />
-            </div>
-          </div>
-          <div className="bg-surface border-2 border-error rounded-md p-3 flex flex-col shadow-sm">
-            <PanelLabel icon={<IconLink className="w-3 h-3" />} className="text-error">
-              Link Welcome
-            </PanelLabel>
-            <div
-              className="font-mono text-[10px] leading-[1.35] rounded-md bg-surface-muted px-2 py-1.5 my-2 break-all flex-1 min-h-[40px] flex items-center"
-              title={welcomeUrl}
-            >
-              {welcomeUrl ? (
-                <>
-                  <span className="text-brand font-medium">{welcomeHost}</span>
-                  <span className="text-text-secondary">{welcomeRest}</span>
-                </>
-              ) : (
-                <span className="text-muted">—</span>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-1.5 mt-auto">
-              <button
-                onClick={copyWelcomeLink}
-                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-sm text-[11px] font-semibold border border-line bg-surface-muted text-brand-teal active:bg-cyan-pale"
-              >
-                <IconCopy className="w-3 h-3" />
-                {linkCopied ? "Đã copy" : "Sao chép"}
-              </button>
-              <a
-                href={welcomeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-sm text-[11px] font-bold border border-brand bg-brand text-brand-teal active:opacity-90"
-              >
-                Mở Welcome
-                <IconArrowUp className="w-3 h-3 -rotate-90" />
-              </a>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ======= 4. Search + status dropdown + Thêm khách ======= */}
+      {/* ======= 3. Search + status dropdown + Thêm khách ======= */}
       <section className="px-3 mt-3">
         <div className="relative">
           <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
@@ -449,7 +393,7 @@ export default function MobileAdmin() {
                 type="button"
                 aria-pressed={statusFilter === value}
                 onClick={() => setStatusFilter(value)}
-                className={`min-h-[42px] rounded-md border px-1 text-xs font-semibold ${statusFilter === value ? "border-brand bg-brand text-brand-teal" : "border-line bg-surface text-text-secondary"}`}
+                className={`min-h-11 rounded-md border px-1 text-xs font-semibold ${statusFilter === value ? "border-brand bg-brand text-brand-teal" : "border-line bg-surface text-text-secondary"}`}
               >
                 {label} <span className="font-mono">{count}</span>
               </button>
@@ -458,14 +402,14 @@ export default function MobileAdmin() {
           <button
             onClick={() => setShowScanner(true)}
             disabled={!currentWorkshop}
-            className="inline-flex items-center justify-center gap-1 h-[42px] px-3 rounded-md text-[13px] font-bold border border-brand text-brand-teal bg-surface active:bg-cyan-pale shrink-0 disabled:opacity-40"
+            className="inline-flex items-center justify-center gap-1 h-11 px-3 rounded-md text-[13px] font-bold border border-brand text-brand-teal bg-surface active:bg-cyan-pale shrink-0 disabled:opacity-40"
           >
             <IconQrCode className="w-3.5 h-3.5" />
             Quét QR
           </button>
           <button
             onClick={() => openAddForm()}
-            className="inline-flex items-center justify-center gap-1 h-[42px] px-3 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 shrink-0"
+            className="inline-flex items-center justify-center gap-1 h-11 px-3 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 shrink-0"
           >
             <IconPlus className="w-3.5 h-3.5" />
             Thêm
@@ -497,7 +441,8 @@ export default function MobileAdmin() {
           visibleGuests.map((g) => (
             <GuestCard
               key={g.id}
-              g={g}
+               g={g}
+               onConfirmRegistration={() => confirmRegistration(g)}
                onCheckin={() => setCheckinGuest(g)}
               onUncheckin={() => doUncheckin(g)}
               onToggleVip={() => toggleVip(g)}
@@ -510,6 +455,31 @@ export default function MobileAdmin() {
           ))
         )}
       </section>
+
+      {currentWorkshop && (
+        <section className="mx-3 mt-3 overflow-hidden rounded-md border border-line bg-surface">
+          <button type="button" aria-expanded={showEventTools} onClick={() => setShowEventTools((value) => !value)} className="flex min-h-11 w-full items-center justify-between px-3 text-sm font-semibold text-brand-teal">
+            <span className="inline-flex items-center gap-2"><IconQrCode className="h-4 w-4" />Công cụ sự kiện</span>
+            <IconChevronDown className={`h-4 w-4 transition-transform ${showEventTools ? "rotate-180" : ""}`} />
+          </button>
+          {showEventTools && <div className="grid grid-cols-2 gap-3 border-t border-line p-3">
+            <div className="bg-surface border border-line rounded-md p-3 flex flex-col items-center shadow-sm">
+              <PanelLabel icon={<IconQrCode className="w-3 h-3" />}>QR Check-in</PanelLabel>
+              <div className="flex-1 flex items-center justify-center w-full"><QrDisplay workshopSlug={currentWorkshop.slug} size={108} showUrl={false} /></div>
+            </div>
+            <div className="bg-surface border border-error rounded-md p-3 flex flex-col shadow-sm">
+              <PanelLabel icon={<IconLink className="w-3 h-3" />} className="text-error">Link Welcome</PanelLabel>
+              <div className="font-mono text-xs leading-[1.35] rounded-md bg-surface-muted px-2 py-1.5 my-2 break-all flex-1 min-h-[40px] flex items-center" title={welcomeUrl}>
+                {welcomeUrl ? <><span className="text-brand-teal font-medium">{welcomeHost}</span><span className="text-text-secondary">{welcomeRest}</span></> : <span className="text-muted">—</span>}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 mt-auto">
+                <button onClick={copyWelcomeLink} className="min-h-11 rounded-sm text-xs font-semibold border border-line bg-surface-muted text-brand-teal">{linkCopied ? "Đã copy" : "Sao chép"}</button>
+                <a href={welcomeUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-sm text-xs font-bold border border-brand bg-brand text-brand-teal">Mở</a>
+              </div>
+            </div>
+          </div>}
+        </section>
+      )}
 
       {/* ======= 6. Add-customer bottom sheet ======= */}
       {showAddForm && (
@@ -608,6 +578,7 @@ const SWIPE_REVEAL_WIDTH = 88; // px — bề rộng nút Xoá lộ ra khi vuố
 
 function GuestCard({
   g,
+  onConfirmRegistration,
   onCheckin,
   onUncheckin,
   onToggleVip,
@@ -618,6 +589,7 @@ function GuestCard({
   workshopName,
 }: {
   g: Guest;
+  onConfirmRegistration: () => void;
   onCheckin: () => void;
   onUncheckin: () => void;
   onToggleVip: () => void;
@@ -728,6 +700,9 @@ function GuestCard({
                 VIP
               </span>
             )}
+            <span className={`inline-flex h-5 items-center rounded px-1.5 text-[10px] font-semibold ${g.registration_status === "confirmed" ? "bg-green-50 text-green-700" : "bg-amber-100 text-amber-800"}`}>
+              {g.registration_status === "confirmed" ? "Đã xác nhận" : "Chờ xác nhận"}
+            </span>
             {g.role_title && (
               <span className="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-semibold bg-surface-muted text-brand-teal">
                 {g.role_title}
@@ -782,11 +757,19 @@ function GuestCard({
       </div>
 
       {/* Row 3: CTA + VIP toggle */}
-      <div className="mt-3 grid grid-cols-[1fr_40px_76px] gap-2 [@media(pointer:fine)]:grid-cols-[1fr_40px_76px_40px]">
-        {checked ? (
+      <div className="mt-3 grid grid-cols-[1fr_44px_80px] gap-2 [@media(pointer:fine)]:grid-cols-[1fr_44px_80px_44px]">
+        {g.registration_status !== "confirmed" ? (
+          <button
+            onClick={guardAction(onConfirmRegistration)}
+            className="inline-flex h-11 items-center justify-center gap-1.5 rounded-md border border-brand bg-brand text-[13px] font-bold text-brand-teal active:opacity-90"
+          >
+            <IconCheck className="h-3.5 w-3.5" />
+            Xác nhận đăng ký
+          </button>
+        ) : checked ? (
           <button
             onClick={guardAction(onUncheckin)}
-            className="inline-flex items-center justify-center gap-1.5 h-10 rounded-md text-[13px] font-semibold border bg-success-soft text-success border-success-border active:opacity-90"
+            className="inline-flex items-center justify-center gap-1.5 h-11 rounded-md text-[13px] font-semibold border bg-success-soft text-success border-success-border active:opacity-90"
           >
             <IconCheck className="w-3.5 h-3.5" />
             Đã check-in · {formatHm(g.checked_in_at)}
@@ -794,7 +777,7 @@ function GuestCard({
         ) : (
           <button
             onClick={guardAction(onCheckin)}
-            className="inline-flex items-center justify-center gap-1.5 h-10 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90"
+            className="inline-flex items-center justify-center gap-1.5 h-11 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90"
           >
             <IconCheck className="w-3.5 h-3.5" />
             Check-in · {registered} khách
@@ -804,7 +787,7 @@ function GuestCard({
           onClick={guardAction(onToggleVip)}
           aria-label={vip ? "Bỏ đánh dấu VIP" : "Đánh dấu VIP"}
           title={vip ? "Bỏ VIP" : "Đánh dấu VIP"}
-          className={`inline-flex items-center justify-center h-10 rounded-md border ${
+          className={`inline-flex items-center justify-center h-11 rounded-md border ${
             vip
               ? "bg-brand-gold-soft border-brand-gold text-brand-gold"
               : "border-line text-muted bg-surface"
@@ -822,7 +805,7 @@ function GuestCard({
           type="button"
           onClick={guardAction(onDelete)}
           aria-label={`Xóa ${g.full_name}`}
-          className="hidden h-10 items-center justify-center rounded-md border border-red-200 text-red-600 [@media(pointer:fine)]:inline-flex"
+          className="hidden h-11 items-center justify-center rounded-md border border-red-200 text-red-600 [@media(pointer:fine)]:inline-flex"
         >
           <IconTrash className="h-4 w-4" />
         </button>
@@ -882,6 +865,8 @@ function CheckinSheet({
 }) {
   const [actual, setActual] = useState(Math.max(1, guest.party_size || 1));
   const [busy, setBusy] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, dialogRef, "#checkin-actual");
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -894,7 +879,7 @@ function CheckinSheet({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true" aria-labelledby="checkin-sheet-title">
       <button type="button" className="absolute inset-0 bg-black/60" onClick={onClose} aria-label="Đóng xác nhận check-in" />
-      <div className="relative w-full max-w-md rounded-t-2xl bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-xl animate-sheet-up">
+      <div ref={dialogRef} tabIndex={-1} className="relative w-full max-w-md rounded-t-2xl bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-xl animate-sheet-up">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">Xác nhận check-in</p>
