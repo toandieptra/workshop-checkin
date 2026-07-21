@@ -213,39 +213,42 @@ function CheckinSelfInner() {
 
         {/* Error banner */}
         {errMsg && (
-          <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
+          <div id="checkin-error" role="alert" className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
             {errMsg}
           </div>
         )}
 
         {/* ───── Step: phone ───── */}
         {step === "phone" && (
-          <div className="bg-surface rounded-lg border border-line p-5 space-y-4">
+          <form className="bg-surface rounded-lg border border-line p-5 space-y-4" onSubmit={(event) => { event.preventDefault(); void handleLookup(); }}>
             <div>
-              <div className="text-base font-semibold text-ink">
-                📱 Nhập số điện thoại đã đăng ký
-              </div>
-              <div className="text-xs text-muted mt-1">
+              <label htmlFor="checkin-phone" className="text-base font-semibold text-ink">Nhập số điện thoại đã đăng ký</label>
+              <div id="checkin-phone-hint" className="text-xs text-muted mt-1">
                 Hệ thống sẽ tìm trong danh sách của <b>{workshop?.name}</b>.
               </div>
             </div>
             <input
+              id="checkin-phone"
+              name="phone"
+              type="tel"
               autoFocus
               inputMode="tel"
+              autoComplete="tel"
+              aria-invalid={Boolean(errMsg)}
+              aria-describedby={errMsg ? "checkin-phone-hint checkin-error" : "checkin-phone-hint"}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLookup()}
               placeholder="0909 123 456"
               className="w-full border border-line rounded-md px-4 py-3 text-lg font-mono focus:outline-none focus:ring-2 focus:ring-brand"
             />
             <button
-              onClick={handleLookup}
+              type="submit"
               disabled={!phone.trim()}
-              className="w-full bg-brand text-white font-semibold py-3 rounded-md disabled:opacity-50"
+              className="w-full bg-brand text-brand-teal font-semibold py-3 rounded-md disabled:opacity-50"
             >
-              Tiếp tục →
+              Tiếp tục
             </button>
-          </div>
+          </form>
         )}
 
         {/* ───── Step: confirm (tìm thấy khách) ───── */}
@@ -253,7 +256,7 @@ function CheckinSelfInner() {
           <div className="bg-surface rounded-lg border border-line p-5 space-y-4">
             <div>
               <div className="text-base font-semibold text-green-700">
-                ✅ Xin chào {guest.full_name}
+                Xin chào {guest.full_name}
               </div>
               {guest.company && (
                 <div className="text-xs text-muted mt-1">
@@ -265,7 +268,7 @@ function CheckinSelfInner() {
               </div>
               {guest.checkin_status === "checked_in" && (
                 <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 text-xs text-yellow-800 rounded">
-                  ⚠️ Bạn đã check-in lúc{" "}
+                  Bạn đã check-in lúc{" "}
                   {guest.checked_in_at
                     ? new Date(guest.checked_in_at).toLocaleString("vi-VN")
                     : "trước đó"}
@@ -277,10 +280,11 @@ function CheckinSelfInner() {
             {guest.checkin_status !== "checked_in" ? (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-ink mb-1">
+                  <label htmlFor="checkin-actual" className="block text-sm font-medium text-ink mb-1">
                     Số người tham gia thực tế
                   </label>
                   <input
+                    id="checkin-actual"
                     type="number"
                     min={1}
                     value={actual}
@@ -301,10 +305,11 @@ function CheckinSelfInner() {
             ) : (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-ink mb-1">
+                  <label htmlFor="checkin-extra" className="block text-sm font-medium text-ink mb-1">
                     Cộng thêm số người tham gia
                   </label>
                   <input
+                    id="checkin-extra"
                     type="number"
                     min={1}
                     value={extra}
@@ -334,7 +339,7 @@ function CheckinSelfInner() {
           <div className="bg-surface rounded-lg border border-line p-5 space-y-4">
             <div>
               <div className="text-base font-semibold text-yellow-700">
-                ⚠️ Số điện thoại chưa có trong danh sách
+                Số điện thoại chưa có trong danh sách
               </div>
               <div className="text-xs text-muted mt-1">
                 Workshop <b>{workshop?.name}</b>. Bạn có thể đăng ký nhanh tại đây hoặc đến quầy để nhân viên hỗ trợ.
@@ -342,10 +347,11 @@ function CheckinSelfInner() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-ink mb-1">
+              <label htmlFor="checkin-register-name" className="block text-sm font-medium text-ink mb-1">
                 Họ và tên *
               </label>
               <input
+                id="checkin-register-name" name="name" autoComplete="name"
                 autoFocus
                 value={regName}
                 onChange={(e) => setRegName(e.target.value)}
@@ -355,10 +361,11 @@ function CheckinSelfInner() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-ink mb-1">
+              <label htmlFor="checkin-register-party" className="block text-sm font-medium text-ink mb-1">
                 Số người tham gia *
               </label>
               <input
+                id="checkin-register-party"
                 type="number"
                 min={1}
                 value={regActual}
@@ -370,7 +377,7 @@ function CheckinSelfInner() {
             <button
               onClick={handleRegister}
               disabled={!regName.trim()}
-              className="w-full bg-brand text-white font-semibold py-3 rounded-md disabled:opacity-50"
+              className="w-full bg-brand text-brand-teal font-semibold py-3 rounded-md disabled:opacity-50"
             >
               Đăng ký &amp; Check-in
             </button>
@@ -385,8 +392,10 @@ function CheckinSelfInner() {
 
         {/* ───── Step: success ───── */}
         {step === "success" && guest && (
-          <div className="bg-surface rounded-lg border border-line p-6 space-y-4 text-center">
-            <div className="text-6xl">✅</div>
+          <div role="status" aria-live="polite" className="bg-surface rounded-lg border border-line p-6 space-y-4 text-center">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-green-100 text-green-700" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-8 w-8"><path d="m5 12 4 4L19 6" /></svg>
+            </div>
             <div>
               <div className="text-xl font-bold text-green-700">
                 Check-in thành công!

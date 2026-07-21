@@ -16,6 +16,7 @@ export interface Workshop {
 
 export interface Guest {
   id: string;
+  workshop_id?: string;
   full_name: string;
   phone?: string;
   email?: string;
@@ -37,10 +38,19 @@ export interface Guest {
   source_detail?: string | null;
   creator_name?: string | null;
   creator_user_id?: string | null;
+  local_updated_at?: string | null;
+  lark_updated_at?: string | null;
+  last_synced_at?: string | null;
   zbs?: {
     registration_confirmation?: ZbsDelivery;
     checkin_confirmation?: ZbsDelivery;
   };
+}
+
+export interface GuestDetailState {
+  data: Guest | null;
+  loading: boolean;
+  error: string | null;
 }
 
 export interface ZbsDelivery {
@@ -90,6 +100,7 @@ export function useAdminGuests() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [guestDetails, setGuestDetails] = useState<Record<string, GuestDetailState>>({});
 
   const emptyNewGuest = (): NewGuestInput => ({
     full_name: "",
@@ -136,6 +147,38 @@ export function useAdminGuests() {
     }
   }, []);
 
+  const loadGuestDetail = useCallback(async (guestId: string, force = false) => {
+    if (!force && guestDetails[guestId]?.data) return;
+    setGuestDetails((current) => ({
+      ...current,
+      [guestId]: { data: current[guestId]?.data || null, loading: true, error: null },
+    }));
+    try {
+      const detail = await api<Guest>("/guests/" + guestId);
+      setGuestDetails((current) => ({
+        ...current,
+        [guestId]: {
+          data: { ...detail, zbs: zbsStatus[guestId] },
+          loading: false,
+          error: null,
+        },
+      }));
+    } catch (error) {
+      setGuestDetails((current) => ({
+        ...current,
+        [guestId]: {
+          data: current[guestId]?.data || null,
+          loading: false,
+          error: error instanceof Error ? error.message : "Không tải được chi tiết khách",
+        },
+      }));
+    }
+  }, [guestDetails, zbsStatus]);
+
+  const refreshCachedGuestDetail = useCallback(async (guestId: string) => {
+    if (guestDetails[guestId]) await loadGuestDetail(guestId, true);
+  }, [guestDetails, loadGuestDetail]);
+
   /** Reload danh sách khách hiện hành theo wid + search đang áp dụng. */
   const reload = useCallback(
     () => loadGuests(wid, debouncedSearch),
@@ -174,6 +217,15 @@ export function useAdminGuests() {
     () => guests.map((guest) => ({ ...guest, zbs: zbsStatus[guest.id] })),
     [guests, zbsStatus],
   );
+
+  useEffect(() => {
+    setGuestDetails((current) => Object.fromEntries(
+      Object.entries(current).map(([guestId, state]) => [guestId, state.data ? {
+        ...state,
+        data: { ...state.data, zbs: zbsStatus[guestId] },
+      } : state]),
+    ));
+  }, [zbsStatus]);
 
   // ----- WS + fallback poll -----
   const { connected } = useWebSocket((data: any) => {
@@ -246,23 +298,32 @@ export function useAdminGuests() {
   }, [newGuest, wid, debouncedSearch, loadGuests]);
 
   const delGuest = useCallback(
-    async (id: string) => {
-      if (!confirm("Xóa khách này?")) return;
+    async (id: string): Promise<boolean> => {
+      if (!confirm("Xóa khách này?")) return false;
       await api("/guests/" + id, { method: "DELETE" });
+      setGuestDetails((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
       await loadGuests(wid, debouncedSearch);
+      return true;
     },
     [wid, debouncedSearch, loadGuests],
   );
 
   const doCheckin = useCallback(
-    async (guest: Guest) => {
-      const input = prompt(
-        `Số khách check-in cho "${guest.full_name}" (số nguyên ≥ 1):`,
-        String(guest.party_size || 1),
-      );
-      if (input === null) return;
-      const actual = parseInt(input, 10);
-      if (!Number.isInteger(actual) || actual < 1) {
+    async (guest: Guest, actualPartySize?: number) => {
+      let actual = actualPartySize;
+      if (actual === undefined) {
+        const input = prompt(
+          `Số khách check-in cho "${guest.full_name}" (số nguyên ≥ 1):`,
+          String(guest.party_size || 1),
+        );
+        if (input === null) return;
+        actual = parseInt(input, 10);
+      }
+      if (typeof actual !== "number" || !Number.isInteger(actual) || actual < 1) {
         setMsg("Số khách check-in phải là số nguyên lớn hơn hoặc bằng 1");
         return;
       }
@@ -274,25 +335,28 @@ export function useAdminGuests() {
         const errStr = res.lark_error ? " (Lỗi Lark: " + res.lark_error + ")" : "";
         setMsg("Đã check-in " + guest.full_name + " (" + actual + " khách)" + errStr);
         await loadGuests(wid, debouncedSearch);
+        await refreshCachedGuestDetail(guest.id);
       } catch (e: any) {
         setMsg("Lỗi check-in: " + (e?.message || "không rõ"));
       }
     },
-    [wid, debouncedSearch, loadGuests],
+    [wid, debouncedSearch, loadGuests, refreshCachedGuestDetail],
   );
 
   const doUncheckin = useCallback(
     async (guest: Guest) => {
+      if (!confirm(`Hoàn tác check-in của "${guest.full_name}"?`)) return;
       try {
         const res = await api<any>("/guests/" + guest.id + "/uncheckin", { method: "POST" });
         const errStr = res.lark_error ? " (Lỗi Lark: " + res.lark_error + ")" : "";
         setMsg("Đã hủy check-in " + guest.full_name + errStr);
         await loadGuests(wid, debouncedSearch);
+        await refreshCachedGuestDetail(guest.id);
       } catch (e: any) {
         setMsg("Lỗi hủy check-in: " + (e?.message || "không rõ"));
       }
     },
-    [wid, debouncedSearch, loadGuests],
+    [wid, debouncedSearch, loadGuests, refreshCachedGuestDetail],
   );
 
   const toggleVip = useCallback(
@@ -303,8 +367,9 @@ export function useAdminGuests() {
         body: JSON.stringify({ guest_type: vip ? "VIP" : null }),
       });
       await loadGuests(wid, debouncedSearch);
+      await refreshCachedGuestDetail(guest.id);
     },
-    [wid, debouncedSearch, loadGuests],
+    [wid, debouncedSearch, loadGuests, refreshCachedGuestDetail],
   );
 
   const copyPhone = useCallback(async (phone: string) => {
@@ -327,11 +392,12 @@ export function useAdminGuests() {
         const okStr = res.resolved ? "Đã xử lý: ưu tiên " + label : "Lỗi xử lý: " + (res.error || "");
         setMsg(okStr);
         await loadGuests(wid, debouncedSearch);
+        await refreshCachedGuestDetail(guest.id);
       } catch (e: any) {
         setMsg("Lỗi xử lý xung đột: " + (e?.message || "không rõ"));
       }
     },
-    [wid, debouncedSearch, loadGuests],
+    [wid, debouncedSearch, loadGuests, refreshCachedGuestDetail],
   );
 
   const retryZbs = useCallback(async (delivery: ZbsDelivery) => {
@@ -343,6 +409,19 @@ export function useAdminGuests() {
       setMsg("Lỗi gửi lại ZBS: " + (e?.message || "không rõ"));
     }
   }, [wid, loadZbsStatus]);
+
+  const sendZbsManually = useCallback(async (guest: Guest, taskKey: "registration_confirmation" | "checkin_confirmation") => {
+    const taskLabel = taskKey === "checkin_confirmation" ? "xác nhận Check-in" : "xác nhận đăng ký";
+    if (!confirm(`Gửi ZBS ${taskLabel} thủ công cho ${guest.full_name}? Thao tác này có thể phát sinh chi phí.`)) return;
+    try {
+      await api(`/zbs/guests/${guest.id}/send/${taskKey}`, { method: "POST" });
+      setMsg("Đã xếp tin ZBS thủ công để gửi.");
+      await loadZbsStatus(wid);
+      await refreshCachedGuestDetail(guest.id);
+    } catch (e: any) {
+      setMsg("Lỗi gửi ZBS thủ công: " + (e?.message || "không rõ"));
+    }
+  }, [loadZbsStatus, refreshCachedGuestDetail, wid]);
 
   const importFile = useCallback(
     async (file: File) => {
@@ -419,6 +498,9 @@ export function useAdminGuests() {
     copyPhone,
     resolveConflict,
     retryZbs,
+    sendZbsManually,
+    guestDetails,
+    loadGuestDetail,
     importFile,
     reload,
     refreshWorkshops,

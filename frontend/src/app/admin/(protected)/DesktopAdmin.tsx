@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import QrDisplay from "@/components/QrDisplay";
 import { api, downloadGuestsXlsx } from "@/lib/api";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
@@ -7,6 +7,9 @@ import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
 import { useAdminGuests, type Guest, type LarkWorkshop, type ZbsDelivery } from "@/hooks/useAdminGuests";
 import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
 import GuestQr from "@/components/GuestQr";
+import GuestDetailRow from "@/components/GuestDetailRow";
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
 
 type ColumnKey = "name" | "phone" | "businessModel" | "source" | "creator" | "registered" | "checkedIn" | "checkin" | "qr" | "sync" | "zbs" | "actions" | "registeredAt";
 const TABLE_COLUMNS = [
@@ -132,6 +135,7 @@ function WelcomeLinkCard({ slug }: { slug: string }) {
  * gọi reload()/refreshWorkshops()/setWid() từ hook để đồng bộ.
  */
 export default function DesktopAdmin() {
+  const { can } = useAuth();
   const {
     workshops,
     wid,
@@ -161,10 +165,35 @@ export default function DesktopAdmin() {
     msg,
     setMsg,
     retryZbs,
+    sendZbsManually,
+    guestDetails,
+    loadGuestDetail,
   } = useAdminGuests();
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
   const visibleColumnCount = TABLE_COLUMNS.filter(({ key }) => visibleColumns[key]).length;
+  const [expandedGuestId, setExpandedGuestId] = useState<string | null>(null);
+
+  const toggleGuestDetail = (guestId: string) => {
+    setExpandedGuestId((current) => current === guestId ? null : guestId);
+    if (expandedGuestId !== guestId) void loadGuestDetail(guestId);
+  };
+
+  const onGuestRowClick = (event: MouseEvent<HTMLTableRowElement>, guestId: string) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, select, textarea, label, [data-row-action]")) return;
+    toggleGuestDetail(guestId);
+  };
+
+  useEffect(() => {
+    setExpandedGuestId(null);
+  }, [wid]);
+
+  useEffect(() => {
+    if (expandedGuestId && !visibleGuests.some((guest) => guest.id === expandedGuestId)) {
+      setExpandedGuestId(null);
+    }
+  }, [expandedGuestId, visibleGuests]);
 
   // ----- Lark sync (desktop-only) -----
   const [larkOpen, setLarkOpen] = useState(false);
@@ -331,6 +360,7 @@ export default function DesktopAdmin() {
       setMsg("Đã lưu & đồng bộ Lark" + errStr);
       setEditId(null);
       await reload();
+      await loadGuestDetail(editId, true);
     } catch (e: any) {
       setMsg("Lỗi lưu: " + (e?.message || "không rõ"));
     } finally {
@@ -364,7 +394,7 @@ export default function DesktopAdmin() {
               <button
                 onClick={runLarkWorkshopsSync}
                 disabled={larkBusy}
-                className="bg-brand text-white px-3 py-2 rounded-sm text-sm disabled:opacity-50"
+                className="bg-brand text-brand-teal px-3 py-2 rounded-sm text-sm font-semibold disabled:opacity-50"
                 title="Kéo danh sách workshop mới + cập nhật thông tin từ bảng Lark Workshop config"
               >
                 Đồng bộ sự kiện
@@ -372,7 +402,7 @@ export default function DesktopAdmin() {
               <button
                 onClick={runLarkFull}
                 disabled={larkBusy || !wid}
-                className="bg-brand text-white px-3 py-2 rounded-sm text-sm disabled:opacity-50"
+                className="bg-brand text-brand-teal px-3 py-2 rounded-sm text-sm font-semibold disabled:opacity-50"
               >
                 Đồng bộ toàn bộ
               </button>
@@ -588,7 +618,7 @@ export default function DesktopAdmin() {
               (newGuest.source === "Khác" && !newGuest.source_detail.trim()) ||
               !wid
             }
-            className="mt-3 bg-brand text-white px-3 py-1.5 rounded-sm text-sm disabled:opacity-40"
+            className="mt-3 bg-brand text-brand-teal px-3 py-1.5 rounded-sm text-sm font-semibold disabled:opacity-40"
           >
             Thêm
           </button>
@@ -640,12 +670,28 @@ export default function DesktopAdmin() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {visibleGuests.map((g) => {
-                  const vip = isVip(g);
-                  return (
-                    <tr key={g.id} className={(vip ? "bg-cyan-50" : "") + " hover:bg-brand/5"}>
-                      {visibleColumns.name && <td className="px-3 py-3 align-top">
-                        <div className="font-semibold text-ink">{g.full_name}</div>
+                 {visibleGuests.map((g) => {
+                   const vip = isVip(g);
+                   const expanded = expandedGuestId === g.id;
+                   return (
+                     <Fragment key={g.id}>
+                     <tr
+                       tabIndex={0}
+                       aria-expanded={expanded}
+                       onClick={(event) => onGuestRowClick(event, g.id)}
+                       onKeyDown={(event) => {
+                         if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) {
+                           event.preventDefault();
+                           toggleGuestDetail(g.id);
+                         }
+                       }}
+                       className={`${expanded ? "border-x-2 border-t-2 border-brand bg-cyan-50" : vip ? "bg-cyan-50" : ""} cursor-pointer hover:bg-brand/5 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand`}
+                     >
+                       {visibleColumns.name && <td className="px-3 py-3 align-top">
+                         <div className="flex items-start justify-between gap-3">
+                           <div className="font-semibold text-ink">{g.full_name}</div>
+                           <svg className={`mt-0.5 shrink-0 text-muted transition-transform ${expanded ? "rotate-180" : ""}`} width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden><path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                         </div>
                         <div className="mt-1 flex gap-1 flex-wrap">
                           {vip && <span className="text-xs px-2 py-0.5 rounded bg-cyan-200 text-cyan-900 font-semibold">VIP</span>}
                           {g.lark_record_id
@@ -656,8 +702,8 @@ export default function DesktopAdmin() {
                       </td>}
                       {visibleColumns.phone && <td className="px-3 py-3 align-top whitespace-nowrap">
                         {g.phone ? (
-                          <button
-                            onClick={() => copyPhone(g.phone!)}
+                           <button
+                             onClick={(event) => { event.stopPropagation(); void copyPhone(g.phone!); }}
                             className="text-muted hover:text-brand-teal font-mono text-xs px-2 rounded min-h-[32px] flex items-center"
                             title="Copy DT"
                           >
@@ -691,15 +737,15 @@ export default function DesktopAdmin() {
                       </td>}
                        {visibleColumns.checkin && <td className="px-3 py-3 align-top">
                         {g.checkin_status === "checked_in" ? (
-                          <button
-                            onClick={() => doUncheckin(g)}
+                           <button
+                             onClick={(event) => { event.stopPropagation(); void doUncheckin(g); }}
                             className="bg-green-50 text-green-700 font-semibold text-xs px-3 py-1.5 rounded-sm min-h-[32px] flex items-center justify-center w-full"
                           >
                             Đã check-in
                           </button>
                         ) : (
-                          <button
-                            onClick={() => doCheckin(g)}
+                           <button
+                             onClick={(event) => { event.stopPropagation(); void doCheckin(g); }}
                             className="border border-green-600 text-green-700 font-semibold text-xs px-3 py-1.5 rounded-sm hover:bg-green-50 min-h-[32px] flex items-center justify-center w-full"
                           >
                             Check-in
@@ -707,6 +753,7 @@ export default function DesktopAdmin() {
                         )}
                        </td>}
                        {visibleColumns.qr && <td className="px-3 py-3 align-top">
+                         <div onClick={(event) => event.stopPropagation()}>
                          {currentWorkshop && (
                            <GuestQr
                              guestId={g.id}
@@ -716,20 +763,21 @@ export default function DesktopAdmin() {
                              compact
                            />
                          )}
+                         </div>
                        </td>}
                         {visibleColumns.sync && <td className="px-3 py-3 align-top">
                          <div className="flex flex-col gap-1 items-center">
                             <SyncBadge status={g.sync_status} error={g.sync_error} />
                            {g.sync_status === "conflict" && (
                             <div className="flex gap-1 mt-1">
-                              <button
-                                onClick={() => resolveConflict(g, "local")}
+                               <button
+                                 onClick={(event) => { event.stopPropagation(); void resolveConflict(g, "local"); }}
                                 className="text-xs text-blue-600 underline"
                               >
                                 Local
                               </button>
-                              <button
-                                onClick={() => resolveConflict(g, "lark")}
+                               <button
+                                 onClick={(event) => { event.stopPropagation(); void resolveConflict(g, "lark"); }}
                                 className="text-xs text-purple-600 underline"
                               >
                                 Lark
@@ -746,20 +794,20 @@ export default function DesktopAdmin() {
                        </td>}
                       {visibleColumns.actions && <td className="px-3 py-3 align-top text-sm">
                         <div className="flex items-center gap-3 flex-wrap">
-                          <button
-                            onClick={() => openEdit(g)}
+                           <button
+                             onClick={(event) => { event.stopPropagation(); openEdit(g); }}
                             className="text-brand underline min-h-[32px] flex items-center"
                           >
                             Sửa
                           </button>
-                          <button
-                            onClick={() => toggleVip(g)}
+                           <button
+                             onClick={(event) => { event.stopPropagation(); void toggleVip(g); }}
                             className="text-muted underline min-h-[32px] flex items-center"
                           >
                             {vip ? "Bỏ VIP" : "VIP"}
                           </button>
-                          <button
-                            onClick={() => delGuest(g.id)}
+                           <button
+                             onClick={(event) => { event.stopPropagation(); void delGuest(g.id).then((deleted) => { if (deleted) setExpandedGuestId(null); }); }}
                             className="text-red-600 underline min-h-[32px] flex items-center"
                           >
                             Xóa
@@ -769,8 +817,24 @@ export default function DesktopAdmin() {
                       {visibleColumns.registeredAt && <td className="px-3 py-3 align-top text-muted text-xs whitespace-nowrap">
                         {formatDateTime(g.registered_at || g.created_at)}
                       </td>}
-                    </tr>
-                  );
+                     </tr>
+                     {expanded && currentWorkshop && <GuestDetailRow
+                       detail={guestDetails[g.id]}
+                       colSpan={visibleColumnCount}
+                       workshopName={currentWorkshop.name}
+                       workshopId={currentWorkshop.id}
+                       onRetryLoad={() => void loadGuestDetail(g.id, true)}
+                       onEdit={openEdit}
+                       onCheckin={(guest) => void doCheckin(guest)}
+                       onUncheckin={(guest) => void doUncheckin(guest)}
+                       onToggleVip={(guest) => void toggleVip(guest)}
+                       onDelete={(guest) => void delGuest(guest.id).then((deleted) => { if (deleted) setExpandedGuestId(null); })}
+                       onResolveConflict={(guest, direction) => void resolveConflict(guest, direction)}
+                       onSendManualZbs={(guest, taskKey) => void sendZbsManually(guest, taskKey)}
+                       canSendManualZbs={can(PERMISSIONS.zbsManage)}
+                     />}
+                     </Fragment>
+                   );
                 })}
                 {!visibleGuests.length && (
                   <tr><td colSpan={visibleColumnCount} className="py-10 text-center text-muted">Không có khách khớp bộ lọc</td></tr>
@@ -864,7 +928,7 @@ export default function DesktopAdmin() {
                   !(ef.phone || "").trim() ||
                   !(ef.business_model || "").trim()
                 }
-                className="bg-brand text-white px-3 py-1.5 rounded-sm text-sm disabled:opacity-50"
+                className="bg-brand text-brand-teal px-3 py-1.5 rounded-sm text-sm font-semibold disabled:opacity-50"
               >
                 {editBusy ? "Đang lưu..." : "Lưu & đồng bộ Lark"}
               </button>
@@ -913,7 +977,7 @@ export default function DesktopAdmin() {
               <button
                 onClick={runLarkPull}
                 disabled={larkBusy || larkLoading || !larkPick}
-                className="bg-brand text-white px-3 py-1.5 rounded-sm text-sm disabled:opacity-50"
+                className="bg-brand text-brand-teal px-3 py-1.5 rounded-sm text-sm font-semibold disabled:opacity-50"
               >
                 {larkBusy ? "Đang kéo..." : "Kéo từ Lark"}
               </button>

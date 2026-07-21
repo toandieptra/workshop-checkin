@@ -154,6 +154,25 @@ async def retry_delivery(delivery_id: uuid.UUID, db: AsyncSession = Depends(get_
     return _out(delivery)
 
 
+@router.post("/zbs/guests/{guest_id}/send/{task_key}", dependencies=[Depends(require_permission("zbs.manage"))])
+async def send_guest_zbs_manually(
+    guest_id: uuid.UUID,
+    task_key: str,
+    db: AsyncSession = Depends(get_db),
+):
+    guest = await db.get(Guest, guest_id)
+    if not guest or guest.deleted_at is not None:
+        raise HTTPException(404, "Không tìm thấy khách")
+    from ..services.zbs import enqueue_manual
+    try:
+        delivery = await enqueue_manual(db, guest, task_key)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    await db.commit()
+    await db.refresh(delivery)
+    return _out(delivery)
+
+
 @router.get("/zbs/templates", dependencies=[Depends(require_permission("zbs.read"))])
 async def list_templates(
     offset: int = Query(default=0, ge=0),

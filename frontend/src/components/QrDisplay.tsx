@@ -1,6 +1,7 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "react-qr-code";
+import { getClientOrigin, getPublicOrigin } from "@/lib/urls";
 
 interface QrDisplayProps {
   /** Workshop slug — sẽ được mã hóa thành /checkin-self?w=<slug> */
@@ -29,8 +30,11 @@ export default function QrDisplay({
   showUrl = true,
 }: QrDisplayProps) {
   // window có thể undefined trên SSR — guard
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const url = `${origin}/checkin-self?w=${workshopSlug}`;
+  const [origin, setOrigin] = useState(getPublicOrigin);
+  useEffect(() => {
+    if (!origin) setOrigin(getClientOrigin());
+  }, [origin]);
+  const url = `${origin}/checkin-self?w=${encodeURIComponent(workshopSlug)}`;
   const wrapRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
 
@@ -75,8 +79,8 @@ export default function QrDisplay({
     <div className={`flex flex-col items-center gap-2 ${className}`}>
       <div
         ref={wrapRef}
-        className="bg-white p-3 rounded-lg border border-line"
-        style={{ width: size + 24, height: size + 24 }}
+        className="aspect-square w-full bg-white p-3 rounded-lg border border-line"
+        style={{ maxWidth: size + 24 }}
       >
         <QRCode
           value={url}

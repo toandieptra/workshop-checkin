@@ -2,7 +2,6 @@ import Link from "next/link";
 
 export default function Home() {
   const links = [
-    { href: "/checkin", title: "Check-in", desc: "Màn hình staff — camera iPad nhận diện khuôn mặt" },
     { href: "/welcome", title: "Welcome", desc: "Màn hình chào mừng (Android fullscreen)" },
     { href: "/admin", title: "Admin", desc: "Quản lý workshop, khách, ảnh khuôn mặt" },
     { href: "/admin/thong-ke", title: "Thống kê", desc: "Tổng hợp dữ liệu khách, lọc theo workshop & trạng thái" },

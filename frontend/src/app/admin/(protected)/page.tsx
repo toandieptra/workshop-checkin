@@ -14,7 +14,9 @@ import MobileAdmin from "./MobileAdmin";
 export default function AdminPage() {
   const isMobile = useIsMobile();
 
-  // Tránh flash: SSR + lần render đầu → desktop.
-  if (isMobile !== true) return <DesktopAdmin />;
+  if (isMobile === null) {
+    return <div className="min-h-[70vh] bg-surface-muted" aria-busy="true" aria-label="Đang tải giao diện quản trị" />;
+  }
+  if (!isMobile) return <DesktopAdmin />;
   return <MobileAdmin />;
 }

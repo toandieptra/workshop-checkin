@@ -36,7 +36,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 function RoleIcon({ selected }: { selected: boolean }) {
   return (
-    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${selected ? "bg-brand text-white" : "bg-surface-muted text-brand-accent"}`}>
+    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${selected ? "bg-brand text-brand-teal" : "bg-surface-muted text-brand-accent"}`}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
         <circle cx="12" cy="8" r="3.5" /><path d="M5.5 19c.6-3.5 2.8-5.5 6.5-5.5s5.9 2 6.5 5.5" />
       </svg>
@@ -176,7 +176,7 @@ export default function RolePermissionsPage() {
             </label>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowCreateForm(false)} className="rounded-md px-3 py-2 text-xs font-semibold text-muted hover:bg-surface-muted">Hủy</button>
-              <button type="submit" disabled={creating || !newRoleName.trim()} className="rounded-md bg-brand px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{creating ? "Đang tạo..." : "Tạo vai trò"}</button>
+              <button type="submit" disabled={creating || !newRoleName.trim()} className="rounded-md bg-brand px-3 py-2 text-xs font-semibold text-brand-teal disabled:opacity-50">{creating ? "Đang tạo..." : "Tạo vai trò"}</button>
             </div>
           </form>}
           <div className="p-2">
@@ -214,7 +214,7 @@ export default function RolePermissionsPage() {
               type="button"
               onClick={() => void save()}
               disabled={!dirty || disabled || saving}
-              className="min-h-10 rounded-md bg-brand px-5 text-sm font-semibold text-white transition hover:bg-brand-accent disabled:cursor-not-allowed disabled:opacity-40"
+              className="min-h-10 rounded-md bg-brand px-5 text-sm font-semibold text-brand-teal transition hover:bg-brand-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
               {saving ? "Đang lưu..." : "Lưu thay đổi"}
             </button>

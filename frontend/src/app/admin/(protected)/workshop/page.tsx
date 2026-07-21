@@ -367,7 +367,7 @@ export default function AdminWorkshopPage() {
           </div>
           <button
             onClick={openCreate}
-            className="bg-brand text-white px-4 py-2 rounded-sm text-sm font-medium whitespace-nowrap"
+            className="bg-brand text-brand-teal px-4 py-2 rounded-sm text-sm font-semibold whitespace-nowrap"
           >
             + Tạo Workshop
           </button>
@@ -386,7 +386,7 @@ export default function AdminWorkshopPage() {
           <button
             onClick={() => setStatusFilter("")}
             className={`px-3 py-1.5 rounded-sm text-sm border ${
-              !statusFilter ? "bg-brand text-white border-brand" : "border-line text-muted"
+              !statusFilter ? "bg-brand text-brand-teal border-brand" : "border-line text-muted"
             }`}
           >
             Tất cả ({statusFilter ? "…" : counts.all})
@@ -397,7 +397,7 @@ export default function AdminWorkshopPage() {
               onClick={() => setStatusFilter(o.value)}
               className={`px-3 py-1.5 rounded-sm text-sm border ${
                 statusFilter === o.value
-                  ? "bg-brand text-white border-brand"
+                  ? "bg-brand text-brand-teal border-brand"
                   : "border-line text-muted"
               }`}
             >
@@ -418,7 +418,7 @@ export default function AdminWorkshopPage() {
           </div>
         ) : (
           <div className="admin-table-scroll border border-line rounded-md bg-surface">
-            <table className="w-full text-sm">
+              <table className="w-full min-w-[1100px] text-sm">
               <thead className="bg-surface-muted text-left text-muted">
                 <tr>
                   {visibleColumns.name && <th className="px-3 py-2 font-medium">Tên</th>}
@@ -770,7 +770,7 @@ export default function AdminWorkshopPage() {
               <button
                 onClick={save}
                 disabled={saving}
-                className="px-4 py-2 text-sm bg-brand text-white rounded-sm font-medium disabled:opacity-50"
+                className="px-4 py-2 text-sm bg-brand text-brand-teal rounded-sm font-semibold disabled:opacity-50"
               >
                 {saving ? "Đang lưu…" : editingId ? "Lưu thay đổi" : "Tạo workshop"}
               </button>
@@ -824,7 +824,7 @@ export default function AdminWorkshopPage() {
                     href={previewItem.file_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-block px-4 py-2 bg-brand text-white text-sm rounded-sm"
+                    className="inline-block px-4 py-2 bg-brand text-brand-teal text-sm font-semibold rounded-sm"
                   >
                     Mở file
                   </a>

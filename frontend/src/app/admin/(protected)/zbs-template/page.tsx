@@ -250,7 +250,7 @@ export default function ZbsTemplatePage() {
           <h1 className="font-heading mt-1 text-2xl font-bold text-ink">Quản lý mẫu tin ZBS</h1>
           <p className="mt-1 text-sm text-muted">Cấu hình gửi tự động và lưu bản sao danh sách mẫu tin từ Zalo.</p>
         </div>
-        {canManage && <button type="button" onClick={() => void synchronize()} disabled={syncing} className="min-h-10 rounded-md bg-brand px-4 text-sm font-semibold text-white disabled:opacity-50">{syncing ? "Đang đồng bộ..." : "Đồng bộ từ Zalo"}</button>}
+        {canManage && <button type="button" onClick={() => void synchronize()} disabled={syncing} className="min-h-10 rounded-md bg-brand px-4 text-sm font-semibold text-brand-teal disabled:opacity-50">{syncing ? "Đang đồng bộ..." : "Đồng bộ từ Zalo"}</button>}
       </div>
 
       {message && <div className="mb-4 flex items-center justify-between rounded-md border border-success-border bg-success-soft px-4 py-3 text-sm text-success"><span>{message}</span><button onClick={() => setMessage("")} aria-label="Đóng thông báo">×</button></div>}
@@ -292,7 +292,7 @@ export default function ZbsTemplatePage() {
                     {enabledTemplates.map((template) => <option key={template.template_id} value={template.template_id}>{template.template_name} ({template.template_id})</option>)}
                   </select>
                 </label>
-                {canManage && <button type="button" onClick={() => void saveConfig(taskConfig)} disabled={!configDirty || saving || (draft.enabled && (!draft.templateId || selectedStatus !== "ENABLE"))} className="min-h-10 rounded-md bg-brand px-5 text-sm font-semibold text-white disabled:opacity-40">{saving ? "Đang lưu..." : "Lưu cấu hình"}</button>}
+                {canManage && <button type="button" onClick={() => void saveConfig(taskConfig)} disabled={!configDirty || saving || (draft.enabled && (!draft.templateId || selectedStatus !== "ENABLE"))} className="min-h-10 rounded-md bg-brand px-5 text-sm font-semibold text-brand-teal disabled:opacity-40">{saving ? "Đang lưu..." : "Lưu cấu hình"}</button>}
               </div>;
             })}
           </div>

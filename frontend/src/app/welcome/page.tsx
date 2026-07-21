@@ -131,18 +131,18 @@ function WelcomeInner() {
   if (welcome) {
     return (
       <main className="fixed inset-0 flex flex-col items-center justify-center text-center overflow-hidden bg-[#0D3B42]">
-        <div className="px-8 animate-[fadeIn_.6s_ease]">
+        <div className="max-w-[92vw] px-8 animate-[fadeIn_.6s_ease] motion-reduce:animate-none">
           <div className="text-white/80 text-2xl md:text-3xl mb-6 tracking-widest">
             CHÀO MỪNG ANH/CHỊ
           </div>
-          <h1 className="text-white text-6xl md:text-8xl font-bold mb-8 leading-tight">
+          <h1 className="max-w-[90vw] break-words text-white text-[clamp(2.5rem,8vw,6rem)] font-bold mb-8 leading-tight">
             {welcome.name}
           </h1>
           <div className="text-white text-3xl md:text-4xl font-medium mb-4">
             Đến với Workshop
           </div>
-          <div className="text-white/85 text-xl md:text-2xl">
-            Hi Sweetie Việt Nam rất vui được đón tiếp anh/chị
+          <div className="whitespace-pre-line text-white/85 text-xl md:text-2xl">
+            {welcome.message || "Hi Sweetie Việt Nam rất vui được đón tiếp anh/chị"}
           </div>
         </div>
         <style>{`@keyframes fadeIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}`}</style>
@@ -155,7 +155,7 @@ function WelcomeInner() {
     return (
       <main className="fixed inset-0 flex items-center justify-center p-6 bg-[#0D3B42]">
         <div className="bg-white/95 rounded-xl p-8 shadow-xl text-center max-w-md w-full">
-          <div className="text-5xl mb-3">🔍</div>
+          <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-cyan-bg text-brand-teal" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></div>
           <h1 className="text-xl font-bold text-brand-teal mb-2">
             Không tìm thấy trang Welcome
           </h1>
@@ -168,7 +168,7 @@ function WelcomeInner() {
           </p>
           <Link
             href="/"
-            className="inline-block bg-brand text-white px-4 py-2 rounded-md text-sm"
+            className="inline-block bg-brand text-brand-teal px-4 py-2 rounded-md text-sm font-semibold"
           >
             ← Về trang chủ
           </Link>
@@ -533,6 +533,8 @@ function WelcomeInner() {
           display: flex;
           align-items: center;
           justify-content: center;
+          width: 100%;
+          max-width: 100%;
         }
         .welcome-features {
           margin-top: clamp(28px, 4vw, 40px);
@@ -585,7 +587,8 @@ function WelcomeInner() {
         @media (prefers-reduced-motion: reduce) {
           .welcome-backdrop::before,
           .welcome-backdrop::after,
-          .welcome-leaves svg { animation: none !important; }
+          .welcome-leaves svg,
+          .animate-pulse { animation: none !important; }
         }
       `}</style>
     </div>

@@ -15,8 +15,8 @@ const ITEMS = [
 ];
 
 const USER_ITEMS = [
-  { href: "/admin/users", label: "Danh sách người dùng" },
-  { href: "/admin/users/role", label: "Phân quyền vai trò" },
+  { href: "/admin/users", label: "Danh sách người dùng", permission: PERMISSIONS.usersView },
+  { href: "/admin/users/role", label: "Phân quyền vai trò", permission: PERMISSIONS.usersManage },
 ];
 
 export default function AdminNav() {
@@ -42,6 +42,18 @@ export default function AdminNav() {
     return () => document.removeEventListener("pointerdown", close);
   }, []);
 
+  useEffect(() => {
+    if (!menuOpen && !userMenuOpen) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [menuOpen, userMenuOpen]);
+
   if (pathname === "/admin/login") return null;
 
   const isMobileReady = isMobile === true;
@@ -58,6 +70,7 @@ export default function AdminNav() {
           <button
             aria-label={menuOpen ? "Đóng menu" : "Mở menu"}
             aria-expanded={menuOpen}
+            aria-controls="admin-mobile-navigation"
             onClick={() => setMenuOpen((v) => !v)}
             className="p-2 -mr-2 text-brand-teal rounded-md active:bg-surface-muted"
           >
@@ -83,7 +96,7 @@ export default function AdminNav() {
               return (
                 <Link key={it.href} href={it.href}
                   className={`px-4 py-1.5 rounded-sm text-sm font-medium transition ${
-                    active ? "bg-brand text-white" : "text-muted hover:text-brand"
+                    active ? "bg-brand text-brand-teal" : "text-muted hover:text-brand-teal"
                   }`}>
                   {it.label}
                 </Link>
@@ -95,7 +108,7 @@ export default function AdminNav() {
                 aria-expanded={userMenuOpen}
                 onClick={() => setUserMenuOpen((open) => !open)}
                 className={`px-4 py-1.5 rounded-sm text-sm font-medium transition flex items-center gap-1.5 ${
-                  pathname.startsWith("/admin/users") ? "bg-brand text-white" : "text-muted hover:text-brand"
+                  pathname.startsWith("/admin/users") ? "bg-brand text-brand-teal" : "text-muted hover:text-brand-teal"
                 }`}
               >
                 Người dùng
@@ -107,7 +120,7 @@ export default function AdminNav() {
                 <div className="absolute right-0 top-full mt-2 w-52 rounded-md border border-line bg-white p-1.5 shadow-lg">
                   {can(PERMISSIONS.usersView) && (
                     <>
-                     {USER_ITEMS.map((item) => (
+                      {USER_ITEMS.filter((item) => can(item.permission)).map((item) => (
                        <Link
                         key={item.href}
                         href={item.href}
@@ -144,7 +157,7 @@ export default function AdminNav() {
             onClick={() => setMenuOpen(false)}
             aria-hidden
           />
-          <nav className="fixed inset-x-0 top-14 z-20 bg-surface border-b border-line shadow-md">
+          <nav id="admin-mobile-navigation" aria-label="Điều hướng quản trị" className="fixed inset-x-0 top-14 z-20 bg-surface border-b border-line shadow-md">
             <ul className="px-3 py-2 flex flex-col">
               {items.map((it) => {
                 const active = pathname === it.href;
@@ -164,12 +177,12 @@ export default function AdminNav() {
               {can(PERMISSIONS.usersView) && (
                 <li className="border-t border-line mt-1 pt-1">
                   <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Người dùng</div>
-                  {USER_ITEMS.map((item) => (
+                   {USER_ITEMS.filter((item) => can(item.permission)).map((item) => (
                     <Link
                       key={item.href}
                       href={item.href}
                       className={`block px-3 rounded-md text-sm font-medium min-h-[44px] flex items-center ${
-                        pathname === item.href ? "bg-brand text-white" : "text-brand-teal active:bg-surface-muted"
+                        pathname === item.href ? "bg-brand text-brand-teal" : "text-brand-teal active:bg-surface-muted"
                       }`}
                     >
                       {item.label}

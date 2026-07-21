@@ -6,6 +6,7 @@ import {
   getWorkshops,
   type RegistrationForm,
 } from "@/lib/api";
+import { publicUrl as buildPublicUrl } from "@/lib/urls";
 
 interface Workshop {
   id: string;
@@ -29,6 +30,9 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
   const [created, setCreated] = useState<RegistrationForm | null>(null);
   const [copied, setCopied] = useState(false);
   const qrWrapRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const busyRef = useRef(false);
+  busyRef.current = busy;
 
   // Load workshops mỗi khi mở modal
   useEffect(() => {
@@ -46,6 +50,23 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
       .catch(() => setError("Không tải được danh sách workshop"));
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    requestAnimationFrame(() => dialogRef.current?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busyRef.current) onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previous?.focus();
+    };
+  }, [open, onClose]);
+
   // Reset state khi đóng
   useEffect(() => {
     if (open) return;
@@ -60,7 +81,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
   if (!open) return null;
 
   const publicUrl = created
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/register/${created.token}`
+    ? buildPublicUrl(`/register/${created.token}`) || `${window.location.origin}/register/${created.token}`
     : "";
 
   const submit = async () => {
@@ -129,20 +150,25 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
       onClick={() => !busy && onClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-registration-form-title"
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="bg-surface rounded-md border border-line p-5 w-full max-w-lg max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {!created ? (
           <>
-            <h3 className="font-semibold text-brand-teal mb-1">Tạo Form Đăng Ký</h3>
+            <h2 id="create-registration-form-title" className="font-semibold text-brand-teal mb-1">Tạo Form Đăng Ký</h2>
             <p className="text-xs text-muted mb-4">
               Tạo form đăng ký để gửi cho khách. Khách điền form và đăng ký tham gia workshop.
             </p>
 
             {error && (
-              <div className="mb-3 p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
+                <div role="alert" className="mb-3 p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
                 {error}
               </div>
             )}
@@ -201,7 +227,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
               <button
                 onClick={submit}
                 disabled={busy || !selectedWorkshopIds.length}
-                className="bg-brand text-white px-3 py-1.5 rounded-sm text-sm disabled:opacity-50"
+                className="bg-brand text-brand-teal px-3 py-1.5 rounded-sm text-sm font-semibold disabled:opacity-50"
               >
                 {busy ? "Đang tạo..." : "Tạo form"}
               </button>
@@ -209,9 +235,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
           </>
         ) : (
           <>
-            <h3 className="font-semibold text-brand-teal mb-1 flex items-center gap-1.5">
-              <span aria-hidden>✅</span> Đã tạo form thành công
-            </h3>
+            <h2 id="create-registration-form-title" className="font-semibold text-brand-teal mb-1">Đã tạo form thành công</h2>
             <p className="text-xs text-muted mb-4">
               Chia sẻ link hoặc mã QR dưới đây cho khách để họ đăng ký.
             </p>
@@ -260,7 +284,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
                 </a>
                 <button
                   onClick={onClose}
-                  className="bg-brand text-white px-3 py-1.5 rounded-sm text-sm"
+                  className="bg-brand text-brand-teal px-3 py-1.5 rounded-sm text-sm font-semibold"
                 >
                   Đóng
                 </button>

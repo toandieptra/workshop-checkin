@@ -1,11 +1,12 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QrDisplay from "@/components/QrDisplay";
 import { useAdminGuests, type Guest, type NewGuestInput, type ZbsDelivery } from "@/hooks/useAdminGuests";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
 import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
 import GuestQr from "@/components/GuestQr";
 import GuestQrScanner from "@/components/GuestQrScanner";
+import { getClientOrigin, getPublicOrigin } from "@/lib/urls";
 
 // =============================================================================
 // Inline SVG icon set — stroke 1.8-2, kế thừa color qua currentColor.
@@ -231,6 +232,7 @@ export default function MobileAdmin() {
     wid,
     setWid,
     visibleGuests,
+    guests,
     search,
     setSearch,
     statusFilter,
@@ -257,11 +259,16 @@ export default function MobileAdmin() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [checkinGuest, setCheckinGuest] = useState<Guest | null>(null);
+  const [origin, setOrigin] = useState(getPublicOrigin);
 
-  const welcomeUrl =
-    typeof window !== "undefined" && currentWorkshop
-      ? `${window.location.origin}/welcome?w=${currentWorkshop.slug}`
-      : "";
+  useEffect(() => {
+    if (!origin) setOrigin(getClientOrigin());
+  }, [origin]);
+
+  const welcomeUrl = currentWorkshop && origin
+    ? `${origin}/welcome?w=${encodeURIComponent(currentWorkshop.slug)}`
+    : "";
 
   const copyWelcomeLink = async () => {
     if (!welcomeUrl) return;
@@ -274,7 +281,8 @@ export default function MobileAdmin() {
     }
   };
 
-  const notCheckedIn = Math.max(0, totalRegistered - totalCheckedIn);
+  const checkedInRecordCount = guests.filter((guest) => guest.checkin_status === "checked_in").length;
+  const notCheckedInRecordCount = Math.max(0, totalRecords - checkedInRecordCount);
   const { host: welcomeHost, rest: welcomeRest } = splitUrl(welcomeUrl);
   const filterActive = statusFilter !== "all" || search.trim().length > 0;
 
@@ -312,14 +320,19 @@ export default function MobileAdmin() {
           </div>
           {currentWorkshop && (
             <span
-              className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-success shrink-0"
-              aria-label="Workshop đang diễn ra"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-success shrink-0"
+              aria-label="Workshop đang được chọn"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse-live" />
-              Live
+              <span className="w-1.5 h-1.5 rounded-full bg-success" />
+              Đang chọn
             </span>
           )}
         </div>
+        {currentWorkshop && (currentWorkshop.event_date || currentWorkshop.event_time || currentWorkshop.location) && (
+          <p className="px-3 -mt-1 pb-2 text-xs leading-5 text-text-secondary">
+            {[currentWorkshop.event_date, currentWorkshop.event_time, currentWorkshop.location].filter(Boolean).join(" · ")}
+          </p>
+        )}
 
         <div className="grid grid-cols-4 gap-1.5 px-3 pb-3">
           <KpiCard label="Khách ĐK" value={totalRegistered} tone="default" />
@@ -332,12 +345,16 @@ export default function MobileAdmin() {
       {/* ======= 2. Toast — có icon + animation slide-in ======= */}
       {msg && (
         <div
-          role="status"
-          aria-live="polite"
-          className="mx-3 mt-2 flex items-center gap-2 p-2.5 rounded-md text-sm bg-success-soft border border-success-border text-brand-teal animate-toast-in"
+          role={/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "alert" : "status"}
+          aria-live={/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "assertive" : "polite"}
+          className={`mx-3 mt-2 flex items-center gap-2 p-2.5 rounded-md text-sm border animate-toast-in ${
+            /^Lỗi|^Không thể|^Vui lòng/.test(msg)
+              ? "bg-red-50 border-red-200 text-red-700"
+              : "bg-success-soft border-success-border text-brand-teal"
+          }`}
         >
-          <span className="w-5 h-5 rounded-full bg-success text-white inline-flex items-center justify-center shrink-0">
-            <IconCheck className="w-3 h-3" />
+          <span className={`w-5 h-5 rounded-full text-white inline-flex items-center justify-center shrink-0 ${/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "bg-error" : "bg-success"}`}>
+            {/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? <IconClose className="w-3 h-3" /> : <IconCheck className="w-3 h-3" />}
           </span>
           <span className="leading-snug flex-1 min-w-0">{msg}</span>
           <button
@@ -403,7 +420,6 @@ export default function MobileAdmin() {
         <div className="relative">
           <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
           <input
-            autoFocus
             type="search"
             className="w-full pl-9 pr-9 py-2.5 border border-line rounded-md text-sm bg-surface text-brand-teal placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
             placeholder="Tìm tên, SĐT, công ty..."
@@ -422,18 +438,22 @@ export default function MobileAdmin() {
         </div>
 
         <div className="flex gap-2 mt-2">
-          <div className="relative flex-1 min-w-0">
-            <IconChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
-            <select
-              className="w-full appearance-none border border-line rounded-md pl-3 pr-8 py-2.5 text-sm bg-surface text-brand-teal font-semibold focus:border-brand focus:ring-2 focus:ring-brand/20"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-              aria-label="Lọc trạng thái check-in"
-            >
-              <option value="all">Tất cả ({totalRegistered})</option>
-              <option value="not_checked_in">Chưa check-in ({notCheckedIn})</option>
-              <option value="checked_in">Đã check-in ({totalCheckedIn})</option>
-            </select>
+          <div className="grid grid-cols-3 gap-1 flex-1 min-w-0" aria-label="Lọc trạng thái check-in">
+            {([
+              ["all", "Tất cả", totalRecords],
+              ["not_checked_in", "Chưa", notCheckedInRecordCount],
+              ["checked_in", "Đã", checkedInRecordCount],
+            ] as const).map(([value, label, count]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={statusFilter === value}
+                onClick={() => setStatusFilter(value)}
+                className={`min-h-[42px] rounded-md border px-1 text-xs font-semibold ${statusFilter === value ? "border-brand bg-brand text-brand-teal" : "border-line bg-surface text-text-secondary"}`}
+              >
+                {label} <span className="font-mono">{count}</span>
+              </button>
+            ))}
           </div>
           <button
             onClick={() => setShowScanner(true)}
@@ -478,7 +498,7 @@ export default function MobileAdmin() {
             <GuestCard
               key={g.id}
               g={g}
-              onCheckin={() => doCheckin(g)}
+               onCheckin={() => setCheckinGuest(g)}
               onUncheckin={() => doUncheckin(g)}
               onToggleVip={() => toggleVip(g)}
               onCopyPhone={() => g.phone && copyPhone(g.phone)}
@@ -515,6 +535,17 @@ export default function MobileAdmin() {
           onCheckedIn={async (guestName, actualPartySize) => {
             setMsg(`Đã check-in ${guestName} (${actualPartySize} khách)`);
             await reload();
+          }}
+        />
+      )}
+
+      {checkinGuest && (
+        <CheckinSheet
+          guest={checkinGuest}
+          onClose={() => setCheckinGuest(null)}
+          onConfirm={async (actual) => {
+            await doCheckin(checkinGuest, actual);
+            setCheckinGuest(null);
           }}
         />
       )}
@@ -652,8 +683,11 @@ function GuestCard({
   return (
     <div className="relative overflow-hidden rounded-md">
       {/* Lớp dưới: nút Xoá lộ ra khi vuốt trái */}
-      <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL_WIDTH }}>
+      <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL_WIDTH }} aria-hidden={!open}>
         <button
+          type="button"
+          disabled={!open}
+          tabIndex={open ? 0 : -1}
           onClick={() => {
             onDelete();
             setOffset(0);
@@ -715,7 +749,8 @@ function GuestCard({
           title={`${registered} khách đăng ký`}
         >
           {delta && delta > 0 && <IconArrowUp className="w-2.5 h-2.5" />}
-          {delta ?? registered} khách
+          {checked ? (g.actual_party_size ?? registered) : registered} khách
+          {delta ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}
         </span>
       </div>
 
@@ -747,7 +782,7 @@ function GuestCard({
       </div>
 
       {/* Row 3: CTA + VIP toggle */}
-      <div className="mt-3 grid grid-cols-[1fr_40px_76px] gap-2">
+      <div className="mt-3 grid grid-cols-[1fr_40px_76px] gap-2 [@media(pointer:fine)]:grid-cols-[1fr_40px_76px_40px]">
         {checked ? (
           <button
             onClick={guardAction(onUncheckin)}
@@ -762,7 +797,7 @@ function GuestCard({
             className="inline-flex items-center justify-center gap-1.5 h-10 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90"
           >
             <IconCheck className="w-3.5 h-3.5" />
-            Check-in
+            Check-in · {registered} khách
           </button>
         )}
         <button
@@ -783,6 +818,14 @@ function GuestCard({
           workshopId={workshopId}
           workshopName={workshopName}
         />
+        <button
+          type="button"
+          onClick={guardAction(onDelete)}
+          aria-label={`Xóa ${g.full_name}`}
+          className="hidden h-10 items-center justify-center rounded-md border border-red-200 text-red-600 [@media(pointer:fine)]:inline-flex"
+        >
+          <IconTrash className="h-4 w-4" />
+        </button>
       </div>
       </div>
     </div>
@@ -824,6 +867,55 @@ function EmptyStateAddCustomer({
         <IconPlus className="w-3.5 h-3.5" />
         Thêm khách
       </button>
+    </div>
+  );
+}
+
+function CheckinSheet({
+  guest,
+  onClose,
+  onConfirm,
+}: {
+  guest: Guest;
+  onClose: () => void;
+  onConfirm: (actual: number) => void | Promise<void>;
+}) {
+  const [actual, setActual] = useState(Math.max(1, guest.party_size || 1));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true" aria-labelledby="checkin-sheet-title">
+      <button type="button" className="absolute inset-0 bg-black/60" onClick={onClose} aria-label="Đóng xác nhận check-in" />
+      <div className="relative w-full max-w-md rounded-t-2xl bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-xl animate-sheet-up">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Xác nhận check-in</p>
+            <h2 id="checkin-sheet-title" className="mt-1 font-heading text-xl font-bold text-brand-teal">{guest.full_name}</h2>
+            <p className="mt-1 text-sm text-text-secondary">Đã đăng ký {Math.max(1, guest.party_size || 1)} khách</p>
+          </div>
+          <button type="button" onClick={onClose} disabled={busy} className="grid h-11 w-11 place-items-center rounded-md border border-line text-brand-teal" aria-label="Đóng">
+            <IconClose className="h-4 w-4" />
+          </button>
+        </div>
+        <label htmlFor="checkin-actual" className="mt-5 block text-sm font-semibold text-brand-teal">Số người tham gia thực tế</label>
+        <div className="mt-2 grid h-12 grid-cols-[48px_1fr_48px] overflow-hidden rounded-md border border-line">
+          <button type="button" onClick={() => setActual((value) => Math.max(1, value - 1))} disabled={actual <= 1 || busy} className="grid place-items-center text-brand-teal disabled:opacity-40" aria-label="Giảm số khách"><IconMinus className="h-4 w-4" /></button>
+          <input id="checkin-actual" type="number" min={1} value={actual} onChange={(event) => setActual(Math.max(1, parseInt(event.target.value, 10) || 1))} className="border-x border-line bg-white text-center font-mono text-lg text-brand-teal focus:outline-none" />
+          <button type="button" onClick={() => setActual((value) => value + 1)} disabled={busy} className="grid place-items-center text-brand-teal disabled:opacity-40" aria-label="Tăng số khách"><IconPlus className="h-4 w-4" /></button>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} disabled={busy} className="h-12 rounded-md border border-line font-semibold text-brand-teal">Hủy</button>
+          <button type="button" disabled={busy} onClick={async () => { setBusy(true); await onConfirm(actual); }} className="h-12 rounded-md bg-brand font-bold text-brand-teal disabled:opacity-50">{busy ? "Đang check-in..." : `Check-in · ${actual} khách`}</button>
+        </div>
+      </div>
     </div>
   );
 }

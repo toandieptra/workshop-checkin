@@ -35,6 +35,14 @@ export default function GuestQrScanner({
   const [message, setMessage] = useState("Đưa mã QR khách mời vào khung hình");
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose]);
+
   const stopScanner = async () => {
     const scanner = scannerRef.current;
     scannerRef.current = null;
@@ -140,7 +148,7 @@ export default function GuestQrScanner({
             <h2 className="font-heading font-bold text-brand-teal">Quét QR check-in</h2>
             <p className="text-[11px] text-muted">{message}</p>
           </div>
-          <button type="button" onClick={onClose} className="w-9 h-9 rounded-md border border-line text-brand-teal" aria-label="Đóng">×</button>
+          <button type="button" onClick={onClose} className="w-11 h-11 rounded-md border border-line text-brand-teal" aria-label="Đóng">×</button>
         </div>
 
         {step === "camera" && (

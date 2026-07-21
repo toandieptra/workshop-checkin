@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "react-qr-code";
 
 interface GuestQrProps {
@@ -34,6 +34,15 @@ export default function GuestQr({
   const [open, setOpen] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
   const payload = buildGuestQrPayload(workshopId, guestId);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   const downloadQr = () => {
     const svg = qrRef.current?.querySelector("svg");

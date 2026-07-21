@@ -3,7 +3,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -74,16 +74,68 @@ async def enqueue_checkin(db: AsyncSession, guest: Guest) -> None:
     await _enqueue_task(db, guest, CHECKIN_TASK_KEY)
 
 
+async def enqueue_manual(db: AsyncSession, guest: Guest, task_key: str) -> ZbsDelivery:
+    if task_key not in {REGISTRATION_TASK_KEY, CHECKIN_TASK_KEY}:
+        raise ValueError("Tác vụ ZBS không tồn tại")
+    config = await db.get(ZbsTaskConfig, task_key)
+    if not config or not config.template_id:
+        raise ValueError("Tác vụ chưa được gắn mẫu tin ZBS")
+    template = await db.get(ZbsTemplate, config.template_id)
+    if not template or template.status != "ENABLE":
+        raise ValueError("Mẫu tin ZBS chưa được kích hoạt")
+    if task_key == CHECKIN_TASK_KEY and guest.checkin_status != "checked_in":
+        raise ValueError("Khách chưa Check-in")
+
+    existing = (await db.execute(select(ZbsDelivery).where(
+        ZbsDelivery.guest_id == guest.id,
+        ZbsDelivery.event_type == task_key,
+    ).order_by(ZbsDelivery.created_at.desc()))).scalars().first()
+    if existing:
+        if existing.status != "failed":
+            raise ValueError("Tin ZBS đã được xếp hàng hoặc đã gửi")
+        workshop = await db.get(Workshop, guest.workshop_id)
+        if not workshop:
+            raise ValueError("Không tìm thấy Workshop")
+        phone = normalize_phone(guest.phone)
+        template_data = _template_data(guest, workshop, phone)
+        if task_key == CHECKIN_TASK_KEY:
+            template_data = {
+                "customer_name": template_data["customer_name"],
+                "workshop": template_data["workshop"],
+            }
+        now = datetime.now(timezone.utc)
+        existing.status = "pending"
+        existing.phone = phone or None
+        existing.next_attempt_at = now
+        existing.last_error = None
+        existing.payload = {
+            **existing.payload,
+            "template_data": template_data,
+            "event_at": now.isoformat(),
+            "manual": True,
+        }
+        existing.template_id = config.template_id
+        existing.updated_at = now
+        return existing
+
+    delivery = await _enqueue_task(db, guest, task_key, force=True, manual=True)
+    if delivery is None:
+        raise ValueError("Không thể tạo tin ZBS thủ công")
+    return delivery
+
+
 async def _enqueue_task(
     db: AsyncSession,
     guest: Guest,
     task_key: str,
     old_phone: str | None = None,
-) -> None:
+    force: bool = False,
+    manual: bool = False,
+) -> ZbsDelivery | None:
     task_config = await db.get(ZbsTaskConfig, task_key)
-    if task_key == CHECKIN_TASK_KEY and task_config is None:
+    if not force and task_key == CHECKIN_TASK_KEY and task_config is None:
         return
-    if task_config and not task_config.enabled:
+    if not force and task_config and not task_config.enabled:
         return
     default_template_id = CHECKIN_TEMPLATE_ID if task_key == CHECKIN_TASK_KEY else settings.ZBS_REGISTRATION_TEMPLATE_ID
     template_id = task_config.template_id if task_config else default_template_id
@@ -116,7 +168,7 @@ async def _enqueue_task(
     if not workshop:
         return
     registered_at = _registered_at(guest)
-    event_at = guest.checked_in_at if task_key == CHECKIN_TASK_KEY else registered_at
+    event_at = datetime.now(timezone.utc) if manual else guest.checked_in_at if task_key == CHECKIN_TASK_KEY else registered_at
     event_at = event_at or datetime.now(timezone.utc)
     event_at = event_at if event_at.tzinfo else event_at.replace(tzinfo=timezone.utc)
     template_data = _template_data(guest, workshop, phone)
@@ -125,7 +177,7 @@ async def _enqueue_task(
             "customer_name": template_data["customer_name"],
             "workshop": template_data["workshop"],
         }
-    db.add(ZbsDelivery(
+    delivery = ZbsDelivery(
         guest_id=guest.id, workshop_id=guest.workshop_id,
         event_type=task_key, event_key=event_key,
         phone=phone or None, template_id=template_id,
@@ -133,9 +185,12 @@ async def _enqueue_task(
             "template_data": template_data,
             "registered_at": registered_at.isoformat(),
             "event_at": event_at.isoformat(),
+            "manual": manual,
         },
         status="expired" if datetime.now(timezone.utc) > event_at + timedelta(days=7) else "pending",
-    ))
+    )
+    db.add(delivery)
+    return delivery
 
 
 def _retryable(status: int, error: int | None) -> bool:
@@ -209,18 +264,22 @@ async def process_once(db: AsyncSession) -> None:
         select(ZbsTaskConfig.task_key).where(ZbsTaskConfig.enabled.is_(True))
     )).scalars().all()
     task_keys = list(enabled_tasks)
-    if not task_keys:
-        return
     now = datetime.now(timezone.utc)
     stale_before = now - timedelta(minutes=10)
     await db.execute(update(ZbsDelivery).where(
-        ZbsDelivery.event_type.in_(task_keys),
+        or_(
+            ZbsDelivery.event_type.in_(task_keys),
+            ZbsDelivery.payload.contains({"manual": True}),
+        ),
         ZbsDelivery.status == "sending",
         ZbsDelivery.sending_started_at < stale_before,
     ).values(status="pending", next_attempt_at=now, updated_at=now))
     await db.commit()
     delivery = await db.scalar(select(ZbsDelivery).where(
-        ZbsDelivery.event_type.in_(task_keys),
+        or_(
+            ZbsDelivery.event_type.in_(task_keys),
+            ZbsDelivery.payload.contains({"manual": True}),
+        ),
         ZbsDelivery.status.in_(["pending", "failed"]),
         ZbsDelivery.next_attempt_at <= now,
     ).order_by(ZbsDelivery.created_at).with_for_update(skip_locked=True).limit(1))

@@ -40,7 +40,7 @@ function AdminLoginForm() {
         type="button"
         onClick={login}
         disabled={submitting || status === "loading"}
-        className="w-full bg-brand text-white px-3 py-2 rounded-sm text-sm font-medium disabled:opacity-60"
+        className="w-full bg-brand text-brand-teal px-3 py-2 rounded-sm text-sm font-semibold disabled:opacity-60"
       >
         {submitting ? "Đang chuyển đến Lark…" : "Đăng nhập bằng Lark"}
       </button>

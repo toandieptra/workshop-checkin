@@ -192,7 +192,7 @@ export default function UsersPage() {
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
       <div><h1 className="text-2xl font-bold text-brand-teal">Người dùng &amp; phân quyền</h1><p className="text-sm text-muted">Chỉ tài khoản được tạo trước và đang active mới có thể đăng nhập bằng Lark.</p></div>
       <div className="flex gap-2">
-        <button disabled={syncing} onClick={() => void syncDirectory()} className="bg-brand text-white px-3 py-2 rounded-sm text-sm disabled:opacity-60">{syncing ? "Đang đồng bộ…" : "Đồng bộ danh bạ Lark"}</button>
+        <button disabled={syncing} onClick={() => void syncDirectory()} className="bg-brand text-brand-teal px-3 py-2 rounded-sm text-sm font-semibold disabled:opacity-60">{syncing ? "Đang đồng bộ…" : "Đồng bộ danh bạ Lark"}</button>
         <button onClick={() => void load()} className="border border-line px-3 py-2 rounded-sm text-sm">Làm mới</button>
       </div>
     </div>
@@ -208,7 +208,7 @@ export default function UsersPage() {
       <select value={role} onChange={(e) => setRole(e.target.value)} className="border border-line rounded-sm px-3 py-2 text-sm" aria-label="Vai trò cho người dùng mới">
         {roles.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
       </select>
-      <button disabled={saving === "new"} className="bg-brand text-white px-4 py-2 rounded-sm text-sm disabled:opacity-60">{saving === "new" ? "Đang tạo…" : "Cấp tài khoản"}</button>
+      <button disabled={saving === "new"} className="bg-brand text-brand-teal px-4 py-2 rounded-sm text-sm font-semibold disabled:opacity-60">{saving === "new" ? "Đang tạo…" : "Cấp tài khoản"}</button>
     </form>
     {message && <div className="mb-3 p-3 bg-red-50 text-red-700 rounded-sm text-sm">{message}</div>}
     <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-2">
@@ -234,7 +234,7 @@ export default function UsersPage() {
           className="w-full sm:w-auto border border-line bg-surface px-3 py-2 rounded-sm text-sm inline-flex items-center justify-center gap-2 hover:bg-surface-muted"
         >
           <span>Trạng thái Lark</span>
-          {larkStatusFilter.length > 0 && <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-brand text-white text-xs">{larkStatusFilter.length}</span>}
+          {larkStatusFilter.length > 0 && <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-brand text-brand-teal text-xs font-semibold">{larkStatusFilter.length}</span>}
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="m6 9 6 6 6-6" /></svg>
         </button>
         {showLarkFilterMenu && <div className="absolute right-0 z-20 mt-1 w-56 rounded-md border border-line bg-surface p-2 shadow-lg">
@@ -254,7 +254,7 @@ export default function UsersPage() {
           className="w-full sm:w-auto border border-line bg-surface px-3 py-2 rounded-sm text-sm inline-flex items-center justify-center gap-2 hover:bg-surface-muted"
         >
           <span>Trạng thái ứng dụng</span>
-          {applicationStatusFilter.length > 0 && <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-brand text-white text-xs">{applicationStatusFilter.length}</span>}
+          {applicationStatusFilter.length > 0 && <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-brand text-brand-teal text-xs font-semibold">{applicationStatusFilter.length}</span>}
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="m6 9 6 6 6-6" /></svg>
         </button>
         {showApplicationFilterMenu && <div className="absolute right-0 z-20 mt-1 w-56 rounded-md border border-line bg-surface p-2 shadow-lg">
