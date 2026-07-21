@@ -2,15 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  getZbsOAuthStatus,
   getZbsTemplate,
   listZbsTaskConfigs,
   listZbsTemplates,
+  refreshZbsOAuth,
   syncZbsTemplates,
+  testZbsOAuth,
   updateZbsTaskConfig,
 } from "@/lib/api";
 import { PERMISSIONS } from "@/lib/permissions";
 import { useAuth } from "@/contexts/AuthContext";
 import type {
+  ZbsOAuthStatusResponse,
   ZbsTaskConfig,
   ZbsTemplateDetail,
   ZbsTemplateListItem,
@@ -56,6 +60,14 @@ const TAG_LABELS: Record<string, string> = {
   IN_TRANSACTION: "Giao dịch",
   CUSTOMER_CARE: "Chăm sóc khách hàng",
   PROMOTION: "Khuyến mãi",
+};
+
+const OAUTH_STATUS_META = {
+  connected: { label: "Đã kết nối", className: "bg-green-50 text-green-700" },
+  expiring: { label: "Sắp hết hạn", className: "bg-amber-50 text-amber-700" },
+  refresh_failed: { label: "Làm mới thất bại", className: "bg-amber-50 text-amber-700" },
+  reauthorization_required: { label: "Cần kết nối lại", className: "bg-red-50 text-red-700" },
+  not_configured: { label: "Chưa cấu hình", className: "bg-gray-100 text-gray-600" },
 };
 
 function errorMessage(error: unknown): string {
@@ -163,21 +175,25 @@ export default function ZbsTemplatePage() {
   const [detail, setDetail] = useState<ZbsTemplateDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [oauth, setOauth] = useState<ZbsOAuthStatusResponse | null>(null);
+  const [oauthAction, setOauthAction] = useState<"test" | "refresh" | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [list, enabled, configs] = await Promise.all([
+      const [list, enabled, configs, oauthStatus] = await Promise.all([
         listZbsTemplates({ offset: (page - 1) * PAGE_SIZE, limit: PAGE_SIZE, status, search }),
         listAllEnabledTemplates(),
         listZbsTaskConfigs(),
+        getZbsOAuthStatus(),
       ]);
       setTemplates(list.data);
       setTotal(list.metadata.total);
       setLastSyncedAt(list.metadata.last_synced_at);
       setEnabledTemplates(enabled);
       setTaskConfigs(configs);
+      setOauth(oauthStatus);
       setTaskDrafts(Object.fromEntries(configs.map((config) => [config.task_key, {
         enabled: config.enabled,
         templateId: config.template_id || "",
@@ -204,6 +220,22 @@ export default function ZbsTemplatePage() {
       setError("Đồng bộ thất bại: " + errorMessage(syncError));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const runOauthAction = async (action: "test" | "refresh") => {
+    setOauthAction(action);
+    setMessage("");
+    setError("");
+    try {
+      const status = action === "test" ? await testZbsOAuth() : await refreshZbsOAuth();
+      setOauth(status);
+      setMessage(action === "test" ? "Kết nối Zalo OA đang hoạt động." : "Đã làm mới Access Token Zalo OA.");
+    } catch (oauthError) {
+      setError(`${action === "test" ? "Kiểm tra kết nối" : "Làm mới token"} thất bại: ${errorMessage(oauthError)}`);
+      try { setOauth(await getZbsOAuthStatus()); } catch { /* Giữ trạng thái gần nhất. */ }
+    } finally {
+      setOauthAction(null);
     }
   };
 
@@ -255,6 +287,35 @@ export default function ZbsTemplatePage() {
 
       {message && <div className="mb-4 flex items-center justify-between rounded-md border border-success-border bg-success-soft px-4 py-3 text-sm text-success"><span>{message}</span><button onClick={() => setMessage("")} aria-label="Đóng thông báo">×</button></div>}
       {error && <div className="mb-4 flex items-center justify-between rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-error"><span>{error}</span><button onClick={() => setError("")} aria-label="Đóng lỗi">×</button></div>}
+
+      {oauth && ["reauthorization_required", "not_configured"].includes(oauth.status) && (
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <strong>Kết nối Zalo OA cần xử lý.</strong> Hệ thống không thể tự làm mới token; việc gửi ZBS và đồng bộ template có thể bị gián đoạn.
+        </div>
+      )}
+
+      <section className="mb-5 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="font-heading text-lg font-bold text-ink">Kết nối Zalo OA</h2>
+              {oauth && <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${OAUTH_STATUS_META[oauth.status].className}`}>{OAUTH_STATUS_META[oauth.status].label}</span>}
+            </div>
+            <p className="mt-1 text-sm text-muted">Access Token và Refresh Token được xoay vòng và lưu an toàn trong hệ thống.</p>
+          </div>
+          {canManage && <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void runOauthAction("test")} disabled={!!oauthAction} className="min-h-10 rounded-md border border-brand px-4 text-sm font-semibold text-brand-teal disabled:opacity-50">{oauthAction === "test" ? "Đang kiểm tra..." : "Kiểm tra kết nối"}</button>
+            <button type="button" onClick={() => void runOauthAction("refresh")} disabled={!!oauthAction || oauth?.status === "not_configured"} className="min-h-10 rounded-md bg-brand px-4 text-sm font-semibold text-brand-teal disabled:opacity-50">{oauthAction === "refresh" ? "Đang làm mới..." : "Làm mới Access Token"}</button>
+            {oauth && ["reauthorization_required", "not_configured"].includes(oauth.status) && <a href="https://developers.zalo.me/apps" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center rounded-md border border-red-300 px-4 text-sm font-semibold text-red-700">Kết nối lại Zalo OA</a>}
+          </div>}
+        </div>
+        {oauth ? <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-md bg-surface-muted p-3"><div className="text-xs font-semibold uppercase tracking-wide text-muted">Access Token có hiệu lực đến</div><div className="mt-1 font-medium text-ink">{formatDateTime(oauth.access_token_expires_at)}</div></div>
+          <div className="rounded-md bg-surface-muted p-3"><div className="text-xs font-semibold uppercase tracking-wide text-muted">Làm mới gần nhất</div><div className="mt-1 font-medium text-ink">{formatDateTime(oauth.last_refreshed_at)}</div></div>
+          <div className="rounded-md bg-surface-muted p-3"><div className="text-xs font-semibold uppercase tracking-wide text-muted">Refresh Token</div><div className="mt-1 font-medium text-ink">{oauth.configured ? "Đã cấu hình" : "Chưa cấu hình"}</div></div>
+        </div> : <div className="mt-5 h-20 animate-pulse rounded-md bg-surface-muted" />}
+        {oauth?.last_refresh_error && <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><strong>Lỗi làm mới gần nhất:</strong> {oauth.last_refresh_error}</div>}
+      </section>
 
       <section className="mb-5 rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">

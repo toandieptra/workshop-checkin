@@ -7,6 +7,7 @@ import httpx
 from app.models import ZbsOAuthCredential
 from app.services.zbs_auth import (
     _access_token_valid,
+    _requires_reauthorization,
     is_token_error,
     refresh_access_token,
     request_with_token,
@@ -36,6 +37,12 @@ def test_access_token_valid_uses_expiry_buffer():
 def test_detects_zalo_token_error_inside_successful_http_response():
     assert is_token_error(_response({"error": -124, "message": "Access token invalid"}))
     assert not is_token_error(_response({"error": 0, "data": {}}))
+
+
+def test_only_refresh_token_errors_require_reauthorization():
+    assert _requires_reauthorization("Refresh token invalid")
+    assert _requires_reauthorization("Refresh Token đã hết hạn")
+    assert not _requires_reauthorization("Zalo OAuth request timeout")
 
 
 def test_token_error_refreshes_and_retries_once():

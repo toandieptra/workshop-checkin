@@ -16,7 +16,7 @@ from ..services.zbs import (
     REGISTRATION_TASK_KEY,
     TASK_DEFINITIONS,
 )
-from ..services.zbs_auth import ZbsAuthError
+from ..services.zbs_auth import ZbsAuthError, oauth_status, refresh_access_token, test_connection
 
 router = APIRouter(prefix="/api", tags=["zbs"])
 
@@ -218,6 +218,30 @@ async def sync_zbs_templates(db: AsyncSession = Depends(get_db)):
         await db.rollback()
         raise HTTPException(502, f"Không thể đồng bộ template từ Zalo: {exc}") from exc
     return {**result, "message": f"Đã đồng bộ {result['synced']} template từ Zalo"}
+
+
+@router.get("/zbs/oauth/status", dependencies=[Depends(require_permission("zbs.read"))])
+async def zbs_oauth_status(db: AsyncSession = Depends(get_db)):
+    return await oauth_status(db)
+
+
+@router.post("/zbs/oauth/refresh", dependencies=[Depends(require_permission("zbs.manage"))])
+async def zbs_oauth_refresh(db: AsyncSession = Depends(get_db)):
+    try:
+        await refresh_access_token(db, force=True)
+    except ZbsAuthError as exc:
+        await db.rollback()
+        raise HTTPException(503, str(exc)) from exc
+    return await oauth_status(db)
+
+
+@router.post("/zbs/oauth/test", dependencies=[Depends(require_permission("zbs.manage"))])
+async def zbs_oauth_test(db: AsyncSession = Depends(get_db)):
+    try:
+        return await test_connection(db)
+    except ZbsAuthError as exc:
+        await db.rollback()
+        raise HTTPException(503, str(exc)) from exc
 
 
 @router.get("/zbs/templates/{template_id}", dependencies=[Depends(require_permission("zbs.read"))])

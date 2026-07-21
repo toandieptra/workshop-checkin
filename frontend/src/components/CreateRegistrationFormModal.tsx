@@ -148,7 +148,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
       onClick={() => !busy && onClose()}
       role="dialog"
       aria-modal="true"
@@ -157,77 +157,78 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="bg-surface rounded-md border border-line p-5 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-line bg-surface pb-[env(safe-area-inset-bottom)] shadow-xl sm:max-h-[90vh] sm:rounded-md sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
         {!created ? (
           <>
-            <h2 id="create-registration-form-title" className="font-semibold text-brand-teal mb-1">Tạo Form Đăng Ký</h2>
-            <p className="text-xs text-muted mb-4">
-              Tạo form đăng ký để gửi cho khách. Khách điền form và đăng ký tham gia workshop.
-            </p>
-
-            {error && (
-                <div role="alert" className="mb-3 p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
-                {error}
+            <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+              <div>
+                <h2 id="create-registration-form-title" className="font-semibold text-brand-teal">Tạo Form Đăng Ký</h2>
+                <p className="mt-1 text-xs text-muted">Tạo form để khách đăng ký tham gia workshop.</p>
               </div>
-            )}
-
-            <div className="block mb-3">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="block text-muted text-xs">Workshop * (có thể chọn nhiều)</span>
-                <span className="text-xs text-brand-teal font-medium">Đã chọn {selectedWorkshopIds.length}</span>
-              </div>
-              <div className="border border-line rounded-sm max-h-72 overflow-y-auto bg-white">
-                {workshops.length === 0 && (
-                  <div className="px-3 py-3 text-sm text-muted">— Chưa có workshop —</div>
-                )}
-                {workshops.map((w) => {
-                  const checked = selectedWorkshopIds.includes(w.id);
-                  return (
-                    <label
-                      key={w.id}
-                      className={`flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-b border-line last:border-b-0 ${checked ? "bg-brand/10" : "hover:bg-brand/5"}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleWorkshop(w.id)}
-                        className="mt-0.5"
-                      />
-                      <span className="font-medium text-ink">{w.name}</span>
-                    </label>
-                  );
-                })}
-              </div>
-              {!selectedWorkshopIds.length && (
-                <div className="text-red-600 text-xs mt-1">Vui lòng chọn ít nhất 1 workshop.</div>
-              )}
+              <button type="button" onClick={onClose} disabled={busy} aria-label="Đóng" className="min-h-11 min-w-11 text-xl leading-none text-muted disabled:opacity-50">×</button>
             </div>
 
-            <label className="block mb-4">
-              <span className="block text-muted text-xs mb-1">Lời chào (không bắt buộc)</span>
-              <textarea
-                className="border border-line rounded-sm px-3 py-2 w-full resize-none"
-                rows={3}
-                placeholder="VD: Chào anh/chị, mời đăng ký tham gia workshop của chúng tôi."
-                value={greeting}
-                onChange={(e) => setGreeting(e.target.value)}
-              />
-            </label>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+              {error && <div role="alert" className="mb-3 p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-            <div className="flex justify-end gap-2">
+              <div className="block mb-3">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="block text-muted text-xs">Workshop * (có thể chọn nhiều)</span>
+                  <span className="text-xs text-brand-teal font-medium">Đã chọn {selectedWorkshopIds.length}</span>
+                </div>
+                <div className="border border-line rounded-sm max-h-72 overflow-y-auto bg-white">
+                  {workshops.length === 0 && (
+                    <div className="px-3 py-3 text-sm text-muted">— Chưa có workshop —</div>
+                  )}
+                  {workshops.map((w) => {
+                    const checked = selectedWorkshopIds.includes(w.id);
+                    return (
+                      <label
+                        key={w.id}
+                        className={`flex min-h-11 items-start gap-3 px-3 py-2.5 text-sm cursor-pointer border-b border-line last:border-b-0 ${checked ? "bg-brand/10" : "hover:bg-brand/5"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleWorkshop(w.id)}
+                          className="mt-0.5 h-5 w-5 shrink-0 accent-brand"
+                        />
+                        <span className="font-medium text-ink">{w.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {!selectedWorkshopIds.length && (
+                  <div className="text-red-600 text-xs mt-1">Vui lòng chọn ít nhất 1 workshop.</div>
+                )}
+              </div>
+
+              <label className="block">
+                <span className="block text-muted text-xs mb-1">Lời chào (không bắt buộc)</span>
+                <textarea
+                  className="border border-line rounded-sm px-3 py-2 w-full resize-none"
+                  rows={3}
+                  placeholder="VD: Chào anh/chị, mời đăng ký tham gia workshop của chúng tôi."
+                  value={greeting}
+                  onChange={(e) => setGreeting(e.target.value)}
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 border-t border-line bg-surface px-4 py-3 sm:flex sm:justify-end sm:px-5">
               <button
                 onClick={onClose}
                 disabled={busy}
-                className="border border-line px-3 py-1.5 rounded-sm text-sm disabled:opacity-50"
+                className="min-h-11 border border-line px-3 py-1.5 rounded-md text-sm disabled:opacity-50 sm:rounded-sm"
               >
                 Hủy
               </button>
               <button
                 onClick={submit}
                 disabled={busy || !selectedWorkshopIds.length}
-                className="bg-brand text-brand-teal px-3 py-1.5 rounded-sm text-sm font-semibold disabled:opacity-50"
+                className="min-h-11 bg-brand text-brand-teal px-3 py-1.5 rounded-md text-sm font-semibold disabled:opacity-50 sm:rounded-sm"
               >
                 {busy ? "Đang tạo..." : "Tạo form"}
               </button>
@@ -235,12 +236,12 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
           </>
         ) : (
           <>
-            <h2 id="create-registration-form-title" className="font-semibold text-brand-teal mb-1">Đã tạo form thành công</h2>
-            <p className="text-xs text-muted mb-4">
-              Chia sẻ link hoặc mã QR dưới đây cho khách để họ đăng ký.
-            </p>
+            <div className="border-b border-line px-4 py-3 sm:px-5">
+              <h2 id="create-registration-form-title" className="font-semibold text-brand-teal">Đã tạo form thành công</h2>
+              <p className="mt-1 text-xs text-muted">Chia sẻ link hoặc mã QR dưới đây cho khách để họ đăng ký.</p>
+            </div>
 
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto px-4 py-4 sm:px-5">
               <div
                 ref={qrWrapRef}
                 className="bg-white p-3 rounded-lg border border-line"
@@ -264,13 +265,13 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
               <div className="w-full grid grid-cols-2 gap-2">
                 <button
                   onClick={copyLink}
-                  className="border border-line text-brand-teal px-3 py-1.5 rounded-sm text-sm hover:bg-brand/5"
+                  className="min-h-11 border border-line text-brand-teal px-3 py-1.5 rounded-md text-sm hover:bg-brand/5 sm:rounded-sm"
                 >
                   {copied ? "Đã sao chép ✓" : "Sao chép link"}
                 </button>
                 <button
                   onClick={downloadQr}
-                  className="border border-brand text-brand px-3 py-1.5 rounded-sm text-sm hover:bg-brand/5"
+                  className="min-h-11 border border-brand text-brand px-3 py-1.5 rounded-md text-sm hover:bg-brand/5 sm:rounded-sm"
                 >
                   Tải xuống QR
                 </button>
@@ -278,13 +279,13 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
                   href={publicUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="border border-line text-brand-teal px-3 py-1.5 rounded-sm text-sm hover:bg-brand/5 text-center"
+                  className="inline-flex min-h-11 items-center justify-center border border-line text-brand-teal px-3 py-1.5 rounded-md text-sm hover:bg-brand/5 text-center sm:rounded-sm"
                 >
                   Mở form →
                 </a>
                 <button
                   onClick={onClose}
-                  className="bg-brand text-brand-teal px-3 py-1.5 rounded-sm text-sm font-semibold"
+                  className="min-h-11 bg-brand text-brand-teal px-3 py-1.5 rounded-md text-sm font-semibold sm:rounded-sm"
                 >
                   Đóng
                 </button>

@@ -155,9 +155,9 @@ export default function AdminFormsPage() {
   const submissionCount = forms.reduce((sum, f) => sum + (f.submission_count || 0), 0);
 
   return (
-    <div className="p-6">
+    <div className="px-3 py-3 pb-20 sm:p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
             <h1 className="text-2xl font-bold text-brand-teal">Form đăng ký</h1>
             <p className="text-sm text-muted mt-1">
@@ -166,31 +166,35 @@ export default function AdminFormsPage() {
           </div>
           <button
             onClick={() => setModalOpen(true)}
-            className="bg-brand text-brand-teal px-4 py-2 rounded-sm text-sm font-semibold whitespace-nowrap"
+            className="min-h-11 w-full bg-brand text-brand-teal px-4 py-2 rounded-md text-sm font-semibold whitespace-nowrap sm:w-auto sm:rounded-sm"
           >
             + Tạo Form Đăng Ký
           </button>
         </div>
 
         {msg && (
-          <div className="mb-3 p-2 bg-brand/10 text-brand-teal rounded-sm text-sm flex items-center justify-between">
-            <span>{msg}</span>
-            <button onClick={() => setMsg("")} className="text-muted text-lg leading-none">×</button>
+          <div
+            role={/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "alert" : "status"}
+            aria-live={/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "assertive" : "polite"}
+            className={`mb-3 flex items-center gap-2 rounded-md border p-2.5 text-sm animate-toast-in ${/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "border-red-200 bg-red-50 text-red-700" : "border-success-border bg-success-soft text-brand-teal"}`}
+          >
+            <span className="flex-1">{msg}</span>
+            <button onClick={() => setMsg("")} aria-label="Đóng thông báo" className="min-h-11 min-w-11 text-muted text-lg leading-none">×</button>
           </div>
         )}
 
-        <div className="grid sm:grid-cols-3 gap-4 mb-4">
-          <div className="bg-surface rounded-md border border-line p-4">
-            <div className="text-sm text-muted">Tổng form</div>
-            <div className="text-2xl font-bold text-brand-teal mt-1">{forms.length}</div>
+        <div className="grid grid-cols-3 gap-1.5 mb-4 sm:gap-4">
+          <div className="flex min-h-[72px] flex-col justify-center rounded-md border border-line bg-surface-muted px-2 py-2 text-center sm:block sm:bg-surface sm:p-4 sm:text-left">
+            <div className="text-[10px] leading-tight text-muted sm:text-sm">Tổng form</div>
+            <div className="mt-0.5 font-heading text-lg font-bold text-brand-teal sm:mt-1 sm:text-2xl">{forms.length}</div>
           </div>
-          <div className="bg-surface rounded-md border border-line p-4">
-            <div className="text-sm text-muted">Form đang bật</div>
-            <div className="text-2xl font-bold text-green-700 mt-1">{activeCount}</div>
+          <div className="flex min-h-[72px] flex-col justify-center rounded-md border border-success-border bg-success-soft px-2 py-2 text-center sm:block sm:p-4 sm:text-left">
+            <div className="text-[10px] leading-tight text-success sm:text-sm">Form đang bật</div>
+            <div className="mt-0.5 font-heading text-lg font-bold text-success sm:mt-1 sm:text-2xl">{activeCount}</div>
           </div>
-          <div className="bg-surface rounded-md border border-line p-4">
-            <div className="text-sm text-muted">Tổng lượt submit</div>
-            <div className="text-2xl font-bold text-ink mt-1">{submissionCount}</div>
+          <div className="flex min-h-[72px] flex-col justify-center rounded-md border border-line bg-surface-muted px-2 py-2 text-center sm:block sm:bg-surface sm:p-4 sm:text-left">
+            <div className="text-[10px] leading-tight text-muted sm:text-sm">Tổng lượt submit</div>
+            <div className="mt-0.5 font-heading text-lg font-bold text-ink sm:mt-1 sm:text-2xl">{submissionCount}</div>
           </div>
         </div>
 
@@ -198,12 +202,50 @@ export default function AdminFormsPage() {
           <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-2 flex-wrap">
             <h2 className="font-semibold text-brand-teal">Danh sách form</h2>
             <div className="flex items-center gap-2">
-              <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
-              <button onClick={load} disabled={loading} className="border border-line px-3 py-2 rounded-sm text-sm disabled:opacity-50">{loading ? "Đang tải..." : "Tải lại"}</button>
+              <div className="hidden md:block"><ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} /></div>
+              <button onClick={load} disabled={loading} className="min-h-11 border border-line px-3 py-2 rounded-md text-sm disabled:opacity-50 sm:min-h-0 sm:rounded-sm">{loading ? "Đang tải..." : "Tải lại"}</button>
             </div>
           </div>
 
-          <div className="admin-table-scroll">
+          <div className="space-y-2.5 bg-surface-muted p-3 md:hidden">
+            {loading && <div className="rounded-md border border-line bg-surface py-10 text-center text-sm text-muted">Đang tải danh sách form...</div>}
+            {!forms.length && !loading && <div className="rounded-md border border-dashed border-line bg-surface px-4 py-10 text-center text-sm text-muted">Chưa có form đăng ký nào. Bấm “Tạo Form Đăng Ký” để tạo form đầu tiên.</div>}
+            {forms.map((f) => {
+              const url = publicUrl(f.token);
+              const workshopNames = f.workshops?.map((workshop) => workshop.name) || [];
+              return (
+                <article key={f.id} className="rounded-md border border-line bg-surface p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-heading text-[15px] font-bold text-brand-teal">
+                        {workshopNames.length ? `${workshopNames.length} workshop` : (f.workshop_name || "Form đăng ký")}
+                      </h3>
+                      {workshopNames.length > 0 && <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{workshopNames.join(" · ")}</p>}
+                    </div>
+                    <span className={`shrink-0 rounded px-2 py-1 text-[10px] font-semibold ${f.is_active ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"}`}>{f.is_active ? "Đang bật" : "Đã tắt"}</span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3 rounded-md bg-surface-muted p-2.5 text-xs">
+                    <div><span className="text-muted">Lượt submit</span><strong className="mt-0.5 block text-base text-brand-teal">{f.submission_count || 0}</strong></div>
+                    <div><span className="text-muted">Ngày tạo</span><strong className="mt-0.5 block font-medium text-brand-teal">{formatDateTime(f.created_at)}</strong></div>
+                  </div>
+
+                  <p className="mt-3 truncate rounded-md bg-surface-muted px-2.5 py-2 font-mono text-[11px] text-muted" title={url}>{url}</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-md bg-brand px-2 text-xs font-bold text-brand-teal">Mở form</a>
+                    <button onClick={() => copyLink(f.token)} className="min-h-11 rounded-md border border-line px-2 text-xs font-semibold text-brand-teal">{copiedToken === f.token ? "Đã copy" : "Sao chép"}</button>
+                    <FormQr token={f.token} compact />
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 border-t border-line pt-2">
+                    <button onClick={() => toggleActive(f)} disabled={busyId === f.id} className="min-h-11 rounded-md border border-line text-xs font-semibold text-brand-teal disabled:opacity-50">{f.is_active ? "Tắt form" : "Bật form"}</button>
+                    <button onClick={() => remove(f)} disabled={busyId === f.id} className="min-h-11 rounded-md border border-red-200 text-xs font-semibold text-red-600 disabled:opacity-50">Xóa form</button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="admin-table-scroll hidden md:block">
             <table className="min-w-[1100px] w-full text-sm">
               <thead className="bg-surface-muted text-muted text-xs">
                 <tr>

@@ -8,6 +8,7 @@ from ..config import settings
 from ..models import ZbsOAuthCredential
 
 TOKEN_URL = "https://oauth.zaloapp.com/v4/oa/access_token"
+CONNECTION_TEST_URL = "https://business.openapi.zalo.me/template/all"
 TOKEN_REFRESH_BUFFER = timedelta(minutes=5)
 TOKEN_ERROR_CODES = {-124, -216, -14005}
 
@@ -63,6 +64,11 @@ def _access_token_valid(credential: ZbsOAuthCredential) -> bool:
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     return expires_at > datetime.now(timezone.utc) + TOKEN_REFRESH_BUFFER
+
+
+def _requires_reauthorization(error: str | None) -> bool:
+    message = (error or "").lower()
+    return "refresh token" in message and any(value in message for value in ("invalid", "expired", "revoked", "không hợp lệ", "hết hạn"))
 
 
 async def refresh_access_token(
@@ -135,6 +141,47 @@ async def get_access_token(db: AsyncSession) -> str:
     if _access_token_valid(credential):
         return str(credential.access_token)
     return await refresh_access_token(db)
+
+
+async def oauth_status(db: AsyncSession) -> dict:
+    credential = await _credential(db)
+    configured = bool(settings.ZBS_APP_ID and settings.ZBS_APP_SECRET and credential.refresh_token)
+    if not configured:
+        status = "not_configured"
+    elif credential.last_refresh_error:
+        status = "reauthorization_required" if _requires_reauthorization(credential.last_refresh_error) else "refresh_failed"
+    elif not credential.access_token:
+        status = "refresh_failed"
+    elif not _access_token_valid(credential):
+        status = "expiring"
+    else:
+        status = "connected"
+    return {
+        "status": status,
+        "configured": configured,
+        "access_token_expires_at": credential.access_token_expires_at,
+        "last_refreshed_at": credential.last_refreshed_at,
+        "last_refresh_error": credential.last_refresh_error,
+    }
+
+
+async def test_connection(db: AsyncSession) -> dict:
+    async with httpx.AsyncClient(timeout=settings.ZBS_REQUEST_TIMEOUT_SECONDS) as client:
+        response = await request_with_token(
+            db,
+            client,
+            "GET",
+            CONNECTION_TEST_URL,
+            params={"offset": 0, "limit": 1, "filterPreset": 0},
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ZbsAuthError(f"Zalo trả về HTTP {response.status_code} không hợp lệ") from exc
+    if not response.is_success or payload.get("error") not in (None, 0):
+        message = payload.get("message") or f"HTTP {response.status_code}"
+        raise ZbsAuthError(f"Không thể kết nối Zalo: {message}")
+    return await oauth_status(db)
 
 
 async def request_with_token(

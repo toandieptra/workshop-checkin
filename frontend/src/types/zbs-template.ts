@@ -69,3 +69,13 @@ export interface ZbsSyncResult {
   updated: number;
   message: string;
 }
+
+export type ZbsOAuthStatus = "connected" | "expiring" | "refresh_failed" | "reauthorization_required" | "not_configured";
+
+export interface ZbsOAuthStatusResponse {
+  status: ZbsOAuthStatus;
+  configured: boolean;
+  access_token_expires_at: string | null;
+  last_refreshed_at: string | null;
+  last_refresh_error: string | null;
+}

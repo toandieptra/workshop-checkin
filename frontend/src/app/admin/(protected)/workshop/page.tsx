@@ -359,9 +359,9 @@ export default function AdminWorkshopPage() {
   const previewItem = preview ? preview.items[preview.index] : null;
 
   return (
-    <div className="p-6">
+    <div className="px-3 py-3 pb-20 sm:p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
             <h1 className="text-2xl font-bold text-brand-teal">Workshop</h1>
             <p className="text-sm text-muted mt-1">
@@ -370,26 +370,39 @@ export default function AdminWorkshopPage() {
           </div>
           <button
             onClick={openCreate}
-            className="bg-brand text-brand-teal px-4 py-2 rounded-sm text-sm font-semibold whitespace-nowrap"
+            className="min-h-11 w-full bg-brand text-brand-teal px-4 py-2 rounded-md text-sm font-semibold whitespace-nowrap sm:w-auto sm:rounded-sm"
           >
             + Tạo Workshop
           </button>
         </div>
 
         {msg && (
-          <div className="mb-3 p-2 bg-brand/10 text-brand-teal rounded-sm text-sm flex items-center justify-between">
-            <span>{msg}</span>
-            <button onClick={() => setMsg("")} className="text-muted text-lg leading-none">
+          <div
+            role={/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "alert" : "status"}
+            aria-live={/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "assertive" : "polite"}
+            className={`mb-3 flex items-center gap-2 rounded-md border p-2.5 text-sm animate-toast-in ${
+              /^Lỗi|^Không thể|^Vui lòng/.test(msg)
+                ? "border-red-200 bg-red-50 text-red-700"
+                : "border-success-border bg-success-soft text-brand-teal"
+            }`}
+          >
+            <span className="flex-1">{msg}</span>
+            <button
+              onClick={() => setMsg("")}
+              aria-label="Đóng thông báo"
+              className="min-h-11 min-w-11 text-muted text-lg leading-none"
+            >
               ×
             </button>
           </div>
         )}
 
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="-mx-3 flex flex-1 gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
             <button
               onClick={() => setStatusFilter("")}
-              className={`px-3 py-1.5 rounded-sm text-sm border ${
+              aria-pressed={!statusFilter}
+              className={`min-h-11 shrink-0 px-3 py-1.5 rounded-md text-sm border sm:min-h-0 sm:rounded-sm ${
                 !statusFilter ? "bg-brand text-brand-teal border-brand" : "border-line text-muted"
               }`}
             >
@@ -399,7 +412,8 @@ export default function AdminWorkshopPage() {
               <button
                 key={o.value}
                 onClick={() => setStatusFilter(o.value)}
-                className={`px-3 py-1.5 rounded-sm text-sm border ${
+                aria-pressed={statusFilter === o.value}
+                className={`min-h-11 shrink-0 px-3 py-1.5 rounded-md text-sm border sm:min-h-0 sm:rounded-sm ${
                   statusFilter === o.value
                     ? "bg-brand text-brand-teal border-brand"
                     : "border-line text-muted"
@@ -410,7 +424,9 @@ export default function AdminWorkshopPage() {
               </button>
             ))}
           </div>
-          <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
+          <div className="hidden md:block">
+            <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
+          </div>
         </div>
 
         {loading ? (
@@ -420,7 +436,80 @@ export default function AdminWorkshopPage() {
             Chưa có workshop nào.
           </div>
         ) : (
-          <div className="admin-table-scroll border border-line rounded-md bg-surface">
+          <>
+            <div className="space-y-2.5 md:hidden">
+              {items.map((w) => {
+                const registrationForms = w.registration_forms || [];
+                const media = w.media || [];
+                return (
+                  <article key={w.id} className="rounded-md border border-line bg-surface p-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h2 className="truncate font-heading text-[15px] font-bold text-brand-teal">{w.name}</h2>
+                        <p className="mt-0.5 truncate font-mono text-[11px] text-muted">{w.slug}</p>
+                      </div>
+                      <span className={`shrink-0 rounded px-2 py-1 text-[10px] font-semibold ${STATUS_CLASS[w.status] || STATUS_CLASS.draft}`}>
+                        {statusLabel(w.status)}
+                      </span>
+                    </div>
+
+                    <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                      <div>
+                        <dt className="text-muted">Ngày giờ</dt>
+                        <dd className="mt-0.5 font-medium text-brand-teal">{formatDate(w.event_date, w.event_time)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted">Chi nhánh</dt>
+                        <dd className="mt-0.5 font-medium text-brand-teal">{w.branch || "—"}</dd>
+                      </div>
+                      <div className="col-span-2">
+                        <dt className="text-muted">Địa điểm</dt>
+                        <dd className="mt-0.5 flex items-start gap-2 font-medium text-brand-teal">
+                          <span className="min-w-0 flex-1">{w.location || "—"}</span>
+                          {w.maps_url && <a href={w.maps_url} target="_blank" rel="noreferrer" className="shrink-0 text-brand underline">Maps</a>}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3 text-xs">
+                      <div className="min-w-0">
+                        <span className="text-muted">Form đăng ký: </span>
+                        {registrationForms.length ? (
+                          <a href={formPublicUrl(registrationForms[0].token)} target="_blank" rel="noreferrer" className="font-semibold text-brand underline">
+                            {registrationForms.length} form
+                          </a>
+                        ) : <span className="text-brand-teal">Chưa có</span>}
+                      </div>
+                      {media.length > 0 && (
+                        <button type="button" onClick={() => openPreview(media, 0, w.name)} className="min-h-11 shrink-0 rounded-md border border-line px-3 font-semibold text-brand-teal">
+                          Media ({media.length})
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button onClick={() => openEdit(w)} className="min-h-11 rounded-md border border-line text-sm font-semibold text-brand-teal">Sửa</button>
+                      {w.status !== "published" ? (
+                        <button disabled={busyId === w.id} onClick={() => changeStatus(w, "published")} className="min-h-11 rounded-md border border-brand bg-brand text-sm font-semibold text-brand-teal disabled:opacity-50">Publish</button>
+                      ) : (
+                        <button disabled={busyId === w.id} onClick={() => changeStatus(w, "completed")} className="min-h-11 rounded-md border border-blue-300 bg-blue-50 text-sm font-semibold text-blue-700 disabled:opacity-50">Hoàn thành</button>
+                      )}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2 text-xs">
+                      <Can permission="lark.sync">
+                        <button disabled={busyId === w.id} onClick={() => pushLark(w)} className="min-h-11 font-semibold text-brand-teal disabled:opacity-50">
+                          {w.lark_record_id ? "Cập nhật Lark" : "Đẩy lên Lark"}
+                        </button>
+                      </Can>
+                      {w.status !== "cancelled" && <button disabled={busyId === w.id} onClick={() => remove(w)} className="min-h-11 font-semibold text-red-600 disabled:opacity-50">Hủy</button>}
+                      <button disabled={busyId === w.id} onClick={() => purge(w)} className="min-h-11 font-semibold text-red-700 disabled:opacity-50">Xóa</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="admin-table-scroll hidden border border-line rounded-md bg-surface md:block">
               <table className="w-full min-w-[1100px] text-sm">
               <thead className="bg-surface-muted text-left text-muted">
                 <tr>
@@ -587,18 +676,19 @@ export default function AdminWorkshopPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
 
       {modalOpen && (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
-          <div className="bg-surface w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-lg sm:rounded-md shadow-xl border border-line">
+          <div className="bg-surface w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-lg sm:rounded-md shadow-xl border border-line pb-[env(safe-area-inset-bottom)] sm:pb-0">
             <div className="sticky top-0 bg-surface border-b border-line px-4 py-3 flex items-center justify-between">
               <h2 className="font-bold text-brand-teal">
                 {editingId ? "Sửa Workshop" : "Tạo Workshop"}
               </h2>
-              <button onClick={closeModal} className="text-muted text-xl leading-none px-2">
+              <button onClick={closeModal} aria-label="Đóng" className="min-h-11 min-w-11 text-muted text-xl leading-none px-2">
                 ×
               </button>
             </div>
@@ -778,10 +868,10 @@ export default function AdminWorkshopPage() {
               )}
             </div>
 
-            <div className="sticky bottom-0 bg-surface border-t border-line px-4 py-3 flex justify-end gap-2">
+            <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-line bg-surface px-4 py-3 sm:flex sm:justify-end">
               <button
                 onClick={closeModal}
-                className="px-4 py-2 text-sm border border-line rounded-sm"
+                className="min-h-11 px-4 py-2 text-sm border border-line rounded-md sm:rounded-sm"
                 disabled={saving}
               >
                 Đóng
@@ -789,7 +879,7 @@ export default function AdminWorkshopPage() {
               <button
                 onClick={save}
                 disabled={saving}
-                className="px-4 py-2 text-sm bg-brand text-brand-teal rounded-sm font-semibold disabled:opacity-50"
+                className="min-h-11 px-4 py-2 text-sm bg-brand text-brand-teal rounded-md font-semibold disabled:opacity-50 sm:rounded-sm"
               >
                 {saving ? "Đang lưu…" : editingId ? "Lưu thay đổi" : "Tạo workshop"}
               </button>

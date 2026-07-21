@@ -5,6 +5,7 @@ import type {
   ZbsTemplateDetail,
   ZbsTemplateListResponse,
   ZbsTemplateStatus,
+  ZbsOAuthStatusResponse,
 } from "@/types/zbs-template";
 
 // Mặc định dùng relative path để tận dụng Next.js rewrite (xem next.config.js).
@@ -457,6 +458,18 @@ export async function getZbsTemplate(templateId: string): Promise<ZbsTemplateDet
 
 export async function syncZbsTemplates(): Promise<ZbsSyncResult> {
   return api("/zbs/templates/sync", { method: "POST" });
+}
+
+export function getZbsOAuthStatus(): Promise<ZbsOAuthStatusResponse> {
+  return api("/zbs/oauth/status");
+}
+
+export function refreshZbsOAuth(): Promise<ZbsOAuthStatusResponse> {
+  return api("/zbs/oauth/refresh", { method: "POST" });
+}
+
+export function testZbsOAuth(): Promise<ZbsOAuthStatusResponse> {
+  return api("/zbs/oauth/test", { method: "POST" });
 }
 
 export async function listZbsTaskConfigs(): Promise<ZbsTaskConfig[]> {
