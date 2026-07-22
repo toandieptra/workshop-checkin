@@ -31,6 +31,7 @@ from ..schemas import (
     WorkshopStatusUpdate,
     WorkshopUpdate,
     WORKSHOP_MEDIA_TYPES,
+    WORKSHOP_STATUS_TRANSITIONS,
     WORKSHOP_STATUSES,
 )
 from ..auth.dependencies import require_permission
@@ -74,6 +75,17 @@ def _branch_list() -> list[str]:
 def _validate_status(status: str) -> None:
     if status not in WORKSHOP_STATUSES:
         raise HTTPException(400, f"status phải là một trong: {', '.join(WORKSHOP_STATUSES)}")
+
+
+def _validate_status_transition(current: str, target: str, *, allow_cancel: bool = False) -> None:
+    _validate_status(current)
+    _validate_status(target)
+    if current == target:
+        return
+    if target == "cancelled" and not allow_cancel:
+        raise HTTPException(403, "Cần quyền xóa workshop để hủy workshop")
+    if target not in WORKSHOP_STATUS_TRANSITIONS[current]:
+        raise HTTPException(409, f"Không thể chuyển trạng thái từ {current} sang {target}")
 
 
 def _validate_branch(branch: str | None) -> None:
@@ -164,6 +176,7 @@ async def _to_out(db: AsyncSession, w: Workshop, include_forms: bool = True) -> 
         event_time=w.event_time,
         location=w.location,
         status=w.status or "draft",
+        auto_confirm_registration=w.auto_confirm_registration,
         branch=w.branch,
         maps_url=w.maps_url,
         registration_short_url=w.registration_short_url,
@@ -222,6 +235,8 @@ async def create_workshop(body: WorkshopCreate, db: AsyncSession = Depends(get_d
     if exists:
         raise HTTPException(409, "slug already exists")
     _validate_status(body.status)
+    if body.status != "draft":
+        raise HTTPException(409, "Workshop mới phải bắt đầu ở trạng thái draft")
     _validate_branch(body.branch)
     data = body.model_dump()
     data["slug"] = slug
@@ -253,7 +268,7 @@ async def update_workshop(
     w = await _get_workshop(db, workshop_id)
     data = body.model_dump(exclude_unset=True)
     if "status" in data and data["status"] is not None:
-        _validate_status(data["status"])
+        _validate_status_transition(w.status, data["status"])
     if "branch" in data:
         _validate_branch(data["branch"])
     if "slug" in data and data["slug"] is not None:
@@ -286,8 +301,8 @@ async def update_workshop_status(
     body: WorkshopStatusUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    _validate_status(body.status)
     w = await _get_workshop(db, workshop_id)
+    _validate_status_transition(w.status, body.status)
     w.status = body.status
     w.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -306,11 +321,14 @@ async def delete_workshop(
     """
     w = await _get_workshop(db, workshop_id)
     if hard:
+        if w.status != "cancelled":
+            raise HTTPException(409, "Chỉ có thể xóa vĩnh viễn workshop đã hủy")
         for m in w.media or []:
             _delete_media_file(m.file_url)
         await db.delete(w)
         await db.commit()
         return None
+    _validate_status_transition(w.status, "cancelled", allow_cancel=True)
     w.status = "cancelled"
     w.updated_at = datetime.now(timezone.utc)
     await db.commit()

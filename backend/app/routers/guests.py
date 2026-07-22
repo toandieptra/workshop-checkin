@@ -9,9 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..config import settings
-from ..models import AdminUser, CheckinLog, Guest, WelcomeEvent, Workshop, ZbsDelivery
+from ..models import AdminUser, CheckinLog, Guest, GuestNote, WelcomeEvent, Workshop, ZbsDelivery
 from ..schemas import (
     GuestOut, GuestUpdate, GuestUpdateResult, CheckinResult,
+    GuestNoteCreate, GuestNoteOut, GuestNoteUpdate,
     CheckinSelfRequest, GuestQrInfo, GuestSelfCheckinRequest, LookupByPhoneResult,
     SelfRegisterRequest, SelfRegisterResult,
 )
@@ -49,6 +50,29 @@ async def _load_guest(db: AsyncSession, guest_id: uuid.UUID) -> Guest:
     if not g:
         raise HTTPException(404, "guest not found")
     return g
+
+
+def _can_edit_guest_note(user: AdminUser, note: GuestNote) -> bool:
+    return user.role in {"admin", "super_admin"} or note.author_user_id == user.id
+
+
+def _note_content(value: str) -> str:
+    content = value.strip()
+    if not content:
+        raise HTTPException(422, "note content must not be empty")
+    return content
+
+
+def _guest_note_out(note: GuestNote, author_name: str | None, author_email: str | None) -> GuestNoteOut:
+    return GuestNoteOut(
+        id=note.id,
+        guest_id=note.guest_id,
+        author_user_id=note.author_user_id,
+        author_name=author_name or author_email or "Tài khoản đã xóa",
+        content=note.content,
+        created_at=note.created_at,
+        updated_at=note.updated_at,
+    )
 
 
 async def _lark_writeback_checkin(guest: Guest, checked: bool) -> str | None:
@@ -367,6 +391,80 @@ async def self_register_and_checkin(
 # =================================================================
 # Guest CRUD (giữ nguyên flow admin)
 # =================================================================
+
+@router.get(
+    "/guests/{guest_id}/notes",
+    response_model=list[GuestNoteOut],
+    dependencies=[Depends(require_permission("guests.read"))],
+)
+async def list_guest_notes(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    guest = await db.scalar(
+        select(Guest.id).where(Guest.id == guest_id, Guest.deleted_at.is_(None))
+    )
+    if not guest:
+        raise HTTPException(404, "guest not found")
+
+    rows = (await db.execute(
+        select(GuestNote, AdminUser.name, AdminUser.email)
+        .outerjoin(AdminUser, AdminUser.id == GuestNote.author_user_id)
+        .where(GuestNote.guest_id == guest_id)
+        .order_by(GuestNote.created_at.desc(), GuestNote.id.desc())
+    )).all()
+    return [_guest_note_out(note, name, email) for note, name, email in rows]
+
+
+@router.post(
+    "/guests/{guest_id}/notes",
+    response_model=GuestNoteOut,
+    status_code=201,
+)
+async def create_guest_note(
+    guest_id: uuid.UUID,
+    body: GuestNoteCreate,
+    user: AdminUser = Depends(require_permission("guests.write")),
+    db: AsyncSession = Depends(get_db),
+):
+    guest = await _load_guest(db, guest_id)
+    if guest.deleted_at is not None:
+        raise HTTPException(404, "guest not found")
+    content = _note_content(body.content)
+
+    note = GuestNote(guest_id=guest_id, author_user_id=user.id, content=content)
+    db.add(note)
+    await db.commit()
+    await db.refresh(note)
+    return _guest_note_out(note, user.name, user.email)
+
+
+@router.patch(
+    "/guests/{guest_id}/notes/{note_id}",
+    response_model=GuestNoteOut,
+)
+async def update_guest_note(
+    guest_id: uuid.UUID,
+    note_id: uuid.UUID,
+    body: GuestNoteUpdate,
+    user: AdminUser = Depends(require_permission("guests.write")),
+    db: AsyncSession = Depends(get_db),
+):
+    guest = await _load_guest(db, guest_id)
+    if guest.deleted_at is not None:
+        raise HTTPException(404, "guest not found")
+    note = await db.scalar(
+        select(GuestNote).where(GuestNote.id == note_id, GuestNote.guest_id == guest_id)
+    )
+    if not note:
+        raise HTTPException(404, "note not found")
+    if not _can_edit_guest_note(user, note):
+        raise HTTPException(403, "you cannot edit this note")
+
+    note.content = _note_content(body.content)
+    note.updated_at = _now()
+    await db.commit()
+    await db.refresh(note)
+    author = await db.get(AdminUser, note.author_user_id) if note.author_user_id else None
+    return _guest_note_out(note, author.name if author else None, author.email if author else None)
+
 
 @router.get("/guests/{guest_id}", response_model=GuestOut, dependencies=[Depends(require_permission("guests.read"))])
 async def get_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):

@@ -1,6 +1,7 @@
 "use client";
 
 import GuestQr from "@/components/GuestQr";
+import GuestNotes from "@/components/GuestNotes";
 import type { Guest, ZbsDelivery } from "@/hooks/useAdminGuests";
 
 function formatDateTime(value?: string | null): string {
@@ -163,9 +164,6 @@ export default function GuestDetailContent({
       </div>
     </section>
 
-    <section className="rounded-md border border-line bg-white p-4">
-      <h4 className="font-semibold text-ink">Ghi chú</h4>
-      <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-text-secondary">{guest.note || "Không có ghi chú."}</div>
-    </section>
+    <GuestNotes guestId={guest.id} />
   </div>;
 }

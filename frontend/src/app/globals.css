@@ -66,6 +66,12 @@ html, body {
     overscroll-behavior: contain;
   }
 
+  .admin-guest-table-scroll {
+    min-height: 0;
+    max-height: none;
+    flex: 1 1 0%;
+  }
+
   .admin-table-scroll thead th {
     position: sticky;
     top: 0;

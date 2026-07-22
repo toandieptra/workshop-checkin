@@ -7,6 +7,7 @@ import httpx
 from app.models import ZbsOAuthCredential
 from app.services.zbs_auth import (
     _access_token_valid,
+    _credential,
     _requires_reauthorization,
     is_token_error,
     refresh_access_token,
@@ -43,6 +44,44 @@ def test_only_refresh_token_errors_require_reauthorization():
     assert _requires_reauthorization("Refresh token invalid")
     assert _requires_reauthorization("Refresh Token đã hết hạn")
     assert not _requires_reauthorization("Zalo OAuth request timeout")
+
+
+def test_invalid_database_refresh_token_is_reseeded_from_environment():
+    credential = ZbsOAuthCredential(
+        id=1,
+        access_token="old-access",
+        refresh_token="old-refresh",
+        last_refresh_error="Không thể làm mới token Zalo: Invalid refresh token.",
+    )
+    db = AsyncMock()
+    db.scalar = AsyncMock(return_value=credential)
+
+    with (
+        patch("app.services.zbs_auth.settings.ZBS_ACCESS_TOKEN", "new-access"),
+        patch("app.services.zbs_auth.settings.ZBS_REFRESH_TOKEN", "new-refresh"),
+    ):
+        result = asyncio.run(_credential(db))
+
+    assert result.access_token == "new-access"
+    assert result.refresh_token == "new-refresh"
+    assert result.last_refresh_error is None
+    db.commit.assert_awaited_once()
+
+
+def test_healthy_rotated_refresh_token_is_not_overwritten_by_environment():
+    credential = ZbsOAuthCredential(
+        id=1,
+        access_token="rotated-access",
+        refresh_token="rotated-refresh",
+    )
+    db = AsyncMock()
+    db.scalar = AsyncMock(return_value=credential)
+
+    with patch("app.services.zbs_auth.settings.ZBS_REFRESH_TOKEN", "bootstrap-refresh"):
+        result = asyncio.run(_credential(db))
+
+    assert result.refresh_token == "rotated-refresh"
+    db.commit.assert_not_awaited()
 
 
 def test_token_error_refreshes_and_retries_once():

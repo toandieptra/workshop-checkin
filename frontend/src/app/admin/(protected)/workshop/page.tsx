@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createWorkshop,
   deleteWorkshop,
@@ -19,6 +19,9 @@ import {
 } from "@/lib/api";
 import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
 import Can from "@/components/Can";
+import { useAuth } from "@/contexts/AuthContext";
+import { useDialogFocus } from "@/hooks/useDialogFocus";
+import { PERMISSIONS } from "@/lib/permissions";
 
 type ColumnKey = "name" | "date" | "branch" | "location" | "status" | "form" | "media" | "actions";
 const TABLE_COLUMNS = [
@@ -40,6 +43,22 @@ const STATUS_CLASS: Record<string, string> = {
   completed: "bg-blue-100 text-blue-800",
   cancelled: "bg-red-100 text-red-700",
 };
+
+const NEXT_STATUS: Partial<Record<WorkshopStatus, WorkshopStatus>> = {
+  draft: "published",
+  published: "completed",
+  cancelled: "draft",
+};
+
+type WorkshopSort = "event_desc" | "event_asc" | "name_asc" | "updated_desc";
+
+function searchable(value?: string | null): string {
+  return (value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d");
+}
 
 function statusLabel(s?: string | null): string {
   return STATUS_OPTIONS.find((o) => o.value === s)?.label || s || "—";
@@ -128,11 +147,17 @@ function cleanBody(form: WorkshopWriteBody): WorkshopWriteBody {
 }
 
 export default function AdminWorkshopPage() {
+  const { can } = useAuth();
   const [items, setItems] = useState<WorkshopAdmin[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<WorkshopSort>("event_desc");
+  const [pageSize, setPageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [mobileLimit, setMobileLimit] = useState(10);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -140,6 +165,7 @@ export default function AdminWorkshopPage() {
   const [form, setForm] = useState<WorkshopWriteBody>(emptyForm());
   const [slugTouched, setSlugTouched] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
   const [detail, setDetail] = useState<WorkshopAdmin | null>(null);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<{
@@ -149,12 +175,17 @@ export default function AdminWorkshopPage() {
   } | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  useDialogFocus(modalOpen, dialogRef, "#workshop-name");
+  useDialogFocus(Boolean(preview), previewRef, "[data-preview-close]");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [ws, br] = await Promise.all([
-        getWorkshops(statusFilter || undefined),
+        getWorkshops(),
         getWorkshopBranches(),
       ]);
       setItems(ws);
@@ -164,7 +195,7 @@ export default function AdminWorkshopPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, []);
 
   useEffect(() => {
     load();
@@ -177,16 +208,64 @@ export default function AdminWorkshopPage() {
     return { all, by };
   }, [items]);
 
+  const filteredItems = useMemo(() => {
+    const query = searchable(search.trim());
+    const result = items.filter((w) => {
+      if (statusFilter && w.status !== statusFilter) return false;
+      if (!query) return true;
+      return searchable([w.name, w.slug, w.branch, w.location].filter(Boolean).join(" ")).includes(query);
+    });
+    return result.sort((a, b) => {
+      if (sort === "name_asc") return a.name.localeCompare(b.name, "vi");
+      if (sort === "updated_desc") return String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at));
+      const aDate = `${a.event_date || "0000-00-00"}T${normalizeTime(a.event_time)}`;
+      const bDate = `${b.event_date || "0000-00-00"}T${normalizeTime(b.event_time)}`;
+      return sort === "event_asc" ? aDate.localeCompare(bDate) : bDate.localeCompare(aDate);
+    });
+  }, [items, search, sort, statusFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const page = Math.min(currentPage, pageCount);
+  const desktopItems = useMemo(
+    () => filteredItems.slice((page - 1) * pageSize, page * pageSize),
+    [filteredItems, page, pageSize],
+  );
+  const mobileItems = useMemo(() => filteredItems.slice(0, mobileLimit), [filteredItems, mobileLimit]);
+  const firstRow = filteredItems.length ? (page - 1) * pageSize + 1 : 0;
+  const lastRow = Math.min(page * pageSize, filteredItems.length);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setMobileLimit(10);
+  }, [search, sort, statusFilter, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > pageCount) setCurrentPage(pageCount);
+  }, [currentPage, pageCount]);
+
+  useEffect(() => {
+    if (!modalOpen && !preview) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (preview) setPreview(null);
+      else if (!saving && !uploading) closeModal();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  });
+
   const openCreate = () => {
     setEditingId(null);
     setDetail(null);
     setForm(emptyForm());
+    setFormError("");
     setSlugTouched(false);
     setModalOpen(true);
   };
 
   const openEdit = async (w: WorkshopAdmin) => {
     setEditingId(w.id);
+    setFormError("");
     setForm(formFromWorkshop(w));
     setSlugTouched(true);
     setModalOpen(true);
@@ -206,6 +285,7 @@ export default function AdminWorkshopPage() {
     setEditingId(null);
     setDetail(null);
     setForm(emptyForm());
+    setFormError("");
   };
 
   const setField = <K extends keyof WorkshopWriteBody>(key: K, value: WorkshopWriteBody[K]) => {
@@ -221,9 +301,10 @@ export default function AdminWorkshopPage() {
   const save = async () => {
     const body = cleanBody(form);
     if (!body.name || !body.slug) {
-      setMsg("Vui lòng nhập tên và slug");
+      setFormError("Vui lòng nhập tên và slug.");
       return;
     }
+    setFormError("");
     setSaving(true);
     try {
       if (editingId) {
@@ -239,7 +320,7 @@ export default function AdminWorkshopPage() {
       setDetail(null);
       setForm(emptyForm());
     } catch (e: any) {
-      setMsg("Lỗi lưu: " + (e?.message || "không rõ"));
+      setFormError("Không thể lưu workshop: " + (e?.message || "không rõ"));
     } finally {
       setSaving(false);
     }
@@ -368,12 +449,14 @@ export default function AdminWorkshopPage() {
               Quản lý workshop: thông tin, chi nhánh, media, link đăng ký và trạng thái.
             </p>
           </div>
-          <button
-            onClick={openCreate}
-            className="min-h-11 w-full bg-brand text-brand-teal px-4 py-2 rounded-md text-sm font-semibold whitespace-nowrap sm:w-auto sm:rounded-sm"
-          >
-            + Tạo Workshop
-          </button>
+          <Can permission={PERMISSIONS.workshopsCreate}>
+            <button
+              onClick={openCreate}
+              className="min-h-11 w-full bg-brand text-brand-teal px-4 py-2 rounded-md text-sm font-semibold whitespace-nowrap sm:w-auto sm:rounded-sm"
+            >
+              + Tạo Workshop
+            </button>
+          </Can>
         </div>
 
         {msg && (
@@ -397,6 +480,32 @@ export default function AdminWorkshopPage() {
           </div>
         )}
 
+        <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(240px,1fr)_190px]">
+          <label className="relative block">
+            <span className="sr-only">Tìm workshop</span>
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Tìm theo tên, slug, chi nhánh, địa điểm..."
+              className="min-h-11 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm sm:min-h-0 sm:rounded-sm"
+            />
+          </label>
+          <label>
+            <span className="sr-only">Sắp xếp workshop</span>
+            <select
+              value={sort}
+              onChange={(event) => setSort(event.target.value as WorkshopSort)}
+              className="min-h-11 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm sm:min-h-0 sm:rounded-sm"
+            >
+              <option value="event_desc">Ngày sự kiện: mới nhất</option>
+              <option value="event_asc">Ngày sự kiện: cũ nhất</option>
+              <option value="name_asc">Tên: A–Z</option>
+              <option value="updated_desc">Cập nhật gần nhất</option>
+            </select>
+          </label>
+        </div>
+
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="-mx-3 flex flex-1 gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
             <button
@@ -406,7 +515,7 @@ export default function AdminWorkshopPage() {
                 !statusFilter ? "bg-brand text-brand-teal border-brand" : "border-line text-muted"
               }`}
             >
-              Tất cả ({statusFilter ? "…" : counts.all})
+              Tất cả ({counts.all})
             </button>
             {STATUS_OPTIONS.map((o) => (
               <button
@@ -420,7 +529,7 @@ export default function AdminWorkshopPage() {
                 }`}
               >
                 {o.label}
-                {!statusFilter && counts.by[o.value] ? ` (${counts.by[o.value]})` : ""}
+                {` (${counts.by[o.value] || 0})`}
               </button>
             ))}
           </div>
@@ -431,21 +540,21 @@ export default function AdminWorkshopPage() {
 
         {loading ? (
           <div className="text-sm text-muted py-12 text-center">Đang tải…</div>
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <div className="text-sm text-muted py-12 text-center border border-dashed border-line rounded-md">
-            Chưa có workshop nào.
+            {items.length ? "Không có workshop khớp bộ lọc." : "Chưa có workshop nào."}
           </div>
         ) : (
           <>
             <div className="space-y-2.5 md:hidden">
-              {items.map((w) => {
+              {mobileItems.map((w) => {
                 const registrationForms = w.registration_forms || [];
                 const media = w.media || [];
                 return (
                   <article key={w.id} className="rounded-md border border-line bg-surface p-3 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <h2 className="truncate font-heading text-[15px] font-bold text-brand-teal">{w.name}</h2>
+                        <h2 className="line-clamp-2 font-heading text-[15px] font-bold leading-5 text-brand-teal">{w.name}</h2>
                         <p className="mt-0.5 truncate font-mono text-[11px] text-muted">{w.slug}</p>
                       </div>
                       <span className={`shrink-0 rounded px-2 py-1 text-[10px] font-semibold ${STATUS_CLASS[w.status] || STATUS_CLASS.draft}`}>
@@ -487,26 +596,41 @@ export default function AdminWorkshopPage() {
                       )}
                     </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button onClick={() => openEdit(w)} className="min-h-11 rounded-md border border-line text-sm font-semibold text-brand-teal">Sửa</button>
-                      {w.status !== "published" ? (
-                        <button disabled={busyId === w.id} onClick={() => changeStatus(w, "published")} className="min-h-11 rounded-md border border-brand bg-brand text-sm font-semibold text-brand-teal disabled:opacity-50">Publish</button>
-                      ) : (
-                        <button disabled={busyId === w.id} onClick={() => changeStatus(w, "completed")} className="min-h-11 rounded-md border border-blue-300 bg-blue-50 text-sm font-semibold text-blue-700 disabled:opacity-50">Hoàn thành</button>
-                      )}
-                    </div>
+                    {can(PERMISSIONS.workshopsEdit) && (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button onClick={() => openEdit(w)} className="min-h-11 rounded-md border border-line text-sm font-semibold text-brand-teal">Sửa</button>
+                        {NEXT_STATUS[w.status as WorkshopStatus] && (
+                          <button
+                            disabled={busyId === w.id}
+                            onClick={() => changeStatus(w, NEXT_STATUS[w.status as WorkshopStatus]!)}
+                            className="min-h-11 rounded-md border border-brand bg-brand text-sm font-semibold text-brand-teal disabled:opacity-50"
+                          >
+                            {w.status === "draft" ? "Xuất bản" : w.status === "published" ? "Hoàn thành" : "Khôi phục về nháp"}
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2 text-xs">
                       <Can permission="lark.sync">
                         <button disabled={busyId === w.id} onClick={() => pushLark(w)} className="min-h-11 font-semibold text-brand-teal disabled:opacity-50">
                           {w.lark_record_id ? "Cập nhật Lark" : "Đẩy lên Lark"}
                         </button>
                       </Can>
-                      {w.status !== "cancelled" && <button disabled={busyId === w.id} onClick={() => remove(w)} className="min-h-11 font-semibold text-red-600 disabled:opacity-50">Hủy</button>}
-                      <button disabled={busyId === w.id} onClick={() => purge(w)} className="min-h-11 font-semibold text-red-700 disabled:opacity-50">Xóa</button>
+                      {can(PERMISSIONS.workshopsDelete) && (w.status === "draft" || w.status === "published") && <button disabled={busyId === w.id} onClick={() => remove(w)} className="min-h-11 font-semibold text-red-600 disabled:opacity-50">Hủy</button>}
+                      {can(PERMISSIONS.workshopsDelete) && w.status === "cancelled" && <button disabled={busyId === w.id} onClick={() => purge(w)} className="min-h-11 font-semibold text-red-700 disabled:opacity-50">Xóa vĩnh viễn</button>}
                     </div>
                   </article>
                 );
               })}
+              {mobileLimit < filteredItems.length && (
+                <button
+                  type="button"
+                  onClick={() => setMobileLimit((limit) => limit + 10)}
+                  className="min-h-11 w-full rounded-md border border-line bg-surface text-sm font-semibold text-brand-teal"
+                >
+                  Xem thêm ({filteredItems.length - mobileLimit} workshop)
+                </button>
+              )}
             </div>
 
             <div className="admin-table-scroll hidden border border-line rounded-md bg-surface md:block">
@@ -524,7 +648,7 @@ export default function AdminWorkshopPage() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((w) => (
+                {desktopItems.map((w) => (
                   <tr key={w.id} className="border-t border-line align-top">
                     {visibleColumns.name && <td className="px-3 py-2">
                       <div className="font-medium text-brand-teal">{w.name}</div>
@@ -558,12 +682,11 @@ export default function AdminWorkshopPage() {
                       {(w.registration_forms || []).length === 0 ? (
                         <span className="text-xs text-muted">—</span>
                       ) : (
-                        <span className="text-xs break-all">
+                        <span className="space-y-1 text-xs">
                           {(w.registration_forms || []).map((f, i) => {
                             const url = formPublicUrl(f.token);
                             return (
-                              <span key={f.id}>
-                                {i > 0 && ", "}
+                              <span key={f.id} className="block">
                                 <a
                                   href={url}
                                   target="_blank"
@@ -571,8 +694,9 @@ export default function AdminWorkshopPage() {
                                   className="text-brand underline"
                                   title={url}
                                 >
-                                  {url}
+                                  Mở form {i + 1}
                                 </a>
+                                <span className="text-muted"> · {f.submission_count} lượt gửi</span>
                               </span>
                             );
                           })}
@@ -620,22 +744,31 @@ export default function AdminWorkshopPage() {
                     </td>}
                     {visibleColumns.actions && <td className="px-3 py-2">
                       <div className="flex flex-wrap justify-end gap-1">
-                        <button
+                        {can(PERMISSIONS.workshopsEdit) && <button
                           onClick={() => openEdit(w)}
                           className="px-2 py-1 border border-line rounded-sm text-xs hover:bg-surface-muted"
                         >
                           Sửa
-                        </button>
-                        {w.status !== "published" && (
+                        </button>}
+                        {can(PERMISSIONS.workshopsEdit) && w.status === "draft" && (
                           <button
                             disabled={busyId === w.id}
                             onClick={() => changeStatus(w, "published")}
                             className="px-2 py-1 border border-emerald-300 text-emerald-700 rounded-sm text-xs"
                           >
-                            Publish
+                            Xuất bản
                           </button>
                         )}
-                        {w.status === "published" && (
+                        {can(PERMISSIONS.workshopsEdit) && w.status === "cancelled" && (
+                          <button
+                            disabled={busyId === w.id}
+                            onClick={() => changeStatus(w, "draft")}
+                            className="px-2 py-1 border border-line text-brand-teal rounded-sm text-xs"
+                          >
+                            Khôi phục về nháp
+                          </button>
+                        )}
+                        {can(PERMISSIONS.workshopsEdit) && w.status === "published" && (
                           <button
                             disabled={busyId === w.id}
                             onClick={() => changeStatus(w, "completed")}
@@ -654,7 +787,7 @@ export default function AdminWorkshopPage() {
                             {w.lark_record_id ? "Cập nhật Lark" : "Đẩy lên Lark"}
                           </button>
                         </Can>
-                        {w.status !== "cancelled" && (
+                        {can(PERMISSIONS.workshopsDelete) && (w.status === "draft" || w.status === "published") && (
                           <button
                             disabled={busyId === w.id}
                             onClick={() => remove(w)}
@@ -663,19 +796,38 @@ export default function AdminWorkshopPage() {
                             Hủy
                           </button>
                         )}
-                        <button
+                        {can(PERMISSIONS.workshopsDelete) && w.status === "cancelled" && <button
                           disabled={busyId === w.id}
                           onClick={() => purge(w)}
                           className="px-2 py-1 border border-red-500 bg-red-50 text-red-700 rounded-sm text-xs font-medium"
                         >
-                          Xóa
-                        </button>
+                          Xóa vĩnh viễn
+                        </button>}
                       </div>
                     </td>}
                   </tr>
                 ))}
               </tbody>
             </table>
+              <div className="admin-table-pagination flex flex-wrap items-center justify-between gap-3 border-t border-line px-3 py-3 text-sm">
+                <div className="text-muted">Hiển thị {firstRow}–{lastRow} trong tổng số {filteredItems.length} workshop</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-muted">
+                    Dòng/trang
+                    <select
+                      aria-label="Số workshop mỗi trang"
+                      value={pageSize}
+                      onChange={(event) => setPageSize(Number(event.target.value))}
+                      className="rounded-sm border border-line bg-surface px-2 py-1 text-ink"
+                    >
+                      {[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+                    </select>
+                  </label>
+                  <button type="button" disabled={page <= 1} onClick={() => setCurrentPage(page - 1)} className="rounded-sm border border-line px-2 py-1 disabled:opacity-40">Trước</button>
+                  <span>Trang {page}/{pageCount}</span>
+                  <button type="button" disabled={page >= pageCount} onClick={() => setCurrentPage(page + 1)} className="rounded-sm border border-line px-2 py-1 disabled:opacity-40">Sau</button>
+                </div>
+              </div>
             </div>
           </>
         )}
@@ -683,9 +835,17 @@ export default function AdminWorkshopPage() {
 
       {modalOpen && (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
-          <div className="bg-surface w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-lg sm:rounded-md shadow-xl border border-line pb-[env(safe-area-inset-bottom)] sm:pb-0">
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workshop-dialog-title"
+            aria-describedby={formError ? "workshop-form-error" : undefined}
+            tabIndex={-1}
+            className="bg-surface w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-lg sm:rounded-md shadow-xl border border-line pb-[env(safe-area-inset-bottom)] sm:pb-0"
+          >
             <div className="sticky top-0 bg-surface border-b border-line px-4 py-3 flex items-center justify-between">
-              <h2 className="font-bold text-brand-teal">
+              <h2 id="workshop-dialog-title" className="font-bold text-brand-teal">
                 {editingId ? "Sửa Workshop" : "Tạo Workshop"}
               </h2>
               <button onClick={closeModal} aria-label="Đóng" className="min-h-11 min-w-11 text-muted text-xl leading-none px-2">
@@ -694,10 +854,18 @@ export default function AdminWorkshopPage() {
             </div>
 
             <div className="p-4 space-y-3">
+              {formError && (
+                <div id="workshop-form-error" role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  {formError}
+                </div>
+              )}
               <div className="grid sm:grid-cols-2 gap-3">
                 <label className="block sm:col-span-2">
                   <span className="text-xs text-muted">Tên workshop *</span>
                   <input
+                    id="workshop-name"
+                    required
+                    aria-invalid={Boolean(formError && !form.name.trim())}
                     className="mt-1 w-full border border-line rounded-sm px-3 py-2 text-sm"
                     value={form.name}
                     onChange={(e) => setField("name", e.target.value)}
@@ -706,6 +874,8 @@ export default function AdminWorkshopPage() {
                 <label className="block">
                   <span className="text-xs text-muted">Slug *</span>
                   <input
+                    required
+                    aria-invalid={Boolean(formError && !form.slug.trim())}
                     className="mt-1 w-full border border-line rounded-sm px-3 py-2 text-sm font-mono"
                     value={form.slug}
                     onChange={(e) => {
@@ -765,17 +935,10 @@ export default function AdminWorkshopPage() {
                 </label>
                 <label className="block">
                   <span className="text-xs text-muted">Trạng thái</span>
-                  <select
-                    className="mt-1 w-full border border-line rounded-sm px-3 py-2 text-sm"
-                    value={form.status || "draft"}
-                    onChange={(e) => setField("status", e.target.value)}
-                  >
-                    {STATUS_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="mt-1 min-h-10 rounded-sm border border-line bg-surface-muted px-3 py-2 text-sm text-muted">
+                    {statusLabel(form.status)}
+                  </div>
+                  <span className="mt-1 block text-[11px] text-muted">Đổi trạng thái từ danh sách workshop.</span>
                 </label>
                 <label className="block sm:col-span-2">
                   <span className="text-xs text-muted">Địa điểm</span>
@@ -894,12 +1057,17 @@ export default function AdminWorkshopPage() {
           onClick={() => setPreview(null)}
         >
           <div
+            ref={previewRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="media-preview-title"
+            tabIndex={-1}
             className="relative bg-surface rounded-md shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-line">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-brand-teal truncate">
+                 <div id="media-preview-title" className="text-sm font-semibold text-brand-teal truncate">
                   {preview.workshopName}
                 </div>
                 <div className="text-xs text-muted truncate">
@@ -910,7 +1078,8 @@ export default function AdminWorkshopPage() {
                 </div>
               </div>
               <button
-                type="button"
+                 type="button"
+                 data-preview-close
                 onClick={() => setPreview(null)}
                 className="text-muted text-xl leading-none px-2 shrink-0"
                 aria-label="Đóng preview"

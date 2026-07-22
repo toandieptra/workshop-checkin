@@ -359,8 +359,8 @@ export default function DesktopAdmin() {
 
   // ----- Render -----
   return (
-    <div className="p-6">
-      <div className="max-w-7xl mx-auto flex flex-col">
+    <div className="h-[calc(100dvh-3.5rem)] p-6">
+      <div className="max-w-7xl mx-auto flex h-full min-h-0 flex-col">
         <h1 className="text-2xl font-bold text-brand-teal mb-4">Khách mời</h1>
         {msg && (
           <div className="mb-3 p-2 bg-brand/10 text-brand-teal rounded-sm text-sm flex items-center justify-between">
@@ -608,8 +608,8 @@ export default function DesktopAdmin() {
         </section>}
 
         {/* Guest list */}
-        <section className="order-2 bg-surface rounded-md border border-line mb-4">
-          <div className="bg-surface border-b border-line px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <section className="order-2 bg-surface rounded-md border border-line mb-4 flex min-h-0 flex-1 flex-col">
+          <div className="bg-surface border-b border-line px-4 py-3 flex shrink-0 items-center justify-between gap-3 flex-wrap">
             <h2 className="font-semibold text-brand-teal">
               Phiếu đã check-in: {checkedInRecords}/{totalRecords} · Khách đã check-in: {totalCheckedIn}/{totalRegistered}
             </h2>
@@ -633,7 +633,7 @@ export default function DesktopAdmin() {
             </div>
           </div>
 
-          <div className="admin-table-scroll">
+          <div className="admin-table-scroll admin-guest-table-scroll">
             <table className="min-w-[900px] w-full text-sm">
               <thead className="bg-surface-muted text-muted text-xs">
                 <tr>

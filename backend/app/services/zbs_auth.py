@@ -46,8 +46,20 @@ async def _credential(db: AsyncSession, *, for_update: bool = False) -> ZbsOAuth
         await db.commit()
         if for_update:
             credential = await db.scalar(query)
-    elif not credential.refresh_token and settings.ZBS_REFRESH_TOKEN:
+    elif settings.ZBS_REFRESH_TOKEN and (
+        not credential.refresh_token
+        or (
+            _requires_reauthorization(credential.last_refresh_error)
+            and credential.refresh_token != settings.ZBS_REFRESH_TOKEN
+        )
+    ):
+        # Cho phép admin phục hồi credential bằng cặp token mới trong .env,
+        # nhưng không ghi đè refresh token đang xoay vòng khỏe mạnh trong DB.
+        credential.access_token = settings.ZBS_ACCESS_TOKEN
+        credential.access_token_expires_at = None
         credential.refresh_token = settings.ZBS_REFRESH_TOKEN
+        credential.refresh_token_expires_at = None
+        credential.last_refresh_error = None
         credential.updated_at = datetime.now(timezone.utc)
         await db.commit()
         if for_update:

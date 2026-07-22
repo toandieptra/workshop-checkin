@@ -56,7 +56,7 @@ echo "[4/5] Recreate containers"
 "$DOCKER_BIN" compose up -d --force-recreate
 "$DOCKER_BIN" compose exec -T postgres \
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
-  < migrations/026_zbs_oauth_credentials.sql
+  < migrations/027_guest_notes.sql
 
 echo "[5/5] Wait for health"
 sleep 8

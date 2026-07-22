@@ -6,6 +6,12 @@ from pydantic import BaseModel, ConfigDict
 # ===== Workshop =====
 
 WORKSHOP_STATUSES = ("draft", "published", "completed", "cancelled")
+WORKSHOP_STATUS_TRANSITIONS = {
+    "draft": ("published", "cancelled"),
+    "published": ("completed", "cancelled"),
+    "completed": (),
+    "cancelled": ("draft",),
+}
 WORKSHOP_MEDIA_TYPES = ("banner", "invitation", "document")
 
 
@@ -151,6 +157,24 @@ class GuestUpdateResult(BaseModel):
     guest: GuestOut
     lark_synced: bool = False
     lark_error: str | None = None
+
+
+class GuestNoteCreate(BaseModel):
+    content: str
+
+
+class GuestNoteUpdate(BaseModel):
+    content: str
+
+
+class GuestNoteOut(BaseModel):
+    id: uuid.UUID
+    guest_id: uuid.UUID
+    author_user_id: uuid.UUID | None
+    author_name: str
+    content: str
+    created_at: datetime
+    updated_at: datetime
 
 
 # ===== Check-in =====
