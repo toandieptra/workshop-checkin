@@ -155,9 +155,9 @@ export default function AdminFormsPage() {
   const submissionCount = forms.reduce((sum, f) => sum + (f.submission_count || 0), 0);
 
   return (
-    <div className="px-3 py-3 pb-20 sm:p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+    <div className="px-3 py-3 pb-20 sm:p-6 md:h-[calc(100dvh-3.5rem)] md:pb-6">
+      <div className="max-w-7xl mx-auto md:flex md:h-full md:min-h-0 md:flex-col">
+        <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4 md:shrink-0">
           <div>
             <h1 className="text-2xl font-bold text-brand-teal">Form đăng ký</h1>
             <p className="text-sm text-muted mt-1">
@@ -183,7 +183,7 @@ export default function AdminFormsPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-1.5 mb-4 sm:gap-4">
+        <div className="grid grid-cols-3 gap-1.5 mb-4 sm:gap-4 md:shrink-0">
           <div className="flex min-h-[72px] flex-col justify-center rounded-md border border-line bg-surface-muted px-2 py-2 text-center sm:block sm:bg-surface sm:p-4 sm:text-left">
             <div className="text-[10px] leading-tight text-muted sm:text-sm">Tổng form</div>
             <div className="mt-0.5 font-heading text-lg font-bold text-brand-teal sm:mt-1 sm:text-2xl">{forms.length}</div>
@@ -198,8 +198,8 @@ export default function AdminFormsPage() {
           </div>
         </div>
 
-        <section className="bg-surface rounded-md border border-line overflow-hidden">
-          <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-2 flex-wrap">
+        <section className="bg-surface rounded-md border border-line overflow-hidden md:flex md:min-h-0 md:flex-1 md:flex-col">
+          <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-2 flex-wrap md:shrink-0">
             <h2 className="font-semibold text-brand-teal">Danh sách form</h2>
             <div className="flex items-center gap-2">
               <div className="hidden md:block"><ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} /></div>
@@ -245,7 +245,7 @@ export default function AdminFormsPage() {
             })}
           </div>
 
-          <div className="admin-table-scroll hidden md:block">
+          <div className="admin-table-scroll hidden min-h-0 max-h-none flex-1 md:block">
             <table className="min-w-[1100px] w-full text-sm">
               <thead className="bg-surface-muted text-muted text-xs">
                 <tr>

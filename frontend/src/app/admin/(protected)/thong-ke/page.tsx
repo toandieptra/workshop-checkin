@@ -15,9 +15,10 @@ interface Guest {
   sync_status?: string;
 }
 type CheckinFilter = "all" | "checked_in" | "not_checked_in";
-type ColumnKey = "name" | "businessModel" | "type" | "registered" | "checkedIn" | "status" | "sync" | "checkedInAt" | "workshop";
+type ColumnKey = "name" | "phone" | "businessModel" | "type" | "registered" | "checkedIn" | "status" | "sync" | "checkedInAt" | "workshop";
 const TABLE_COLUMNS = [
-  { key: "name", label: "Tên" }, { key: "businessModel", label: "Mô hình kinh doanh" },
+  { key: "name", label: "Tên" }, { key: "phone", label: "Số điện thoại" },
+  { key: "businessModel", label: "Mô hình kinh doanh" },
   { key: "type", label: "Loại" }, { key: "registered", label: "Số khách đăng ký" },
   { key: "checkedIn", label: "Số khách check-in" }, { key: "status", label: "Trạng thái" },
   { key: "sync", label: "Đồng bộ Lark" }, { key: "checkedInAt", label: "Check-in lúc" },
@@ -184,9 +185,9 @@ export default function ThongKePage() {
   };
 
   return (
-    <div className="p-4 sm:p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+    <div className="p-4 sm:p-6 md:h-[calc(100dvh-3.5rem)] md:overflow-hidden">
+      <div className="max-w-7xl mx-auto md:flex md:h-full md:min-h-0 md:flex-col">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4 md:shrink-0">
           <h1 className="text-2xl font-bold text-brand-teal">Thống kê khách mời</h1>
           <button onClick={exportXlsx} disabled={!filtered.length || exporting || !can(PERMISSIONS.reportsExport)}
             className="bg-brand-teal text-white px-3 py-2 rounded-sm text-sm disabled:opacity-40">
@@ -194,19 +195,19 @@ export default function ThongKePage() {
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 md:flex md:min-h-0 md:flex-1 md:flex-col">
           {/* Filter bar */}
-          <div className="bg-surface rounded-md border border-line p-4 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-x-6 gap-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto sm:min-w-[320px] max-w-full">
+          <div className="bg-surface rounded-md border border-line p-3 flex flex-col sm:flex-row sm:flex-wrap lg:flex-nowrap sm:items-center gap-3 md:shrink-0">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto sm:min-w-[280px] lg:w-[300px] lg:min-w-0 max-w-full lg:shrink-0">
               <label className="text-xs font-semibold text-muted whitespace-nowrap">Workshop</label>
-              <div className="relative flex-1 min-w-0 sm:min-w-[280px]" ref={workshopMenuRef}>
+              <div className="relative flex-1 min-w-0 sm:min-w-[220px] lg:min-w-0" ref={workshopMenuRef}>
                 <button
                   type="button"
                   aria-label="Chọn workshop"
                   aria-expanded={workshopMenuOpen}
                   aria-haspopup="listbox"
                   onClick={() => setWorkshopMenuOpen((o) => !o)}
-                  className="w-full min-w-0 sm:min-w-[320px] border border-line rounded-sm px-2 py-1.5 text-sm bg-surface text-left flex items-center justify-between gap-2"
+                  className="w-full min-w-0 sm:min-w-[220px] lg:min-w-0 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface text-left flex items-center justify-between gap-2"
                 >
                   <span className="truncate">{workshopLabel}</span>
                   <span className="text-muted text-xs shrink-0">{workshopMenuOpen ? "▲" : "▼"}</span>
@@ -249,14 +250,14 @@ export default function ThongKePage() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2 min-w-[200px]">
+            <div className="flex items-center gap-2 min-w-[200px] lg:w-[220px] lg:min-w-0 lg:shrink-0">
               <label className="text-xs font-semibold text-muted whitespace-nowrap" htmlFor="filter-checkin">
                 Trạng thái check-in
               </label>
               <select
                 id="filter-checkin"
                 aria-label="Trạng thái check-in"
-                className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface min-w-[160px]"
+                className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface min-w-[120px] lg:min-w-0"
                 value={checkin}
                 onChange={(e) => setCheckin(e.target.value as CheckinFilter)}
               >
@@ -265,14 +266,14 @@ export default function ThongKePage() {
                 <option value="not_checked_in">Chưa check-in</option>
               </select>
             </div>
-            <div className="flex items-center gap-2 min-w-[260px] max-w-full">
+            <div className="flex items-center gap-2 min-w-[260px] max-w-full lg:min-w-0 lg:flex-1">
               <label className="text-xs font-semibold text-muted whitespace-nowrap" htmlFor="filter-business-model">
                 Mô hình kinh doanh
               </label>
               <select
                 id="filter-business-model"
                 aria-label="Mô hình kinh doanh"
-                className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface min-w-[220px] max-w-[min(420px,90vw)]"
+                className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface min-w-[180px] max-w-[min(420px,90vw)] lg:min-w-0 lg:max-w-none"
                 value={businessModel}
                 onChange={(e) => setBusinessModel(e.target.value as BusinessModelFilter)}
               >
@@ -282,10 +283,13 @@ export default function ThongKePage() {
                 ))}
               </select>
             </div>
+            <div className="sm:ml-auto shrink-0">
+              <ColumnVisibilityMenu columns={selectableColumns} visible={visibleColumns} onChange={setVisibleColumns} />
+            </div>
           </div>
 
           {/* KPI */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:shrink-0">
             <KpiCard label="Khách tham gia đã đăng ký" value={kpi.registeredGuests} sub="khách" />
             <KpiCard label="Số phiếu đăng ký" value={kpi.registeredRecords} sub="phiếu" />
             <KpiCard label="Khách đã check-in" value={kpi.checkedInGuests} sub={kpi.pctCheckedIn + "%"} />
@@ -293,20 +297,18 @@ export default function ThongKePage() {
           </div>
 
           {/* Table */}
-          <div className="bg-surface rounded-md border border-line overflow-hidden">
-            <div className="px-3 py-2 border-b border-line flex justify-end">
-              <ColumnVisibilityMenu columns={selectableColumns} visible={visibleColumns} onChange={setVisibleColumns} />
-            </div>
+          <div className="bg-surface rounded-md border border-line overflow-hidden md:flex md:min-h-0 md:flex-1 md:flex-col">
             {loading ? (
-              <div className="py-20 text-center text-muted">Đang tải...</div>
+              <div className="py-20 text-center text-muted md:flex md:flex-1 md:items-center md:justify-center">Đang tải...</div>
             ) : filtered.length === 0 ? (
-              <div className="py-20 text-center text-muted">Không có khách khớp bộ lọc</div>
+              <div className="py-20 text-center text-muted md:flex md:flex-1 md:items-center md:justify-center">Không có khách khớp bộ lọc</div>
             ) : (
-              <div className="admin-table-scroll">
+              <div className="admin-table-scroll md:min-h-0 md:max-h-none md:flex-1">
                 <table className="w-full text-sm min-w-[1000px]">
                   <thead className="bg-surface-muted text-muted text-xs">
                     <tr>
                       {visibleColumns.name && <th className="text-left px-3 py-2">Tên</th>}
+                      {visibleColumns.phone && <th className="text-left px-3 py-2">Số điện thoại</th>}
                       {visibleColumns.businessModel && <th className="text-left px-3 py-2">Mô hình kinh doanh</th>}
                       {visibleColumns.type && <th className="text-left px-3 py-2">Loại</th>}
                       {visibleColumns.registered && <th className="text-center px-3 py-2">Số khách đăng ký</th>}
@@ -321,6 +323,7 @@ export default function ThongKePage() {
                     {pagedGuests.map((g) => (
                       <tr key={g.id}>
                         {visibleColumns.name && <td className="px-3 py-2 font-medium text-ink">{g.full_name}</td>}
+                        {visibleColumns.phone && <td className="px-3 py-2 font-mono text-xs text-muted whitespace-nowrap">{g.phone || "—"}</td>}
                         {visibleColumns.businessModel && <td className="px-3 py-2 text-muted">{g.business_model || "—"}</td>}
                         {visibleColumns.type && <td className="px-3 py-2 text-muted">{g.guest_type || "—"}</td>}
                         {visibleColumns.registered && <td className="px-3 py-2 text-center">{g.party_size || 1}</td>}

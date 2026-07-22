@@ -633,8 +633,9 @@ export default function AdminWorkshopPage() {
               )}
             </div>
 
-            <div className="admin-table-scroll hidden border border-line rounded-md bg-surface md:block">
-              <table className="w-full min-w-[1100px] text-sm">
+            <div className="hidden h-[calc(100dvh-17rem)] min-h-[24rem] flex-col overflow-hidden rounded-md border border-line bg-surface md:flex">
+              <div className="admin-table-scroll min-h-0 max-h-none flex-1">
+                <table className="w-full min-w-[1100px] text-sm">
               <thead className="bg-surface-muted text-left text-muted">
                 <tr>
                   {visibleColumns.name && <th className="px-3 py-2 font-medium">Tên</th>}
@@ -657,7 +658,7 @@ export default function AdminWorkshopPage() {
                     {visibleColumns.date && <td className="px-3 py-2 whitespace-nowrap">{formatDate(w.event_date, w.event_time)}</td>}
                     {visibleColumns.branch && <td className="px-3 py-2">{w.branch || "—"}</td>}
                     {visibleColumns.location && <td className="px-3 py-2 max-w-[180px]">
-                      <div className="line-clamp-2">{w.location || "—"}</div>
+                      <div className="line-clamp-2" title={w.location || undefined}>{w.location || "—"}</div>
                       {w.maps_url && (
                         <a
                           href={w.maps_url}
@@ -807,8 +808,9 @@ export default function AdminWorkshopPage() {
                     </td>}
                   </tr>
                 ))}
-              </tbody>
-            </table>
+                  </tbody>
+                </table>
+              </div>
               <div className="admin-table-pagination flex flex-wrap items-center justify-between gap-3 border-t border-line px-3 py-3 text-sm">
                 <div className="text-muted">Hiển thị {firstRow}–{lastRow} trong tổng số {filteredItems.length} workshop</div>
                 <div className="flex flex-wrap items-center gap-2">
