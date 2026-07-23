@@ -350,7 +350,7 @@ export default function ThongKePage() {
                         </td>}
                         {visibleColumns.sync && <td className="px-3 py-2 text-center">
                           {g.sync_status === "synced" ? (
-                            <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Đã đồng bộ</span>
+                            <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Đã gửi</span>
                           ) : (
                             <span className="text-xs px-2 py-0.5 rounded bg-surface-muted text-muted">{g.sync_status || "—"}</span>
                           )}

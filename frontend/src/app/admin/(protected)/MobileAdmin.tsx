@@ -167,9 +167,6 @@ function SyncBadge({ status }: { status?: string }) {
   if (status === "synced") {
     return <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand">Lark ✓</span>;
   }
-  if (status === "conflict") {
-    return <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800">Xung đột</span>;
-  }
   if (status === "error") {
     return <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700">Lỗi Lark</span>;
   }
@@ -227,7 +224,7 @@ function splitUrl(url: string): { host: string; rest: string } {
  * `admin-khach-moi-mobile` (dieptra-design-systems, 375px).
  *
  * Ẩn so với desktop: bảng danh sách rộng, form thêm khách, import/export,
- * Lark sync (pull/push/full), edit modal chi tiết.
+ * Lark write-back và edit modal chi tiết.
  */
 export default function MobileAdmin() {
   const {

@@ -85,23 +85,12 @@ async def _lark_writeback_checkin(guest: Guest, checked: bool) -> str | None:
         await lark_client.update_record(
             settings.LARK_TABLE_REGISTRATIONS,
             guest.lark_record_id,
-            {"Check-In": checked},
+            {"Check-in": checked},
         )
         return None
-    except Exception as e1:
-        try:
-            await lark_client.update_record(
-                settings.LARK_TABLE_REGISTRATIONS,
-                guest.lark_record_id,
-                {"Check-in": checked},
-            )
-            return None
-        except Exception as e2:
-            logger.warning(
-                "lark writeback failed for guest %s: %s (Check-In) and %s (Check-in)",
-                guest.id, e1, e2,
-            )
-            return f"{e1} / {e2}"
+    except Exception as e:
+        logger.warning("lark writeback failed for guest %s: %s", guest.id, e)
+        return str(e)
 
 
 async def _broadcast_welcome(db: AsyncSession, workshop_id: uuid.UUID, guest: Guest):
@@ -291,7 +280,7 @@ async def lookup_by_phone(
                checkin_status, actual_party_size, lark_record_id,
                email, company, business_model, role_title, guest_type,
                note, checked_in_at, registered_at, created_at,
-               local_updated_at, lark_updated_at, last_synced_at,
+               local_updated_at, last_synced_at,
                sync_status, sync_error
         FROM guests
         WHERE deleted_at IS NULL
@@ -498,7 +487,7 @@ async def update_guest(
                     "Mô hình kinh doanh": g.business_model or "",
                     "Số vé đăng ký": max(1, int(g.party_size or 1)),
                     "Nguồn": _source_to_lark(g.source, g.source_detail),
-                    "Người tạo": g.creator_name or "",
+                    "Người tạo Web": g.creator_name or "",
                 }
                 await lark_client.update_record(
                     settings.LARK_TABLE_REGISTRATIONS, g.lark_record_id, fields,

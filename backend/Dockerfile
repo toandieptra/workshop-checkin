@@ -10,6 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt greenlet
 
 COPY app ./app
+COPY scripts ./scripts
 COPY seed.py .
 
 EXPOSE 8427

@@ -142,7 +142,6 @@ async def export_guests(
         return {
             "synced": "Đã đồng bộ",
             "pending_push": "Chờ đồng bộ",
-            "conflict": "Xung đột",
             "error": "Lỗi đồng bộ",
         }.get(s or "", s or "")
 

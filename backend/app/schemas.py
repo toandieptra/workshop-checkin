@@ -147,7 +147,6 @@ class GuestOut(BaseModel):
     created_at: datetime
     # Sync fields
     local_updated_at: datetime | None = None
-    lark_updated_at: datetime | None = None
     last_synced_at: datetime | None = None
     sync_status: str | None = None
     sync_error: str | None = None
@@ -248,26 +247,7 @@ class SelfRegisterResult(BaseModel):
     warning: str | None = None
 
 
-# ===== Lark Sync =====
-
-class LarkWorkshop(BaseModel):
-    lark_workshop_name: str
-    event_date: str | None = None
-    location: str | None = None
-
-
-class SyncPullRequest(BaseModel):
-    lark_workshop_name: str
-    target_workshop_id: uuid.UUID | None = None
-
-
-class SyncPullResult(BaseModel):
-    workshop_id: uuid.UUID
-    workshop_name: str
-    pulled: int
-    conflicts: int
-    errors: int
-
+# ===== Lark write-back =====
 
 class SyncPushRequest(BaseModel):
     guest_id: uuid.UUID | None = None  # None = push all unsynced
@@ -281,27 +261,11 @@ class SyncPushResult(BaseModel):
     error_details: list[str] = []
 
 
-class SyncFullRequest(BaseModel):
-    lark_workshop_name: str
-    target_workshop_id: uuid.UUID | None = None
-
-
 class SyncStatus(BaseModel):
     pending_push: int
-    pending_pull: int
-    conflicts: int
     errors: int
+    synced: int
     last_sync_at: datetime | None = None
-
-
-class SyncResolveRequest(BaseModel):
-    direction: str  # 'local' | 'lark'
-
-
-class SyncResolveResult(BaseModel):
-    guest: GuestOut
-    resolved: bool
-    lark_error: str | None = None
 
 
 class SyncLogOut(BaseModel):

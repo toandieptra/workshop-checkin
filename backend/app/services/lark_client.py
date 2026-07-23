@@ -1,5 +1,4 @@
 import time
-import json
 import logging
 
 import httpx
@@ -66,7 +65,7 @@ async def _auth_headers() -> dict:
 
 
 async def list_records(table_id: str, page_size: int = 100) -> list[dict]:
-    """List toàn bộ record của 1 bảng (tự phân trang)."""
+    """List toàn bộ record của một table, không giới hạn theo Lark view."""
     _ensure_config()
     base = settings.LARK_BASE_TOKEN
     url = f"{settings.lark_base_url}/bitable/v1/apps/{base}/tables/{table_id}/records"
@@ -156,7 +155,7 @@ async def list_contact_users() -> list[dict]:
 
 
 async def update_record(table_id: str, record_id: str, fields: dict) -> None:
-    """Cập nhật 1 record (write-back)."""
+    """Cập nhật một record trực tiếp trong table, không qua Lark view."""
     _ensure_config()
     base = settings.LARK_BASE_TOKEN
     url = f"{settings.lark_base_url}/bitable/v1/apps/{base}/tables/{table_id}/records/{record_id}"
@@ -168,7 +167,7 @@ async def update_record(table_id: str, record_id: str, fields: dict) -> None:
 
 
 async def create_record(table_id: str, fields: dict) -> str:
-    """Tạo 1 record mới, trả về record_id."""
+    """Tạo một record trực tiếp trong table, trả về record_id."""
     _ensure_config()
     base = settings.LARK_BASE_TOKEN
     url = f"{settings.lark_base_url}/bitable/v1/apps/{base}/tables/{table_id}/records"
@@ -182,28 +181,6 @@ async def create_record(table_id: str, fields: dict) -> str:
         if not record_id:
             raise LarkError("Lark create không trả record_id")
         return record_id
-
-
-async def download_bitable_media(
-    file_token: str,
-    table_id: str | None = None,
-    extra: str | None = None,
-) -> tuple[bytes, str | None]:
-    """Tải attachment bitable theo file_token. Trả (bytes, content-type)."""
-    _ensure_config()
-    if not file_token:
-        raise LarkError("Thiếu file_token")
-    url = f"{settings.lark_base_url}/drive/v1/medias/{file_token}/download"
-    params: dict = {}
-    if extra:
-        params["extra"] = extra
-    elif table_id:
-        params["extra"] = json.dumps({"bitablePerm": {"tableId": table_id}}, separators=(",", ":"))
-    async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
-        r = await _request_with_retry(client, "GET", url, params=params or None)
-        if r.status_code != 200 or not r.content:
-            raise LarkError(f"Tải media thất bại: status={r.status_code}")
-        return r.content, r.headers.get("content-type")
 
 
 async def upload_bitable_media(
@@ -301,17 +278,3 @@ def field_text(fields: dict, name: str) -> str | None:
     if isinstance(v, dict):
         return v.get("text") or v.get("name") or v.get("value")
     return str(v)
-
-
-def field_int(fields: dict, name: str, default: int = 1) -> int:
-    """Trích số nguyên (vd Số vé đăng ký)."""
-    raw = field_text(fields, name)
-    if raw is None:
-        return default
-    digits = "".join(c for c in raw if c.isdigit())
-    if not digits:
-        return default
-    try:
-        return max(1, int(digits))
-    except ValueError:
-        return default

@@ -151,9 +151,8 @@ class Guest(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Sync fields
     local_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    lark_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    sync_status: Mapped[str] = mapped_column(Text, default="pending_push")  # synced | pending_push | pending_pull | conflict | error
+    sync_status: Mapped[str] = mapped_column(Text, default="pending_push")  # synced | pending_push | error
     sync_error: Mapped[str | None] = mapped_column(Text)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

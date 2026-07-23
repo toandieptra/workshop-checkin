@@ -79,6 +79,9 @@ echo "[4/6] Recreate containers"
 "$DOCKER_BIN" compose exec -T postgres \
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/027_guest_notes.sql
+"$DOCKER_BIN" compose exec -T postgres \
+  sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/028_lark_outbound_only.sql
 
 echo "[5/6] Current status"
 sleep 5

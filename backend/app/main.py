@@ -59,8 +59,6 @@ async def lifespan(app: FastAPI):
 
     await bootstrap_super_admin()
 
-    # Start Lark polling background task
-    lark_sync.start_lark_poll()
     global _directory_sync_task
     if settings.LARK_DIRECTORY_SYNC_ENABLED:
         _directory_sync_task = asyncio.create_task(_directory_sync_loop())
@@ -72,7 +70,6 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    lark_sync.stop_lark_poll()
     if _directory_sync_task:
         _directory_sync_task.cancel()
     if _zbs_task:

@@ -4,7 +4,7 @@ import QrDisplay from "@/components/QrDisplay";
 import { api, downloadGuestsXlsx } from "@/lib/api";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
 import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
-import { useAdminGuests, type Guest, type LarkWorkshop, type ZbsDelivery } from "@/hooks/useAdminGuests";
+import { useAdminGuests, type Guest, type ZbsDelivery } from "@/hooks/useAdminGuests";
 import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
 import GuestQr from "@/components/GuestQr";
 import GuestDetailRow from "@/components/GuestDetailRow";
@@ -34,14 +34,7 @@ function isVip(g: Guest): boolean {
 
 function SyncBadge({ status, error }: { status?: string; error?: string | null }) {
   if (status === "synced") {
-    return <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Đã đồng bộ</span>;
-  }
-  if (status === "conflict") {
-    return (
-      <span className="text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-800 font-medium" title={error || ""}>
-        Xung đột
-      </span>
-    );
+    return <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Đã gửi</span>;
   }
   if (status === "error") {
     return (
@@ -51,7 +44,7 @@ function SyncBadge({ status, error }: { status?: string; error?: string | null }
     );
   }
   if (status === "pending_push") {
-    return <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600">Chờ đồng bộ</span>;
+    return <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600">Chờ gửi</span>;
   }
   return <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">—</span>;
 }
@@ -113,7 +106,7 @@ function WelcomeLinkCard({ slug }: { slug: string }) {
 /**
  * Desktop view cho trang Admin Khách mời — UI gốc, không đổi hành vi.
  * State/actions lấy từ useAdminGuests (share với MobileAdmin).
- * Lark sync + edit modal là desktop-only: giữ state cục bộ tại đây,
+ * Lark write-back + edit modal là desktop-only: giữ state cục bộ tại đây,
  * gọi reload()/refreshWorkshops()/setWid() từ hook để đồng bộ.
  */
 export default function DesktopAdmin() {
@@ -132,10 +125,8 @@ export default function DesktopAdmin() {
     doUncheckin,
     toggleVip,
     copyPhone,
-    resolveConflict,
     importFile,
     reload,
-    refreshWorkshops,
     totalRegistered,
     totalCheckedIn,
     totalRecords,
@@ -184,50 +175,8 @@ export default function DesktopAdmin() {
     }
   }, [expandedGuestId, visibleGuests]);
 
-  // ----- Lark sync (desktop-only) -----
-  const [larkOpen, setLarkOpen] = useState(false);
-  const [larkWs, setLarkWs] = useState<LarkWorkshop[]>([]);
-  const [larkPick, setLarkPick] = useState("");
+  // ----- Lark write-back (desktop-only) -----
   const [larkBusy, setLarkBusy] = useState(false);
-  const [larkLoading, setLarkLoading] = useState(false);
-
-  const openLark = async () => {
-    setLarkOpen(true);
-    if (larkWs.length) return;
-    setLarkLoading(true);
-    try {
-      const ws = await api<LarkWorkshop[]>("/lark/workshops");
-      setLarkWs(ws);
-      if (ws[0]) setLarkPick(ws[0].lark_workshop_name);
-    } catch (e: any) {
-      setMsg("Lỗi tải workshop Lark: " + (e?.message || "không rõ"));
-    } finally {
-      setLarkLoading(false);
-    }
-  };
-
-  const runLarkPull = async () => {
-    if (!larkPick) return;
-    setLarkBusy(true);
-    setMsg("Đang kéo dữ liệu từ Lark...");
-    try {
-      const params = new URLSearchParams({ lark_workshop_name: larkPick });
-      if (wid) params.set("target_workshop_id", wid);
-      const res = await api<any>("/lark/sync/pull?" + params.toString(), { method: "POST" });
-      let txt = "Kéo xong: +" + res.pulled + " cập nhật";
-      if (res.conflicts) txt += ", xung đột " + res.conflicts;
-      if (res.errors) txt += ", lỗi " + res.errors;
-      setMsg(txt);
-      setLarkOpen(false);
-      await refreshWorkshops();
-      if (res.workshop_id) setWid(res.workshop_id);
-      await reload();
-    } catch (e: any) {
-      setMsg("Lỗi kéo từ Lark: " + (e?.message || "không rõ"));
-    } finally {
-      setLarkBusy(false);
-    }
-  };
 
   const runLarkPush = async () => {
     if (!wid) return;
@@ -241,44 +190,6 @@ export default function DesktopAdmin() {
       await reload();
     } catch (e: any) {
       setMsg("Lỗi đẩy lên Lark: " + (e?.message || "không rõ"));
-    } finally {
-      setLarkBusy(false);
-    }
-  };
-
-  const runLarkFull = async () => {
-    if (!wid) return;
-    setLarkBusy(true);
-    setMsg("Đang đồng bộ toàn bộ...");
-    const ws = workshops.find((w) => w.id === wid);
-    const larkName = ws?.lark_workshop_name || ws?.name || "";
-    try {
-      const params = new URLSearchParams({ lark_workshop_name: larkName, target_workshop_id: wid });
-      const res = await api<any>("/lark/sync/full?" + params.toString(), { method: "POST" });
-      let txt = "Đồng bộ toàn bộ: kéo +" + res.pulled;
-      if (res.conflicts) txt += ", xung đột " + res.conflicts;
-      txt += " → đẩy " + (res.push?.pushed || 0) + "/" + (res.push?.total || 0);
-      if (res.push?.errors) txt += ", lỗi " + res.push.errors;
-      setMsg(txt);
-      await reload();
-    } catch (e: any) {
-      setMsg("Lỗi đồng bộ toàn bộ: " + (e?.message || "không rõ"));
-    } finally {
-      setLarkBusy(false);
-    }
-  };
-
-  const runLarkWorkshopsSync = async () => {
-    setLarkBusy(true);
-    setMsg("Đang đồng bộ danh sách sự kiện từ Lark...");
-    try {
-      const res = await api<any>("/lark/sync/workshops", { method: "POST" });
-      let txt = `Đồng bộ sự kiện: +${res.created} mới, ${res.updated} cập nhật`;
-      if (res.errors) txt += `, lỗi ${res.errors}`;
-      setMsg(txt);
-      await refreshWorkshops();
-    } catch (e: any) {
-      setMsg("Lỗi đồng bộ sự kiện: " + (e?.message || "không rõ"));
     } finally {
       setLarkBusy(false);
     }
@@ -359,8 +270,8 @@ export default function DesktopAdmin() {
 
   // ----- Render -----
   return (
-    <div className="h-[calc(100dvh-3.5rem)] p-6">
-      <div className="max-w-7xl mx-auto flex h-full min-h-0 flex-col">
+    <div className="min-h-[calc(100dvh-3.5rem)] p-6">
+      <div className="max-w-7xl mx-auto flex min-h-[calc(100dvh-6.5rem)] flex-col">
         <h1 className="text-2xl font-bold text-brand-teal mb-4">Khách mời</h1>
         {msg && (
           <div className="mb-3 p-2 bg-brand/10 text-brand-teal rounded-sm text-sm flex items-center justify-between">
@@ -378,27 +289,6 @@ export default function DesktopAdmin() {
               <button type="button" aria-expanded={showAdminTools} onClick={() => setShowAdminTools((value) => !value)} className="min-h-10 rounded-md border border-line px-4 text-sm font-semibold text-brand-teal">{showAdminTools ? "Ẩn công cụ quản trị" : "Công cụ quản trị"}</button>
             </div>
             {showAdminTools && <div className="flex w-full items-center gap-2 flex-wrap border-t border-line pt-3">
-              <button
-                onClick={runLarkWorkshopsSync}
-                disabled={larkBusy}
-                className="bg-brand text-brand-teal px-3 py-2 rounded-sm text-sm font-semibold disabled:opacity-50"
-                title="Kéo danh sách workshop mới + cập nhật thông tin từ bảng Lark Workshop config"
-              >
-                Đồng bộ sự kiện
-              </button>
-              <button
-                onClick={runLarkFull}
-                disabled={larkBusy || !wid}
-                className="bg-brand text-brand-teal px-3 py-2 rounded-sm text-sm font-semibold disabled:opacity-50"
-              >
-                Đồng bộ toàn bộ
-              </button>
-              <button
-                onClick={openLark}
-                className="border border-brand text-brand px-3 py-2 rounded-sm text-sm"
-              >
-                Đồng bộ từ Lark
-              </button>
               <button
                 onClick={runLarkPush}
                 disabled={larkBusy || !wid}
@@ -426,7 +316,7 @@ export default function DesktopAdmin() {
           </div>
 
           {showAdminTools && currentWorkshop && (
-            <div className="order-4 grid lg:grid-cols-10 gap-4 mb-4 items-stretch">
+            <div className="order-2 grid lg:grid-cols-10 gap-4 mb-4 items-stretch">
               <div className="lg:col-span-7 h-full bg-surface rounded-md border border-line p-5 flex flex-col">
                 <h2 className="font-semibold text-brand-teal mb-4 flex items-center gap-1.5">
                   Thông tin Workshop
@@ -608,7 +498,7 @@ export default function DesktopAdmin() {
         </section>}
 
         {/* Guest list */}
-        <section className="order-2 bg-surface rounded-md border border-line mb-4 flex min-h-0 flex-1 flex-col">
+        <section className={`order-4 bg-surface rounded-md border border-line mb-4 flex min-h-[24rem] flex-col ${showAdminTools || showAddGuest ? "" : "flex-1"}`}>
           <div className="bg-surface border-b border-line px-4 py-3 flex shrink-0 items-center justify-between gap-3 flex-wrap">
             <h2 className="font-semibold text-brand-teal">
               Phiếu đã check-in: {checkedInRecords}/{totalRecords} · Khách đã check-in: {totalCheckedIn}/{totalRegistered}
@@ -760,22 +650,6 @@ export default function DesktopAdmin() {
                         {visibleColumns.sync && <td className="px-3 py-3 align-top">
                          <div className="flex flex-col gap-1 items-center">
                             <SyncBadge status={g.sync_status} error={g.sync_error} />
-                           {g.sync_status === "conflict" && (
-                            <div className="flex gap-1 mt-1">
-                               <button
-                                 onClick={(event) => { event.stopPropagation(); void resolveConflict(g, "local"); }}
-                                className="text-xs text-blue-600 underline"
-                              >
-                                Local
-                              </button>
-                               <button
-                                 onClick={(event) => { event.stopPropagation(); void resolveConflict(g, "lark"); }}
-                                className="text-xs text-purple-600 underline"
-                              >
-                                Lark
-                              </button>
-                            </div>
-                          )}
                          </div>
                        </td>}
                        {visibleColumns.zbs && <td className="px-3 py-3 align-top">
@@ -828,7 +702,6 @@ export default function DesktopAdmin() {
                        onUncheckin={(guest) => void doUncheckin(guest)}
                        onToggleVip={(guest) => void toggleVip(guest)}
                        onDelete={(guest) => void delGuest(guest.id).then((deleted) => { if (deleted) setExpandedGuestId(null); })}
-                       onResolveConflict={(guest, direction) => void resolveConflict(guest, direction)}
                        onSendManualZbs={(guest, taskKey) => void sendZbsManually(guest, taskKey)}
                        canSendManualZbs={can(PERMISSIONS.zbsManage)}
                      />}
@@ -936,54 +809,6 @@ export default function DesktopAdmin() {
         </div>
       )}
 
-      {/* Lark pull modal */}
-      {larkOpen && (
-        <div
-          className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => !larkBusy && setLarkOpen(false)}
-        >
-          <div className="bg-surface rounded-md border border-line p-5 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-semibold text-brand-teal mb-1">Kéo dữ liệu từ Lark</h3>
-            <p className="text-xs text-muted mb-3">
-              Kéo khách từ Lark Base về local. Workshop trong Lark phải khớp với workshop hiện tại.
-            </p>
-            {larkLoading ? (
-              <div className="text-sm text-muted py-4">Đang tải danh sách workshop từ Lark...</div>
-            ) : (
-              <>
-                <label className="block text-muted text-xs mb-1">Workshop (Lark)</label>
-                <select
-                  className="border border-line rounded-sm px-3 py-2 w-full mb-2"
-                  value={larkPick}
-                  onChange={(e) => setLarkPick(e.target.value)}
-                >
-                  {larkWs.map((w) => (
-                    <option key={w.lark_workshop_name} value={w.lark_workshop_name}>
-                      {w.lark_workshop_name}{w.event_date ? " — " + w.event_date : ""}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-            <div className="flex justify-end gap-2 mt-2">
-              <button
-                onClick={() => setLarkOpen(false)}
-                disabled={larkBusy}
-                className="border border-line px-3 py-1.5 rounded-sm text-sm disabled:opacity-50"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={runLarkPull}
-                disabled={larkBusy || larkLoading || !larkPick}
-                className="bg-brand text-brand-teal px-3 py-1.5 rounded-sm text-sm font-semibold disabled:opacity-50"
-              >
-                {larkBusy ? "Đang kéo..." : "Kéo từ Lark"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

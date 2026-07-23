@@ -73,7 +73,6 @@ export default function GuestDetailContent({
   onUncheckin,
   onToggleVip,
   onDelete,
-  onResolveConflict,
   onSendManualZbs,
   canSendManualZbs,
 }: {
@@ -86,7 +85,6 @@ export default function GuestDetailContent({
   onUncheckin: (guest: Guest) => void;
   onToggleVip: (guest: Guest) => void;
   onDelete: (guest: Guest) => void;
-  onResolveConflict: (guest: Guest, direction: "local" | "lark") => void;
   onSendManualZbs: (guest: Guest, taskKey: "registration_confirmation" | "checkin_confirmation") => void;
   canSendManualZbs: boolean;
 }) {
@@ -139,20 +137,15 @@ export default function GuestDetailContent({
         </div>
       </section>
       <section className="rounded-md border border-line bg-white p-4">
-        <h4 className="font-semibold text-ink">Đồng bộ Lark</h4>
+        <h4 className="font-semibold text-ink">Gửi dữ liệu sang Lark</h4>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <DetailField label="Trạng thái" value={guest.sync_status} />
           <DetailField label="Lark record ID" value={guest.lark_record_id} mono />
           <DetailField label="Cập nhật local" value={formatDateTime(guest.local_updated_at)} />
-          <DetailField label="Cập nhật Lark" value={formatDateTime(guest.lark_updated_at)} />
-          <DetailField label="Đồng bộ gần nhất" value={formatDateTime(guest.last_synced_at)} />
+          <DetailField label="Gửi thành công gần nhất" value={formatDateTime(guest.last_synced_at)} />
           <DetailField label="Mã Workshop" value={guest.workshop_id || workshopId} mono />
         </div>
         {guest.sync_error && <div className="mt-4 whitespace-pre-wrap rounded bg-red-50 px-3 py-2 text-xs text-red-700">{guest.sync_error}</div>}
-        {guest.sync_status === "conflict" && <div className="mt-4 flex gap-2" data-row-action>
-          <button type="button" onClick={() => onResolveConflict(guest, "local")} className="min-h-9 rounded border border-blue-200 px-3 text-xs font-semibold text-blue-700">Ưu tiên Local</button>
-          <button type="button" onClick={() => onResolveConflict(guest, "lark")} className="min-h-9 rounded border border-purple-200 px-3 text-xs font-semibold text-purple-700">Ưu tiên Lark</button>
-        </div>}
       </section>
     </div>
 

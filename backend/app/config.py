@@ -16,12 +16,13 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "/uploads"
     MAX_UPLOAD_FILE_BYTES: int = 10 * 1024 * 1024
 
-    # Danh sách chi nhánh cố định (phân tách bằng dấu phẩy) — lấy từ Larkbase.
+    # Danh sách chi nhánh cố định, phân tách bằng dấu phẩy.
     WORKSHOP_BRANCHES: str = "Hà Nội,Sài Gòn"
 
     PUBLIC_BASE_URL: str | None = None
 
-    # ===== Lark Base sync =====
+    # ===== Lark Base write-back =====
+    # APIs target the tables directly; browser view IDs are intentionally unused.
     LARK_APP_ID: str | None = None
     LARK_APP_SECRET: str | None = None
     LARK_DOMAIN: str = "larksuite.com"
@@ -44,9 +45,6 @@ class Settings(BaseSettings):
 
     # ===== Check-in dedup =====
     CHECKIN_DEDUP_TTL_SECONDS: int = 3000
-
-    # ===== Background sync =====
-    LARK_SYNC_INTERVAL_SECONDS: int = 30
 
     # ===== Zalo Business Solutions / ZBS =====
     ZBS_ENABLED: bool = False

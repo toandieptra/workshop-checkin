@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from ipaddress import ip_address
 import uuid
 
 from fastapi import HTTPException, Request
@@ -31,12 +32,19 @@ def normalize_guest_source(source: str, source_detail: str | None) -> tuple[str,
 
 
 def client_ip(request: Request) -> str:
-    # Nginx overwrites X-Real-IP; X-Forwarded-For may contain client-supplied hops.
-    real_ip = (request.headers.get("x-real-ip") or "").strip()
-    if real_ip:
-        return real_ip
-    forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
-    return forwarded or (request.client.host if request.client else "unknown")
+    candidates = [
+        *(part.strip() for part in (request.headers.get("x-forwarded-for") or "").split(",")),
+        (request.headers.get("x-real-ip") or "").strip(),
+        request.client.host if request.client else "",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return str(ip_address(candidate))
+        except ValueError:
+            continue
+    return "unknown"
 
 
 async def optional_admin_user(request: Request, db: AsyncSession) -> AdminUser | None:

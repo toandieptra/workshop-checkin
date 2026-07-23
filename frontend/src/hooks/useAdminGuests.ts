@@ -43,7 +43,6 @@ export interface Guest {
   creator_name?: string | null;
   creator_user_id?: string | null;
   local_updated_at?: string | null;
-  lark_updated_at?: string | null;
   last_synced_at?: string | null;
   zbs?: {
     registration_confirmation?: ZbsDelivery;
@@ -70,12 +69,6 @@ export interface ZbsDelivery {
   updated_at?: string | null;
 }
 
-export interface LarkWorkshop {
-  lark_workshop_name: string;
-  event_date?: string;
-  location?: string;
-}
-
 export interface NewGuestInput {
   full_name: string;
   phone: string;
@@ -91,7 +84,7 @@ export type StatusFilter = "all" | "checked_in" | "not_checked_in";
 /**
  * Hook tập trung state + action cho trang Admin Khách mời.
  * Cả MobileAdmin và DesktopAdmin cùng consume để tránh duplicate logic.
- * Desktop-only (Lark sync, edit modal) tự quản state riêng trong component,
+ * Desktop-only (Lark write-back, edit modal) tự quản state riêng trong component,
  * chỉ gọi `reload()` / `refreshWorkshops()` từ hook để đồng bộ dữ liệu.
  */
 export function useAdminGuests() {
@@ -396,25 +389,6 @@ export function useAdminGuests() {
     }
   }, []);
 
-  const resolveConflict = useCallback(
-    async (guest: Guest, direction: "local" | "lark") => {
-      try {
-        const res = await api<any>("/lark/sync/resolve/" + guest.id, {
-          method: "POST",
-          body: JSON.stringify({ direction }),
-        });
-        const label = direction === "local" ? "Local" : "Lark";
-        const okStr = res.resolved ? "Đã xử lý: ưu tiên " + label : "Lỗi xử lý: " + (res.error || "");
-        setMsg(okStr);
-        await loadGuests(wid, debouncedSearch);
-        await refreshCachedGuestDetail(guest.id);
-      } catch (e: any) {
-        setMsg("Lỗi xử lý xung đột: " + (e?.message || "không rõ"));
-      }
-    },
-    [wid, debouncedSearch, loadGuests, refreshCachedGuestDetail],
-  );
-
   const retryZbs = useCallback(async (delivery: ZbsDelivery) => {
     try {
       await api("/zbs/deliveries/" + delivery.id + "/retry", { method: "POST" });
@@ -512,7 +486,6 @@ export function useAdminGuests() {
     doUncheckin,
     toggleVip,
     copyPhone,
-    resolveConflict,
     retryZbs,
     sendZbsManually,
     guestDetails,

@@ -16,7 +16,6 @@ export default function GuestDetailRow({
   onUncheckin,
   onToggleVip,
   onDelete,
-  onResolveConflict,
   onSendManualZbs,
   canSendManualZbs,
 }: {
@@ -31,7 +30,6 @@ export default function GuestDetailRow({
   onUncheckin: (guest: Guest) => void;
   onToggleVip: (guest: Guest) => void;
   onDelete: (guest: Guest) => void;
-  onResolveConflict: (guest: Guest, direction: "local" | "lark") => void;
   onSendManualZbs: (guest: Guest, taskKey: "registration_confirmation" | "checkin_confirmation") => void;
   canSendManualZbs: boolean;
 }) {
@@ -71,7 +69,6 @@ export default function GuestDetailRow({
           onUncheckin={onUncheckin}
           onToggleVip={onToggleVip}
           onDelete={onDelete}
-          onResolveConflict={onResolveConflict}
           onSendManualZbs={onSendManualZbs}
           canSendManualZbs={canSendManualZbs}
         /> : <div className="p-8 text-center text-muted">Không tìm thấy thông tin khách.</div>}
