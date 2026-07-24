@@ -7,6 +7,8 @@ PERMISSIONS = frozenset({
     "uploads.create",
     "zbs.read", "zbs.manage",
     "zalo_connections.read", "zalo_connections.manage",
+    "zalo_templates.read", "zalo_templates.manage",
+    "zalo_messages.read", "zalo_messages.send",
     "users.manage",
 })
 

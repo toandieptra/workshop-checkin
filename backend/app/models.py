@@ -305,6 +305,111 @@ class ZbsTaskConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ZaloTemplate(Base):
+    __tablename__ = "zalo_templates"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    content_blocks: Mapped[list[dict]] = mapped_column(JSONB, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="draft", nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GuestZaloMapping(Base):
+    __tablename__ = "guest_zalo_mappings"
+    guest_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("guests.id", ondelete="CASCADE"), primary_key=True)
+    account_owner_id: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient_id: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient_name: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(Text, default="bridge", nullable=False)
+    resolution: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ZaloDeliveryBatch(Base):
+    __tablename__ = "zalo_delivery_batches"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    name: Mapped[str | None] = mapped_column(Text)
+    template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("zalo_templates.id", ondelete="SET NULL"))
+    selection: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="queued", nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ZaloDelivery(Base):
+    __tablename__ = "zalo_deliveries"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("zalo_delivery_batches.id", ondelete="SET NULL"))
+    template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("zalo_templates.id", ondelete="SET NULL"))
+    template_name: Mapped[str] = mapped_column(Text, nullable=False)
+    content_blocks: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="queued", nullable=False)
+    recipient_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    items: Mapped[list["ZaloDeliveryItem"]] = relationship("ZaloDeliveryItem", cascade="all, delete-orphan", order_by="ZaloDeliveryItem.created_at", lazy="selectin")
+
+
+class ZaloQuotaUsage(Base):
+    __tablename__ = "zalo_quota_usage"
+    account_owner_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    capability: Mapped[str] = mapped_column(Text, primary_key=True)
+    usage_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    daily_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    used_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reserved_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ZaloQuotaReservation(Base):
+    __tablename__ = "zalo_quota_reservations"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    account_owner_id: Mapped[str] = mapped_column(Text, nullable=False)
+    capability: Mapped[str] = mapped_column(Text, nullable=False)
+    usage_date: Mapped[date] = mapped_column(Date, nullable=False)
+    delivery_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("zalo_deliveries.id", ondelete="CASCADE"), unique=True)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    consumed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    released_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="active", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ZaloDeliveryItem(Base):
+    __tablename__ = "zalo_delivery_items"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    delivery_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("zalo_deliveries.id", ondelete="CASCADE"), nullable=False)
+    guest_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("guests.id", ondelete="SET NULL"))
+    recipient_id: Mapped[str | None] = mapped_column(Text)
+    recipient_name: Mapped[str | None] = mapped_column(Text)
+    phone: Mapped[str | None] = mapped_column(Text)
+    block_position: Mapped[int] = mapped_column(Integer, nullable=False)
+    block_payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    quota_cost: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="pending", nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    sending_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    message_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    provider_response: Mapped[dict | None] = mapped_column(JSONB)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class SyncLog(Base):
     __tablename__ = "sync_logs"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())

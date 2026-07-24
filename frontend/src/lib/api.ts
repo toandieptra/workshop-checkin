@@ -7,6 +7,19 @@ import type {
   ZbsTemplateStatus,
   ZbsOAuthStatusResponse,
 } from "@/types/zbs-template";
+import type {
+  ZaloBulkPreflight,
+  ZaloBulkSendResult,
+  ZaloMediaUploadResult,
+  ZaloMessageQuota,
+  ZaloMessageTemplate,
+  ZaloMessageTemplateInput,
+  ZaloMessageTemplateListResponse,
+  ZaloMessageTemplateStatus,
+  ZaloTemplateVariable,
+  ZaloDelivery,
+  ZaloDeliveryItem,
+} from "@/types/zalo-message";
 
 // Mặc định dùng relative path để tận dụng Next.js rewrite (xem next.config.js).
 // Khi dev local nếu muốn trỏ thẳng backend, set NEXT_PUBLIC_API_URL="http://localhost:8427/api".
@@ -516,4 +529,225 @@ export function reconnectZaloAgent() {
 
 export function removeZaloAgentAccount(ownerId: string) {
   return api<{ removed: boolean }>(`/zalo-agent/accounts/${encodeURIComponent(ownerId)}`, { method: "DELETE" });
+}
+
+// -----------------------------------------------------------------
+// Zalo cá nhân: mẫu tin và gửi hàng loạt
+// -----------------------------------------------------------------
+
+type ZaloTemplateApi = Omit<ZaloMessageTemplate, "blocks"> & { content_blocks: Array<Record<string, any>> };
+
+function normalizeZaloTemplate(template: ZaloTemplateApi): ZaloMessageTemplate {
+  return {
+    ...template,
+    blocks: template.content_blocks.map((block, blockIndex) => {
+      if (block.type === "image_album") {
+        return {
+          id: String(block.id || blockIndex),
+          type: "image" as const,
+          images: (Array.isArray(block.images) ? block.images : []).map((image: Record<string, any>, imageIndex: number) => ({
+            id: String(image.id || `${blockIndex}-${imageIndex}`),
+            url: String(image.url || ""),
+          })),
+        };
+      }
+      if (block.type === "image") {
+        return {
+          id: String(block.id || blockIndex),
+          type: "image" as const,
+          images: block.url ? [{ id: String(block.id || `${blockIndex}-0`), url: String(block.url) }] : [],
+        };
+      }
+      return {
+        id: String(block.id || blockIndex),
+        type: block.type,
+        text: block.text,
+        url: block.url,
+        thumbnail_url: block.thumbnail_url,
+      };
+    }),
+  };
+}
+
+function zaloTemplatePayload(body: ZaloMessageTemplateInput) {
+  return {
+    name: body.name,
+    description: body.description || null,
+    status: body.status,
+    content_blocks: body.blocks.map((block) => block.type === "image"
+      ? { type: "image_album", images: (block.images?.length ? block.images : block.url ? [{ id: block.id, url: block.url }] : []).map((image) => ({ url: image.url })) }
+      : block.type === "text"
+        ? { type: "text", text: block.text }
+        : { type: "video", url: block.url, thumbnail_url: block.thumbnail_url }),
+  };
+}
+
+export async function listZaloMessageTemplates(params: {
+  offset?: number;
+  limit?: number;
+  status?: ZaloMessageTemplateStatus | "";
+  search?: string;
+} = {}): Promise<ZaloMessageTemplateListResponse> {
+  const templates = (await api<ZaloTemplateApi[]>(`/zalo/templates?${new URLSearchParams({
+    ...(params.status ? { status: params.status } : {}),
+    ...(params.search ? { search: params.search } : {}),
+    offset: "0", limit: "100",
+  })}`)).map(normalizeZaloTemplate);
+  const term = params.search?.trim().toLocaleLowerCase("vi") || "";
+  const filtered = templates.filter((template) => (!params.status || template.status === params.status)
+    && (!term || `${template.name} ${template.description || ""}`.toLocaleLowerCase("vi").includes(term)));
+  const offset = params.offset || 0;
+  const limit = params.limit || 20;
+  return { data: filtered.slice(offset, offset + limit), metadata: { total: filtered.length, offset, limit } };
+}
+
+export async function createZaloMessageTemplate(body: ZaloMessageTemplateInput): Promise<ZaloMessageTemplate> {
+  return normalizeZaloTemplate(await api<ZaloTemplateApi>("/zalo/templates", { method: "POST", body: JSON.stringify(zaloTemplatePayload(body)) }));
+}
+
+export async function updateZaloMessageTemplate(id: string, body: ZaloMessageTemplateInput): Promise<ZaloMessageTemplate> {
+  return normalizeZaloTemplate(await api<ZaloTemplateApi>(`/zalo/templates/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(zaloTemplatePayload(body)) }));
+}
+
+export function deleteZaloMessageTemplate(id: string): Promise<void> {
+  return api(`/zalo/templates/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function uploadZaloMessageMedia(file: File, type: "image" | "video" | "thumbnail"): Promise<ZaloMediaUploadResult> {
+  const form = new FormData();
+  form.set("file", file);
+  return apiForm(`/zalo/media?kind=${encodeURIComponent(type)}`, form);
+}
+
+const FALLBACK_ZALO_TEMPLATE_VARIABLES: ZaloTemplateVariable[] = [
+  { key: "{{full_name}}", label: "Họ tên khách", group: "Guest" },
+  { key: "{{phone}}", label: "Số điện thoại", group: "Guest" },
+  { key: "{{company}}", label: "Công ty", group: "Guest" },
+  { key: "{{role_title}}", label: "Chức danh", group: "Guest" },
+  { key: "{{guest_type}}", label: "Loại khách", group: "Guest" },
+  { key: "{{workshop_name}}", label: "Tên workshop", group: "Workshop" },
+  { key: "{{workshop_date}}", label: "Ngày tổ chức", group: "Workshop" },
+  { key: "{{workshop_time}}", label: "Giờ tổ chức", group: "Workshop" },
+  { key: "{{workshop_location}}", label: "Địa điểm", group: "Workshop" },
+  { key: "{{workshop_branch}}", label: "Chi nhánh", group: "Workshop" },
+];
+
+export async function getZaloTemplateVariables(): Promise<ZaloTemplateVariable[]> {
+  try {
+    const response = await api<unknown>("/zalo/template-variables");
+    const grouped = response && typeof response === "object" && !Array.isArray(response)
+      ? response as Record<string, unknown>
+      : {};
+    const items: Array<{ item: unknown; defaultGroup?: "Guest" | "Workshop" }> = Array.isArray(response)
+      ? response.map((item) => ({ item }))
+      : "data" in grouped && Array.isArray(grouped.data)
+        ? grouped.data.map((item) => ({ item }))
+        : [
+            ...(Array.isArray(grouped.guest) ? grouped.guest.map((item) => ({ item, defaultGroup: "Guest" as const })) : []),
+            ...(Array.isArray(grouped.workshop) ? grouped.workshop.map((item) => ({ item, defaultGroup: "Workshop" as const })) : []),
+          ];
+    const variables = items.flatMap(({ item, defaultGroup }): ZaloTemplateVariable[] => {
+      if (!item || typeof item !== "object") return [];
+      const record = item as Record<string, unknown>;
+      const rawKey = String(record.key || record.variable || record.name || "").trim();
+      if (!rawKey) return [];
+      const key = rawKey.startsWith("{{") ? rawKey : `{{${rawKey}}}`;
+      const rawGroup = String(record.group || record.category || defaultGroup || "Guest").toLocaleLowerCase("vi");
+      return [{
+        key,
+        label: String(record.label || record.title || rawKey),
+        group: rawGroup.includes("workshop") ? "Workshop" : "Guest",
+        description: record.description ? String(record.description) : undefined,
+      }];
+    });
+    return variables.length ? variables : FALLBACK_ZALO_TEMPLATE_VARIABLES;
+  } catch {
+    return FALLBACK_ZALO_TEMPLATE_VARIABLES;
+  }
+}
+
+export function cloneZaloMessageTemplate(id: string): Promise<ZaloMessageTemplate> {
+  return api<ZaloTemplateApi>(`/zalo/templates/${encodeURIComponent(id)}/clone`, { method: "POST" }).then(normalizeZaloTemplate);
+}
+
+export function toggleZaloMessageTemplate(id: string, status: "active" | "archived"): Promise<ZaloMessageTemplate> {
+  return api<ZaloTemplateApi>(`/zalo/templates/${encodeURIComponent(id)}/toggle`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  }).then(normalizeZaloTemplate);
+}
+
+export async function getZaloMessageQuota(): Promise<ZaloMessageQuota> {
+  const quota = await api<{ daily_limit: number; used_count: number; reserved_count: number; available_count: number }>("/zalo/quota");
+  const reset = new Date();
+  reset.setDate(reset.getDate() + 1);
+  reset.setHours(0, 0, 0, 0);
+  return { used: quota.used_count + quota.reserved_count, limit: quota.daily_limit, remaining: quota.available_count, resets_at: reset.toISOString() };
+}
+
+export async function preflightZaloBulkMessage(body: {
+  template_id: string;
+  workshop_id: string;
+  guest_ids: string[];
+}): Promise<ZaloBulkPreflight> {
+  const [result, quota] = await Promise.all([
+    api<{ template_id: string; recipient_count: number; resolved_count: number; unresolved_count: number; quota_required: number }>("/zalo/preflight", { method: "POST", body: JSON.stringify({ ...body, refresh_recipients: false }) }),
+    getZaloMessageQuota(),
+  ]);
+  return {
+    template_id: result.template_id,
+    total: result.recipient_count,
+    eligible_count: result.resolved_count,
+    ineligible_count: result.unresolved_count,
+    quota_remaining: quota.remaining,
+    can_send: result.recipient_count > 0 && result.quota_required <= quota.remaining,
+  };
+}
+
+export async function sendZaloBulkMessage(body: {
+  template_id: string;
+  guest_ids: string[];
+}): Promise<ZaloBulkSendResult> {
+  const delivery = await api<{
+    id: string; status: string; recipient_count: number; sent_count: number; failed_count: number;
+    items?: Array<{ guest_id: string; recipient_name?: string; status: ZaloBulkSendResult["results"] extends Array<infer T> ? T extends { status: infer S } ? S : never : never; last_error?: string }>;
+  }>("/zalo/batches", { method: "POST", body: JSON.stringify({ ...body, idempotency_key: crypto.randomUUID() }) });
+  return {
+    batch_id: delivery.id,
+    status: delivery.status,
+    total: delivery.recipient_count,
+    sent: delivery.sent_count,
+    failed: delivery.failed_count,
+    skipped: 0,
+    results: delivery.items?.map((item) => ({ guest_id: item.guest_id, full_name: item.recipient_name, status: item.status, error: item.last_error })),
+  };
+}
+
+export function preflightZaloRecipient(body: { template_id: string; guest_id: string; refresh_recipients?: boolean }) {
+  return api<{ template_id: string; recipient_count: number; resolved_count: number; unresolved_count: number; quota_required: number }>("/zalo/preflight", {
+    method: "POST",
+    body: JSON.stringify({ template_id: body.template_id, guest_ids: [body.guest_id], refresh_recipients: body.refresh_recipients ?? false }),
+  });
+}
+
+export function sendZaloMessage(body: { template_id: string; guest_id: string }): Promise<ZaloDelivery> {
+  return api<ZaloDelivery>("/zalo/send", { method: "POST", body: JSON.stringify({ ...body, idempotency_key: crypto.randomUUID() }) });
+}
+
+export function listZaloDeliveries(guestId?: string, offset = 0, limit = 20): Promise<ZaloDelivery[]> {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  if (guestId) params.set("guest_id", guestId);
+  return api<ZaloDelivery[]>(`/zalo/deliveries?${params}`);
+}
+
+export function getZaloDelivery(id: string): Promise<ZaloDelivery> {
+  return api<ZaloDelivery>(`/zalo/deliveries/${encodeURIComponent(id)}`);
+}
+
+export function refreshZaloDeliveryItem(id: string): Promise<ZaloDeliveryItem> {
+  return api<ZaloDeliveryItem>(`/zalo/delivery-items/${encodeURIComponent(id)}/refresh`, { method: "POST" });
+}
+
+export function retryZaloDeliveryItem(id: string): Promise<ZaloDeliveryItem> {
+  return api<ZaloDeliveryItem>(`/zalo/delivery-items/${encodeURIComponent(id)}/retry`, { method: "POST" });
 }

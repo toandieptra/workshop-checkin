@@ -18,6 +18,8 @@ export default function GuestDetailRow({
   onDelete,
   onSendManualZbs,
   canSendManualZbs,
+  canReadZalo,
+  canSendZalo,
 }: {
   detail?: GuestDetailState;
   colSpan: number;
@@ -32,6 +34,8 @@ export default function GuestDetailRow({
   onDelete: (guest: Guest) => void;
   onSendManualZbs: (guest: Guest, taskKey: "registration_confirmation" | "checkin_confirmation") => void;
   canSendManualZbs: boolean;
+  canReadZalo: boolean;
+  canSendZalo: boolean;
 }) {
   const cellRef = useRef<HTMLTableCellElement>(null);
   const [viewport, setViewport] = useState({ width: 0, offset: 0 });
@@ -70,7 +74,9 @@ export default function GuestDetailRow({
           onToggleVip={onToggleVip}
           onDelete={onDelete}
           onSendManualZbs={onSendManualZbs}
-          canSendManualZbs={canSendManualZbs}
+           canSendManualZbs={canSendManualZbs}
+           canReadZalo={canReadZalo}
+           canSendZalo={canSendZalo}
         /> : <div className="p-8 text-center text-muted">Không tìm thấy thông tin khách.</div>}
       </div>
     </td>

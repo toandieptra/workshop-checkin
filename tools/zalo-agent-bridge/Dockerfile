@@ -7,7 +7,7 @@ RUN npm install -g "zalo-agent-cli@${ZALO_AGENT_VERSION}" --omit=dev --no-audit 
     && useradd --system --uid 1001 --gid zalo --create-home zalo
 
 WORKDIR /app
-COPY --chown=zalo:zalo package.json server.js ./
+COPY --chown=zalo:zalo package.json server.js helpers.js ./
 
 ENV NODE_ENV=production \
     HOME=/home/zalo \

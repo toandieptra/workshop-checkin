@@ -66,6 +66,9 @@ echo "[4/5] Recreate containers"
 "$DOCKER_BIN" compose exec -T postgres \
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/029_zalo_connections_permissions.sql
+"$DOCKER_BIN" compose exec -T postgres \
+  sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/030_zalo_templates_messages.sql
 
 echo "[5/5] Wait for health"
 sleep 8

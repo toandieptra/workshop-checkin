@@ -723,7 +723,9 @@ export default function DesktopAdmin() {
                        onToggleVip={(guest) => void toggleVip(guest)}
                        onDelete={(guest) => void delGuest(guest.id).then((deleted) => { if (deleted) setExpandedGuestId(null); })}
                        onSendManualZbs={(guest, taskKey) => void sendZbsManually(guest, taskKey)}
-                       canSendManualZbs={can(PERMISSIONS.zbsManage)}
+                        canSendManualZbs={can(PERMISSIONS.zbsManage)}
+                        canReadZalo={can(PERMISSIONS.zaloMessagesView)}
+                        canSendZalo={can(PERMISSIONS.zaloMessagesSend)}
                      />}
                      </Fragment>
                    );

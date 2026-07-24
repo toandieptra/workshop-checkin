@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
+import { resolve } from "node:path";
+import { createRequestError, extractMessageId, normalizeRecipient, safeUploadPath } from "./helpers.js";
 
 const host = process.env.ZALO_BRIDGE_HOST || "0.0.0.0";
 const port = Number(process.env.ZALO_BRIDGE_PORT || 18928);
@@ -10,7 +12,10 @@ const mcpPort = Number(process.env.ZALO_MCP_PORT || 18929);
 const mcpToken = process.env.ZALO_MCP_TOKEN || "";
 const executable = process.env.ZALO_AGENT_EXECUTABLE || "zalo-agent";
 const version = process.env.ZALO_AGENT_VERSION || "1.6.2";
+const uploadRoot = resolve(process.env.ZALO_UPLOAD_DIR || process.env.UPLOAD_DIR || "/uploads");
+const maxBodyBytes = Number(process.env.ZALO_BRIDGE_MAX_BODY_BYTES || 64 * 1024);
 const sessions = new Map();
+const rateLimits = new Map();
 
 let loginProcess = null;
 let mcpProcess = null;
@@ -40,12 +45,13 @@ async function readBody(request) {
   let raw = "";
   for await (const chunk of request) {
     raw += chunk;
-    if (raw.length > 16_384) throw new Error("Request body is too large");
+    if (Buffer.byteLength(raw) > maxBodyBytes) throw requestError("Request body is too large", 413);
   }
-  return raw ? JSON.parse(raw) : {};
+  try { return raw ? JSON.parse(raw) : {}; } catch { throw requestError("Request body phải là JSON hợp lệ"); }
 }
 
 function parseLastJson(stdout) {
+  try { return JSON.parse(stdout.trim()); } catch {}
   const lines = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
   return [...lines].reverse().map((line) => {
     try { return JSON.parse(line); } catch { return null; }
@@ -70,6 +76,8 @@ function run(args, timeoutMs = 30_000) {
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code !== 0) return reject(new Error(stderr.trim() || stdout.trim() || `zalo-agent exited with code ${code}`));
+      const plainStdout = stdout.replace(/\x1b\[[0-9;]*m/g, "").trim();
+      if (plainStdout.includes("✗ ")) return reject(new Error(plainStdout));
       resolve(parseLastJson(stdout));
     });
   });
@@ -205,6 +213,98 @@ function serialize(action) {
   return next;
 }
 
+function validOwnerId(ownerId) {
+  return typeof ownerId === "string" && /^[0-9]{5,30}$/.test(ownerId);
+}
+
+const requestError = createRequestError;
+
+async function requireActiveAccount(ownerId) {
+  if (!validOwnerId(ownerId)) throw requestError("account_owner_id không hợp lệ");
+  const account = await activeAccount();
+  if (!account || account.ownId !== ownerId) throw requestError("account_owner_id không phải tài khoản Zalo đang hoạt động", 409);
+  return account;
+}
+
+function rateLimit(accountId, bucket, limit) {
+  const now = Date.now();
+  const key = `${accountId}:${bucket}`;
+  const timestamps = (rateLimits.get(key) || []).filter((timestamp) => now - timestamp < 60_000);
+  if (timestamps.length >= limit) {
+    const retryAfter = Math.max(1, Math.ceil((60_000 - (now - timestamps[0])) / 1000));
+    const error = new Error(`Rate limit exceeded for ${bucket}`);
+    error.status = 429;
+    error.retryAfter = retryAfter;
+    throw error;
+  }
+  timestamps.push(now);
+  rateLimits.set(key, timestamps);
+}
+
+function stringValue(value, name, maxLength = 4096) {
+  if (typeof value !== "string" || !value || value.length > maxLength) throw requestError(`${name} không hợp lệ`);
+  return value;
+}
+
+function optionalString(value, name, maxLength = 4096) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length > maxLength) throw requestError(`${name} không hợp lệ`);
+  return value;
+}
+
+function urlValue(value, name) {
+  const url = stringValue(value, name, 8192);
+  try {
+    if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error();
+  } catch {
+    throw requestError(`${name} phải là URL http(s)`);
+  }
+  return url;
+}
+
+async function runAccountOperation(ownerId, bucket, limit, action) {
+  if (loginProcess) throw requestError("Không thể thao tác khi phiên đăng nhập Zalo đang chạy", 409);
+  await requireActiveAccount(ownerId);
+  rateLimit(ownerId, bucket, limit);
+  await stopMcp();
+  let actionError;
+  try {
+    return await action();
+  } catch (error) {
+    actionError = error;
+    throw error;
+  } finally {
+    try { await restartMcp(); } catch (error) { if (!actionError) throw error; }
+  }
+}
+
+function requestId() { return randomUUID(); }
+
+function messageArgs(data) {
+  const threadId = stringValue(data.thread_id, "thread_id", 30);
+  if (!/^[0-9]{5,30}$/.test(threadId)) throw requestError("thread_id không hợp lệ");
+  const threadType = data.thread_type ?? 0;
+  if (threadType !== 0 && threadType !== 1) throw requestError("thread_type phải là 0 hoặc 1");
+  const type = data.type;
+  if (type === "text") return ["msg", "send", "--type", String(threadType), threadId, stringValue(data.text, "text", 10_000)];
+  if (type === "video") {
+    const metadata = data.metadata && typeof data.metadata === "object" ? data.metadata : {};
+    const args = ["msg", "send-video", "--type", String(threadType), "--thumb", urlValue(data.thumbnail_url, "thumbnail_url")];
+    if (data.caption !== undefined) args.push("--caption", optionalString(data.caption, "caption"));
+    for (const [field, flag] of [["duration_ms", "--duration"], ["width", "--width"], ["height", "--height"]]) {
+      const value = data[field] ?? metadata[field];
+      if (value !== undefined) {
+        if (!Number.isInteger(value) || value <= 0) throw requestError(`${field} phải là số nguyên dương`);
+        args.push(flag, String(value));
+      }
+    }
+    args.push(threadId, urlValue(data.url, "url"));
+    return args;
+  }
+  if (type !== "image_album") throw requestError("type phải là text, image_album hoặc video");
+  return { threadId, threadType };
+}
+
 async function startLogin() {
   if (loginProcess) throw new Error("Một phiên đăng nhập Zalo khác đang chạy");
   await stopMcp();
@@ -263,10 +363,12 @@ async function startLogin() {
 }
 
 const server = createServer(async (request, response) => {
+  let responseRequestId = null;
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+    if (request.method === "POST" && (url.pathname === "/resolve-recipient" || url.pathname === "/messages")) responseRequestId = requestId();
     if (url.pathname === "/health") return send(response, 200, { status: "ok", mcpRunning: Boolean(mcpProcess), mcpHealthy });
-    if (!authorized(request)) return send(response, 401, { error: "Unauthorized" });
+    if (!authorized(request)) return send(response, 401, { ...(responseRequestId && { request_id: responseRequestId }), error: "Unauthorized" });
 
     if (request.method === "GET" && url.pathname === "/status") return send(response, 200, await status());
     if (request.method === "GET" && url.pathname === "/accounts") return send(response, 200, await accounts());
@@ -286,6 +388,36 @@ const server = createServer(async (request, response) => {
         return status();
       });
       return send(response, 200, await result);
+    }
+    if (request.method === "POST" && url.pathname === "/resolve-recipient") {
+      const data = await readBody(request);
+      const id = responseRequestId;
+      const phone = typeof data.phone === "string" ? data.phone.replace(/[\s.-]/g, "") : "";
+      if (!/^\+?[0-9]{8,15}$/.test(phone)) return send(response, 400, { request_id: id, error: "phone không hợp lệ" });
+      const result = await serialize(() => runAccountOperation(data.account_owner_id, "friend_lookup", 15, async () => {
+        let found = normalizeRecipient(await run(["friend", "find-phones", phone]), phone);
+        if (!found.user_id) found = normalizeRecipient(await run(["friend", "find", phone]), phone);
+        return found;
+      }));
+      return result.thread_id
+        ? send(response, 200, { request_id: id, ...result })
+        : send(response, 404, { request_id: id, error: "Không tìm thấy tài khoản Zalo cho số điện thoại" });
+    }
+    if (request.method === "POST" && url.pathname === "/messages") {
+      const data = await readBody(request);
+      const id = responseRequestId;
+      const args = messageArgs(data);
+      const result = await serialize(() => runAccountOperation(data.account_owner_id, "message", 20, async () => {
+        if (Array.isArray(args)) return run(args, 60_000);
+        const inputPaths = data.paths || data.image_paths;
+        if (!Array.isArray(inputPaths) || inputPaths.length < 1 || inputPaths.length > 10) throw requestError("paths phải chứa từ 1 đến 10 ảnh");
+        const paths = await Promise.all(inputPaths.map((inputPath) => safeUploadPath(inputPath, uploadRoot)));
+        const command = ["msg", "send-image", "--type", String(args.threadType)];
+        if (data.caption !== undefined) command.push("--caption", optionalString(data.caption, "caption"));
+        command.push(args.threadId, ...paths);
+        return run(command, 120_000);
+      }));
+      return send(response, 200, { request_id: id, sent: true, message_id: extractMessageId(result), result });
     }
     if (request.method === "DELETE" && url.pathname.startsWith("/accounts/")) {
       const ownerId = decodeURIComponent(url.pathname.slice(10));
@@ -315,7 +447,14 @@ const server = createServer(async (request, response) => {
     }
     return send(response, 404, { error: "Not found" });
   } catch (error) {
-    send(response, 502, { error: error instanceof Error ? error.message : "Bridge error" });
+    const status = Number.isInteger(error?.status) ? error.status : 502;
+    if (error?.retryAfter) response.setHeader("retry-after", String(error.retryAfter));
+    send(response, status, {
+      ...(responseRequestId && { request_id: responseRequestId }),
+      error: error instanceof Error ? error.message : "Bridge error",
+      ...(error?.retryAfter && { retry_after_seconds: error.retryAfter }),
+      ...(status === 429 && { provider_called: false }),
+    });
   }
 });
 

@@ -8,12 +8,14 @@ import UsersSettingsPanel from "@/components/settings/UsersSettingsPanel";
 import RolePermissionsSettingsPanel from "@/components/settings/RolePermissionsSettingsPanel";
 import ConnectionsSettingsPanel from "@/components/settings/ConnectionsSettingsPanel";
 import ZbsTemplateSettingsPanel from "@/components/settings/ZbsTemplateSettingsPanel";
+import ZaloMessageSettingsPanel from "@/components/settings/ZaloMessageSettingsPanel";
 
 const TABS = [
   { key: "nguoi-dung", label: "Người dùng", description: "Tài khoản quản trị", permission: PERMISSIONS.usersView },
   { key: "phan-quyen", label: "Phân quyền", description: "Vai trò và quyền hạn", permission: PERMISSIONS.usersManage },
   { key: "ket-noi", label: "Kết nối", description: "Zalo OA và Zalo user", permission: PERMISSIONS.connectionsView },
   { key: "mau-tin-zbs", label: "Mẫu tin ZBS", description: "Mẫu tin và gửi tự động", permission: PERMISSIONS.zbsView },
+  { key: "tin-nhan-zalo", label: "Tin nhắn Zalo", description: "Mẫu tin và gửi hàng loạt", permission: PERMISSIONS.zaloTemplatesView },
 ] as const;
 
 export default function SettingsPage() {
@@ -58,6 +60,7 @@ export default function SettingsPage() {
           {activeTab.key === "phan-quyen" && <RolePermissionsSettingsPanel />}
           {activeTab.key === "ket-noi" && <ConnectionsSettingsPanel />}
           {activeTab.key === "mau-tin-zbs" && <ZbsTemplateSettingsPanel />}
+          {activeTab.key === "tin-nhan-zalo" && <ZaloMessageSettingsPanel />}
         </section>
       </div>
     </main>

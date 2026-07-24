@@ -3,6 +3,7 @@
 import GuestQr from "@/components/GuestQr";
 import GuestNotes from "@/components/GuestNotes";
 import type { Guest, ZbsDelivery } from "@/hooks/useAdminGuests";
+import GuestZaloMessageBlock from "@/components/GuestZaloMessageBlock";
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "—";
@@ -75,6 +76,8 @@ export default function GuestDetailContent({
   onDelete,
   onSendManualZbs,
   canSendManualZbs,
+  canReadZalo,
+  canSendZalo,
 }: {
   guest: Guest;
   workshopName: string;
@@ -87,6 +90,8 @@ export default function GuestDetailContent({
   onDelete: (guest: Guest) => void;
   onSendManualZbs: (guest: Guest, taskKey: "registration_confirmation" | "checkin_confirmation") => void;
   canSendManualZbs: boolean;
+  canReadZalo: boolean;
+  canSendZalo: boolean;
 }) {
   const registered = guest.party_size || 1;
   const actual = guest.checkin_status === "checked_in" ? guest.actual_party_size ?? registered : null;
@@ -158,5 +163,6 @@ export default function GuestDetailContent({
     </section>
 
     <GuestNotes guestId={guest.id} />
+    <GuestZaloMessageBlock guestId={guest.id} workshopId={workshopId} canRead={canReadZalo} canSend={canSendZalo} />
   </div>;
 }

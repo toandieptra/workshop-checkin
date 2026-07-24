@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date, time
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ===== Workshop =====
@@ -342,3 +342,100 @@ class RegistrationSubmitResult(BaseModel):
     submission_id: uuid.UUID
     registration_status: str
     lark_synced: bool = False
+
+
+# ===== Zalo personal-account messaging =====
+
+class ZaloTemplateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    content_blocks: list[dict]
+    status: str = "draft"
+
+
+class ZaloTemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    content_blocks: list[dict] | None = None
+    status: str | None = None
+
+
+class ZaloTemplateToggleRequest(BaseModel):
+    status: str | None = None
+
+
+class ZaloTemplateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    name: str
+    description: str | None = None
+    content_blocks: list[dict]
+    status: str
+    created_by: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ZaloRecipientSelection(BaseModel):
+    guest_ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
+    workshop_id: uuid.UUID | None = None
+
+
+class ZaloPreflightRequest(ZaloRecipientSelection):
+    template_id: uuid.UUID
+    refresh_recipients: bool = False
+
+
+class ZaloSendRequest(BaseModel):
+    template_id: uuid.UUID
+    guest_id: uuid.UUID
+    idempotency_key: uuid.UUID
+
+
+class ZaloBatchSendRequest(ZaloRecipientSelection):
+    template_id: uuid.UUID
+    name: str | None = Field(default=None, max_length=120)
+    idempotency_key: uuid.UUID
+
+
+class ZaloDeliveryItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    delivery_id: uuid.UUID
+    guest_id: uuid.UUID | None = None
+    recipient_id: str | None = None
+    recipient_name: str | None = None
+    phone: str | None = None
+    block_position: int
+    block_payload: dict
+    quota_cost: int
+    status: str
+    attempt_count: int
+    message_ids: list[str]
+    last_error: str | None = None
+    sent_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ZaloDeliveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    batch_id: uuid.UUID | None = None
+    template_id: uuid.UUID | None = None
+    template_name: str
+    content_blocks: list[dict]
+    status: str
+    recipient_count: int
+    sent_count: int
+    failed_count: int
+    created_by: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+    items: list[ZaloDeliveryItemOut] = Field(default_factory=list)
+
+
+class ZaloDeliveryListOut(BaseModel):
+    data: list[ZaloDeliveryOut]
+    metadata: dict

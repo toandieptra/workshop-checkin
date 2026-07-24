@@ -61,7 +61,17 @@ class Settings(BaseSettings):
     # ===== Zalo personal account bridge =====
     ZALO_AGENT_BRIDGE_URL: str | None = None
     ZALO_AGENT_BRIDGE_TOKEN: str | None = None
-    ZALO_AGENT_TIMEOUT_SECONDS: float = 15.0
+    ZALO_AGENT_ACCOUNT_OWNER_ID: str | None = None
+    ZALO_AGENT_TIMEOUT_SECONDS: float = 135.0
+    ZALO_MESSAGES_ENABLED: bool = False
+    ZALO_MESSAGES_DAILY_QUOTA: int = 200
+    ZALO_FRIEND_LOOKUP_DAILY_QUOTA: int = 1000
+    ZALO_MESSAGES_WORKER_INTERVAL_SECONDS: int = 2
+    ZALO_MESSAGES_MAX_ATTEMPTS: int = 3
+    ZALO_MESSAGES_RESERVATION_TTL_SECONDS: int = 3600
+    ZALO_TEMPLATE_MAX_MEDIA_COUNT: int = 10
+    ZALO_TEMPLATE_MAX_IMAGE_COUNT: int = 10
+    ZALO_MEDIA_MAX_FILE_BYTES: int = 50 * 1024 * 1024
 
     @property
     def database_url(self) -> str:
