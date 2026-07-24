@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -11,48 +11,35 @@ const ITEMS = [
   { href: "/admin/workshop", label: "Workshop", permission: PERMISSIONS.workshopsView },
   { href: "/admin/forms", label: "Form đăng ký", permission: PERMISSIONS.formsView },
   { href: "/admin/thong-ke", label: "Thống kê", permission: PERMISSIONS.reportsView },
-  { href: "/admin/zbs-template", label: "Mẫu tin ZBS", permission: PERMISSIONS.zbsView },
-];
-
-const USER_ITEMS = [
-  { href: "/admin/users", label: "Danh sách người dùng", permission: PERMISSIONS.usersView },
-  { href: "/admin/users/role", label: "Phân quyền vai trò", permission: PERMISSIONS.usersManage },
 ];
 
 export default function AdminNav() {
   const pathname = usePathname();
   const isMobile = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement>(null);
   const { can, logout } = useAuth();
-  const items = ITEMS.filter((item) => can(item.permission));
+  const items = [
+    ...ITEMS.filter((item) => can(item.permission)),
+    ...(can(PERMISSIONS.usersView) || can(PERMISSIONS.connectionsView) || can(PERMISSIONS.zbsView)
+      ? [{ href: "/admin/cai-dat", label: "Cài đặt", permission: PERMISSIONS.connectionsView }]
+      : []),
+  ];
 
   // Đóng drawer khi đổi route.
   useEffect(() => {
     setMenuOpen(false);
-    setUserMenuOpen(false);
   }, [pathname]);
 
   useEffect(() => {
-    const close = (event: PointerEvent) => {
-      if (!userMenuRef.current?.contains(event.target as Node)) setUserMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, []);
-
-  useEffect(() => {
-    if (!menuOpen && !userMenuOpen) return;
+    if (!menuOpen) return;
     const close = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setMenuOpen(false);
-        setUserMenuOpen(false);
       }
     };
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
-  }, [menuOpen, userMenuOpen]);
+  }, [menuOpen]);
 
   if (pathname === "/admin/login") return null;
 
@@ -92,7 +79,7 @@ export default function AdminNav() {
         ) : (
           <nav className="flex items-center gap-1">
             {items.map((it) => {
-              const active = pathname === it.href;
+              const active = pathname === it.href || (it.href !== "/admin" && pathname.startsWith(it.href));
               return (
                 <Link key={it.href} href={it.href}
                   className={`px-4 py-1.5 rounded-sm text-sm font-medium transition ${
@@ -102,49 +89,7 @@ export default function AdminNav() {
                 </Link>
               );
             })}
-            <div ref={userMenuRef} className="relative">
-              <button
-                type="button"
-                aria-expanded={userMenuOpen}
-                onClick={() => setUserMenuOpen((open) => !open)}
-                className={`px-4 py-1.5 rounded-sm text-sm font-medium transition flex items-center gap-1.5 ${
-                  pathname.startsWith("/admin/users") ? "bg-brand text-brand-teal" : "text-muted hover:text-brand-teal"
-                }`}
-              >
-                Người dùng
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-                  <path d="m3 4.5 3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              </button>
-              {userMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-52 rounded-md border border-line bg-white p-1.5 shadow-lg">
-                  {can(PERMISSIONS.usersView) && (
-                    <>
-                      {USER_ITEMS.filter((item) => can(item.permission)).map((item) => (
-                       <Link
-                        key={item.href}
-                        href={item.href}
-                        className={`block rounded px-3 py-2 text-sm ${pathname === item.href ? "bg-surface-muted text-brand-teal font-semibold" : "text-text-secondary hover:bg-surface-muted"}`}
-                      >
-                         {item.label}
-                       </Link>
-                     ))}
-                      <div className="my-1 border-t border-line" />
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      void logout();
-                    }}
-                    className="w-full rounded px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50"
-                  >
-                    Đăng xuất
-                  </button>
-                </div>
-              )}
-            </div>
+            <button type="button" onClick={() => void logout()} className="px-3 py-1.5 text-sm font-medium text-red-600 hover:text-red-700">Đăng xuất</button>
           </nav>
         )}
       </div>
@@ -160,7 +105,7 @@ export default function AdminNav() {
           <nav id="admin-mobile-navigation" aria-label="Điều hướng quản trị" className="fixed inset-x-0 top-14 z-20 bg-surface border-b border-line shadow-md">
             <ul className="px-3 py-2 flex flex-col">
               {items.map((it) => {
-                const active = pathname === it.href;
+                const active = pathname === it.href || (it.href !== "/admin" && pathname.startsWith(it.href));
                 return (
                   <li key={it.href}>
                     <Link
@@ -174,22 +119,6 @@ export default function AdminNav() {
                   </li>
                 );
               })}
-              {can(PERMISSIONS.usersView) && (
-                <li className="border-t border-line mt-1 pt-1">
-                  <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">Người dùng</div>
-                   {USER_ITEMS.filter((item) => can(item.permission)).map((item) => (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`block px-3 rounded-md text-sm font-medium min-h-[44px] flex items-center ${
-                        pathname === item.href ? "bg-brand text-brand-teal" : "text-brand-teal active:bg-surface-muted"
-                      }`}
-                    >
-                      {item.label}
-                    </Link>
-                  ))}
-                </li>
-              )}
               <li className="border-t border-line mt-1 pt-1">
                 <button
                    onClick={() => void logout()}

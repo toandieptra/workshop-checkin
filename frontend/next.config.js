@@ -8,7 +8,7 @@ const nextConfig = {
       (process.env.BACKEND_DEV_LOCAL ? "http://127.0.0.1:8427" : "http://backend:8427");
     // Client FE khi không có NEXT_PUBLIC_API_URL sẽ gọi path không có prefix /api
     // (vd: /workshops, /guests/123). Các rewrite dưới đây map sang backend kèm /api.
-    const apiPrefixes = ["export", "workshops", "guests", "checkin", "public", "lark", "thong-ke", "registration-forms", "zbs"];
+    const apiPrefixes = ["export", "workshops", "guests", "checkin", "public", "lark", "thong-ke", "registration-forms", "zbs", "zalo-agent"];
     const rules = apiPrefixes.map((p) => ({
       source: `/${p}/:path*`,
       destination: `${backend}/api/${p}/:path*`,

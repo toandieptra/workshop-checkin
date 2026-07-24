@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 from .config import settings
 from .db import engine
 from .ws import manager
-from .routers import workshops, guests, checkin, search, import_export, lark_sync, registration_forms, auth, admin_users, zbs
+from .routers import workshops, guests, checkin, search, import_export, lark_sync, registration_forms, auth, admin_users, zbs, zalo_agent
 from .auth.bootstrap import bootstrap_super_admin
 from .services import admin_directory_sync
 from .db import async_session_maker
@@ -95,6 +95,7 @@ app.include_router(registration_forms.router)
 app.include_router(auth.router)
 app.include_router(admin_users.router)
 app.include_router(zbs.router)
+app.include_router(zalo_agent.router)
 
 _upload_dir = Path(settings.UPLOAD_DIR)
 _upload_dir.mkdir(parents=True, exist_ok=True)

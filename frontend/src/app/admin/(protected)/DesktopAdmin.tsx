@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useEffect, useState, type MouseEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type MouseEvent } from "react";
 import QrDisplay from "@/components/QrDisplay";
 import { api, downloadGuestsXlsx } from "@/lib/api";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
@@ -153,6 +153,17 @@ export default function DesktopAdmin() {
   const [expandedGuestId, setExpandedGuestId] = useState<string | null>(null);
   const [showAdminTools, setShowAdminTools] = useState(false);
   const [showAddGuest, setShowAddGuest] = useState(false);
+  const [pageSize, setPageSize] = useState(50);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const pageCount = Math.max(1, Math.ceil(visibleGuests.length / pageSize));
+  const page = Math.min(currentPage, pageCount);
+  const pagedGuests = useMemo(
+    () => visibleGuests.slice((page - 1) * pageSize, page * pageSize),
+    [visibleGuests, page, pageSize],
+  );
+  const firstRow = visibleGuests.length ? (page - 1) * pageSize + 1 : 0;
+  const lastRow = Math.min(page * pageSize, visibleGuests.length);
 
   const toggleGuestDetail = (guestId: string) => {
     setExpandedGuestId((current) => current === guestId ? null : guestId);
@@ -166,8 +177,17 @@ export default function DesktopAdmin() {
   };
 
   useEffect(() => {
+    setCurrentPage(1);
     setExpandedGuestId(null);
-  }, [wid]);
+  }, [wid, search, statusFilter, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > pageCount) setCurrentPage(pageCount);
+  }, [currentPage, pageCount]);
+
+  useEffect(() => {
+    setExpandedGuestId(null);
+  }, [page]);
 
   useEffect(() => {
     if (expandedGuestId && !visibleGuests.some((guest) => guest.id === expandedGuestId)) {
@@ -498,7 +518,7 @@ export default function DesktopAdmin() {
         </section>}
 
         {/* Guest list */}
-        <section className={`order-4 bg-surface rounded-md border border-line mb-4 flex min-h-[24rem] flex-col ${showAdminTools || showAddGuest ? "" : "flex-1"}`}>
+        <section className={`order-4 overflow-hidden bg-surface rounded-md border border-line mb-4 flex min-h-[24rem] flex-col ${showAdminTools || showAddGuest ? "" : "flex-1"}`}>
           <div className="bg-surface border-b border-line px-4 py-3 flex shrink-0 items-center justify-between gap-3 flex-wrap">
             <h2 className="font-semibold text-brand-teal">
               Phiếu đã check-in: {checkedInRecords}/{totalRecords} · Khách đã check-in: {totalCheckedIn}/{totalRegistered}
@@ -523,27 +543,27 @@ export default function DesktopAdmin() {
             </div>
           </div>
 
-          <div className="admin-table-scroll admin-guest-table-scroll">
-            <table className="min-w-[900px] w-full text-sm">
-              <thead className="bg-surface-muted text-muted text-xs">
+          <div className="admin-table-scroll min-h-0 max-h-none flex-1 overscroll-x-contain overscroll-y-auto">
+            <table className="min-w-[1100px] w-full text-sm">
+              <thead className="bg-surface-muted text-left text-muted">
                 <tr>
-                  {visibleColumns.name && <th className="text-left px-3 py-3 min-w-[200px]">Tên khách</th>}
-                  {visibleColumns.phone && <th className="text-left px-3 py-3">SĐT</th>}
-                  {visibleColumns.businessModel && <th className="text-left px-3 py-3 min-w-[160px]">Mô hình kinh doanh</th>}
-                  {visibleColumns.source && <th className="text-left px-3 py-3 min-w-[180px]">Nguồn</th>}
-                  {visibleColumns.creator && <th className="text-left px-3 py-3 min-w-[130px]">Người tạo</th>}
-                  {visibleColumns.registered && <th className="text-center px-3 py-3 w-28">Số khách đăng ký</th>}
-                  {visibleColumns.checkedIn && <th className="text-center px-3 py-3 w-28">Số khách check-in</th>}
-                   {visibleColumns.checkin && <th className="text-center px-3 py-3 w-32">Check-in</th>}
-                   {visibleColumns.qr && <th className="text-center px-3 py-3 w-24">QR</th>}
-                   {visibleColumns.sync && <th className="text-center px-3 py-3 w-28">Đồng bộ Lark</th>}
-                   {visibleColumns.zbs && <th className="text-center px-3 py-3 min-w-[130px]">ZBS</th>}
-                  {visibleColumns.actions && <th className="text-left px-3 py-3 min-w-[160px]">Thao tác</th>}
-                  {visibleColumns.registeredAt && <th className="text-left px-3 py-3">Ngày đăng ký</th>}
+                  {visibleColumns.name && <th className="px-3 py-2 font-medium min-w-[200px]">Tên khách</th>}
+                  {visibleColumns.phone && <th className="px-3 py-2 font-medium">SĐT</th>}
+                  {visibleColumns.businessModel && <th className="px-3 py-2 font-medium min-w-[160px]">Mô hình kinh doanh</th>}
+                  {visibleColumns.source && <th className="px-3 py-2 font-medium min-w-[180px]">Nguồn</th>}
+                  {visibleColumns.creator && <th className="px-3 py-2 font-medium min-w-[130px]">Người tạo</th>}
+                  {visibleColumns.registered && <th className="text-center px-3 py-2 font-medium w-28">Số khách đăng ký</th>}
+                  {visibleColumns.checkedIn && <th className="text-center px-3 py-2 font-medium w-28">Số khách check-in</th>}
+                   {visibleColumns.checkin && <th className="text-center px-3 py-2 font-medium w-32">Check-in</th>}
+                   {visibleColumns.qr && <th className="text-center px-3 py-2 font-medium w-24">QR</th>}
+                   {visibleColumns.sync && <th className="text-center px-3 py-2 font-medium w-28">Đồng bộ Lark</th>}
+                   {visibleColumns.zbs && <th className="text-center px-3 py-2 font-medium min-w-[130px]">ZBS</th>}
+                  {visibleColumns.actions && <th className="text-right px-3 py-2 font-medium min-w-[160px]">Thao tác</th>}
+                  {visibleColumns.registeredAt && <th className="px-3 py-2 font-medium">Ngày đăng ký</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                 {visibleGuests.map((g) => {
+                 {pagedGuests.map((g) => {
                    const vip = isVip(g);
                    const expanded = expandedGuestId === g.id;
                    return (
@@ -560,7 +580,7 @@ export default function DesktopAdmin() {
                        }}
                        className={`${expanded ? "border-x-2 border-t-2 border-brand bg-cyan-50" : vip ? "bg-cyan-50" : ""} cursor-pointer hover:bg-brand/5 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand`}
                      >
-                       {visibleColumns.name && <td className="px-3 py-3 align-top">
+                        {visibleColumns.name && <td className="px-3 py-2 align-top">
                          <div className="flex items-start justify-between gap-3">
                            <div className="font-semibold text-ink">{g.full_name}</div>
                            <svg className={`mt-0.5 shrink-0 text-muted transition-transform ${expanded ? "rotate-180" : ""}`} width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden><path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -574,7 +594,7 @@ export default function DesktopAdmin() {
                           {g.role_title && <span className="text-xs px-2 py-0.5 rounded bg-surface-muted text-muted">{g.role_title}</span>}
                         </div>
                       </td>}
-                      {visibleColumns.phone && <td className="px-3 py-3 align-top whitespace-nowrap">
+                      {visibleColumns.phone && <td className="px-3 py-2 align-top whitespace-nowrap">
                         {g.phone ? (
                            <button
                              onClick={(event) => { event.stopPropagation(); void copyPhone(g.phone!); }}
@@ -585,15 +605,15 @@ export default function DesktopAdmin() {
                           </button>
                         ) : <span className="text-muted">-</span>}
                       </td>}
-                      {visibleColumns.businessModel && <td className="px-3 py-3 align-top text-muted" title={g.business_model || ""}>
+                      {visibleColumns.businessModel && <td className="px-3 py-2 align-top text-muted" title={g.business_model || ""}>
                         {truncate(g.business_model, 60)}
                       </td>}
-                      {visibleColumns.source && <td className="px-3 py-3 align-top text-muted" title={g.source_detail || g.source || ""}>
+                      {visibleColumns.source && <td className="px-3 py-2 align-top text-muted" title={g.source_detail || g.source || ""}>
                         {truncate(g.source === "Khác" && g.source_detail ? `Khác: ${g.source_detail}` : g.source, 60)}
                       </td>}
-                      {visibleColumns.creator && <td className="px-3 py-3 align-top text-muted whitespace-nowrap">{g.creator_name || "—"}</td>}
-                      {visibleColumns.registered && <td className="px-3 py-3 align-top text-center">{g.party_size || 1}</td>}
-                      {visibleColumns.checkedIn && <td className="px-3 py-3 align-top text-center">
+                      {visibleColumns.creator && <td className="px-3 py-2 align-top text-muted whitespace-nowrap">{g.creator_name || "—"}</td>}
+                      {visibleColumns.registered && <td className="px-3 py-2 align-top text-center">{g.party_size || 1}</td>}
+                      {visibleColumns.checkedIn && <td className="px-3 py-2 align-top text-center">
                          {g.registration_status !== "confirmed" ? (
                            <button
                              type="button"
@@ -617,7 +637,7 @@ export default function DesktopAdmin() {
                           "—"
                         )}
                       </td>}
-                       {visibleColumns.checkin && <td className="px-3 py-3 align-top">
+                       {visibleColumns.checkin && <td className="px-3 py-2 align-top">
                         {g.checkin_status === "checked_in" ? (
                            <button
                              onClick={(event) => { event.stopPropagation(); void doUncheckin(g); }}
@@ -634,7 +654,7 @@ export default function DesktopAdmin() {
                           </button>
                         )}
                        </td>}
-                       {visibleColumns.qr && <td className="px-3 py-3 align-top">
+                       {visibleColumns.qr && <td className="px-3 py-2 align-top">
                          <div onClick={(event) => event.stopPropagation()}>
                          {currentWorkshop && (
                            <GuestQr
@@ -647,46 +667,46 @@ export default function DesktopAdmin() {
                          )}
                          </div>
                        </td>}
-                        {visibleColumns.sync && <td className="px-3 py-3 align-top">
+                        {visibleColumns.sync && <td className="px-3 py-2 align-top">
                          <div className="flex flex-col gap-1 items-center">
                             <SyncBadge status={g.sync_status} error={g.sync_error} />
                          </div>
                        </td>}
-                       {visibleColumns.zbs && <td className="px-3 py-3 align-top">
+                       {visibleColumns.zbs && <td className="px-3 py-2 align-top">
                          <div className="flex flex-col gap-1 items-start">
                            <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={retryZbs} />
                            <ZbsBadge label="Check-in" delivery={g.zbs?.checkin_confirmation} onRetry={retryZbs} />
                          </div>
                        </td>}
-                      {visibleColumns.actions && <td className="px-3 py-3 align-top text-sm">
-                        <div className="flex items-center gap-3 flex-wrap">
+                      {visibleColumns.actions && <td className="px-3 py-2 align-top text-sm">
+                        <div className="flex flex-wrap justify-end gap-1">
                            {g.registration_status !== "confirmed" && <button
                              onClick={(event) => { event.stopPropagation(); void confirmRegistration(g); }}
-                             className="text-brand-teal underline min-h-[32px] flex items-center font-semibold"
+                             className="rounded-sm border border-brand/30 px-2 py-1 text-xs font-semibold text-brand-teal"
                            >
                              Xác nhận
                            </button>}
                            <button
                              onClick={(event) => { event.stopPropagation(); openEdit(g); }}
-                            className="text-brand underline min-h-[32px] flex items-center"
+                            className="rounded-sm border border-line px-2 py-1 text-xs text-brand hover:bg-surface-muted"
                           >
                             Sửa
                           </button>
                            <button
                              onClick={(event) => { event.stopPropagation(); void toggleVip(g); }}
-                            className="text-muted underline min-h-[32px] flex items-center"
+                            className="rounded-sm border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
                           >
                             {vip ? "Bỏ VIP" : "VIP"}
                           </button>
                            <button
                              onClick={(event) => { event.stopPropagation(); void delGuest(g.id).then((deleted) => { if (deleted) setExpandedGuestId(null); }); }}
-                            className="text-red-600 underline min-h-[32px] flex items-center"
+                            className="rounded-sm border border-red-200 px-2 py-1 text-xs text-red-600"
                           >
                             Xóa
                           </button>
                         </div>
                       </td>}
-                      {visibleColumns.registeredAt && <td className="px-3 py-3 align-top text-muted text-xs whitespace-nowrap">
+                      {visibleColumns.registeredAt && <td className="px-3 py-2 align-top text-muted text-xs whitespace-nowrap">
                          {formatTimestamp(g.registered_at || g.created_at)}
                       </td>}
                      </tr>
@@ -714,6 +734,27 @@ export default function DesktopAdmin() {
               </tbody>
             </table>
           </div>
+          {visibleGuests.length > 0 && (
+            <div className="admin-table-pagination flex flex-wrap items-center justify-between gap-3 border-t border-line px-3 py-3 text-sm">
+              <div className="text-muted">Hiển thị {firstRow}–{lastRow} trong tổng số {visibleGuests.length} khách</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1.5 text-muted">
+                  Dòng/trang
+                  <select
+                    aria-label="Số khách hiển thị mỗi trang"
+                    value={pageSize}
+                    onChange={(event) => setPageSize(Number(event.target.value))}
+                    className="rounded-sm border border-line bg-surface px-2 py-1 text-ink"
+                  >
+                    {[25, 50, 100, 150, 200].map((size) => <option key={size} value={size}>{size}</option>)}
+                  </select>
+                </label>
+                <button type="button" disabled={page <= 1} onClick={() => setCurrentPage(page - 1)} className="rounded-sm border border-line px-2 py-1 disabled:opacity-40">Trước</button>
+                <span>Trang {page}/{pageCount}</span>
+                <button type="button" disabled={page >= pageCount} onClick={() => setCurrentPage(page + 1)} className="rounded-sm border border-line px-2 py-1 disabled:opacity-40">Sau</button>
+              </div>
+            </div>
+          )}
         </section>
       </div>
 

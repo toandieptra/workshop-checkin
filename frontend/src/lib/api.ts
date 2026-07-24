@@ -485,3 +485,35 @@ export async function updateZbsTaskConfig(
     body: JSON.stringify(body),
   });
 }
+
+export function getZaloAgentStatus() {
+  return api<import("@/types/zalo-agent").ZaloAgentStatus>("/zalo-agent/status");
+}
+
+export function listZaloAgentAccounts() {
+  return api<import("@/types/zalo-agent").ZaloAgentAccount[]>("/zalo-agent/accounts");
+}
+
+export function startZaloAgentLogin() {
+  return api<import("@/types/zalo-agent").ZaloQrSession>("/zalo-agent/login", { method: "POST" });
+}
+
+export function getZaloAgentLogin(sessionId: string) {
+  return api<import("@/types/zalo-agent").ZaloQrSession>(`/zalo-agent/login/${encodeURIComponent(sessionId)}`);
+}
+
+export function switchZaloAgentAccount(ownerId: string) {
+  return api<import("@/types/zalo-agent").ZaloAgentStatus>("/zalo-agent/accounts/switch", { method: "POST", body: JSON.stringify({ owner_id: ownerId }) });
+}
+
+export function logoutZaloAgent(purge = false) {
+  return api<import("@/types/zalo-agent").ZaloAgentStatus>("/zalo-agent/logout", { method: "POST", body: JSON.stringify({ purge }) });
+}
+
+export function reconnectZaloAgent() {
+  return api<import("@/types/zalo-agent").ZaloAgentStatus>("/zalo-agent/reconnect", { method: "POST" });
+}
+
+export function removeZaloAgentAccount(ownerId: string) {
+  return api<{ removed: boolean }>(`/zalo-agent/accounts/${encodeURIComponent(ownerId)}`, { method: "DELETE" });
+}

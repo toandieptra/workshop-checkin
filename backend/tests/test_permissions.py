@@ -18,6 +18,7 @@ def test_permission_overrides_grant_and_revoke():
 
 def test_admin_cannot_manage_users_by_default():
     assert "users.manage" not in effective_permissions("admin")
+    assert "zalo_connections.manage" in effective_permissions("admin")
 
 
 def test_user_cannot_access_admin_and_editor_cannot_manage_users():

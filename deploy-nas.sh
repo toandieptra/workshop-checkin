@@ -52,6 +52,9 @@ esac
   --build-arg NEXT_PUBLIC_WS_URL="${WS_SCHEME}://${WS_HOST}/ws" \
   -t workshop-checkin-frontend:latest -f frontend/Dockerfile frontend
 
+"$DOCKER_BIN" buildx build --pull --load --platform=linux/amd64 \
+  -t workshop-checkin-zalo-agent-bridge:latest -f tools/zalo-agent-bridge/Dockerfile tools/zalo-agent-bridge
+
 echo "[4/5] Recreate containers"
 "$DOCKER_BIN" compose up -d --force-recreate
 "$DOCKER_BIN" compose exec -T postgres \
@@ -60,6 +63,9 @@ echo "[4/5] Recreate containers"
 "$DOCKER_BIN" compose exec -T postgres \
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/028_lark_outbound_only.sql
+"$DOCKER_BIN" compose exec -T postgres \
+  sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/029_zalo_connections_permissions.sql
 
 echo "[5/5] Wait for health"
 sleep 8
@@ -70,6 +76,10 @@ if command -v curl >/dev/null 2>&1; then
   curl -fsS "$HEALTH_URL/" >/dev/null && printf "  OK\n" || printf "  WARN: app root not ready\n"
   printf "\n%s\n" "- API health: $HEALTH_URL/api/health"
   curl -fsS "$HEALTH_URL/api/health" && printf "\n"
+  printf "%s\n" "- Zalo bridge: internal container health"
+  "$DOCKER_BIN" compose exec -T zalo-agent-bridge \
+    node -e "require('http').get('http://localhost:18928/health',r=>{r.pipe(process.stdout);process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))" \
+    && printf "\n"
 fi
 
 echo "Done."

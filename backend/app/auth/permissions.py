@@ -6,6 +6,7 @@ PERMISSIONS = frozenset({
     "lark.read", "lark.sync",
     "uploads.create",
     "zbs.read", "zbs.manage",
+    "zalo_connections.read", "zalo_connections.manage",
     "users.manage",
 })
 

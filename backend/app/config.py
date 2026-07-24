@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     ZBS_WORKER_INTERVAL_SECONDS: int = 5
     ZBS_REQUEST_TIMEOUT_SECONDS: float = 10.0
 
+    # ===== Zalo personal account bridge =====
+    ZALO_AGENT_BRIDGE_URL: str | None = None
+    ZALO_AGENT_BRIDGE_TOKEN: str | None = None
+    ZALO_AGENT_TIMEOUT_SECONDS: float = 15.0
+
     @property
     def database_url(self) -> str:
         return (

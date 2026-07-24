@@ -22,6 +22,8 @@ export const PERMISSIONS = {
   reportsExport: "guests.export",
   zbsView: "zbs.read",
   zbsManage: "zbs.manage",
+  connectionsView: "zalo_connections.read",
+  connectionsManage: "zalo_connections.manage",
   usersView: "users.manage",
   usersManage: "users.manage",
 } as const;
