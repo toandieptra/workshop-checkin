@@ -103,6 +103,7 @@ export interface ZaloDeliveryItem {
   attempt_count: number;
   message_ids: string[];
   last_error?: string | null;
+  provider_response?: Record<string, unknown> | null;
   sent_at?: string | null;
   created_at: string;
   updated_at: string;

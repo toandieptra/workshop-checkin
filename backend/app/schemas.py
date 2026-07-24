@@ -413,6 +413,7 @@ class ZaloDeliveryItemOut(BaseModel):
     attempt_count: int
     message_ids: list[str]
     last_error: str | None = None
+    provider_response: dict | None = None
     sent_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

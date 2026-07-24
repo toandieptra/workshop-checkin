@@ -233,7 +233,8 @@ async def send_batch(body: ZaloBatchSendRequest, user=Depends(require_permission
 
 
 @router.get("/deliveries", response_model=list[ZaloDeliveryOut], dependencies=[Depends(require_permission("zalo_messages.read"))])
-async def history(guest_id: uuid.UUID | None = None, offset: int = Query(0, ge=0),
+async def history(guest_id: uuid.UUID | None = None, template_id: uuid.UUID | None = None,
+                  offset: int = Query(0, ge=0),
                   limit: int = Query(20, ge=1, le=100), db: AsyncSession = Depends(get_db)):
     stmt = select(ZaloDelivery).options(selectinload(ZaloDelivery.items))
     count_stmt = select(func.count(ZaloDelivery.id))
@@ -241,6 +242,9 @@ async def history(guest_id: uuid.UUID | None = None, offset: int = Query(0, ge=0
         item_filter = ZaloDelivery.id.in_(select(ZaloDeliveryItem.delivery_id).where(ZaloDeliveryItem.guest_id == guest_id))
         stmt = stmt.where(item_filter)
         count_stmt = count_stmt.where(item_filter)
+    if template_id:
+        stmt = stmt.where(ZaloDelivery.template_id == template_id)
+        count_stmt = count_stmt.where(ZaloDelivery.template_id == template_id)
     total = int(await db.scalar(count_stmt) or 0)
     rows = list((await db.execute(stmt.order_by(ZaloDelivery.created_at.desc()).offset(offset).limit(limit))).scalars())
     return [ZaloDeliveryOut.model_validate(row) for row in rows]

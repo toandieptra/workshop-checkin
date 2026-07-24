@@ -734,9 +734,10 @@ export function sendZaloMessage(body: { template_id: string; guest_id: string })
   return api<ZaloDelivery>("/zalo/send", { method: "POST", body: JSON.stringify({ ...body, idempotency_key: crypto.randomUUID() }) });
 }
 
-export function listZaloDeliveries(guestId?: string, offset = 0, limit = 20): Promise<ZaloDelivery[]> {
+export function listZaloDeliveries(guestId?: string, offset = 0, limit = 20, templateId?: string): Promise<ZaloDelivery[]> {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   if (guestId) params.set("guest_id", guestId);
+  if (templateId) params.set("template_id", templateId);
   return api<ZaloDelivery[]>(`/zalo/deliveries?${params}`);
 }
 
