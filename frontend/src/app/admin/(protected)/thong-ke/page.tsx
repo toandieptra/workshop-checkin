@@ -9,17 +9,18 @@ import { useOutsidePointerDown } from "@/hooks/useOutsidePointerDown";
 interface Workshop { id: string; name: string; slug: string; }
 interface Guest {
   id: string; workshop_id: string; full_name: string; phone?: string; email?: string;
-  company?: string; business_model?: string; role_title?: string; guest_type?: string; note?: string;
+  company?: string; business_model?: string; role_title?: string; guest_type?: string; note?: string; notes_summary?: string;
   party_size?: number; actual_party_size?: number; checkin_status: string; checked_in_at?: string;
   created_at?: string; registered_at?: string | null;
   sync_status?: string;
 }
 type CheckinFilter = "all" | "checked_in" | "not_checked_in";
-type ColumnKey = "name" | "phone" | "businessModel" | "type" | "registered" | "checkedIn" | "status" | "sync" | "checkedInAt" | "workshop";
+type ColumnKey = "name" | "phone" | "businessModel" | "note" | "registered" | "checkedIn" | "status" | "sync" | "checkedInAt" | "workshop";
 const TABLE_COLUMNS = [
   { key: "name", label: "Tên" }, { key: "phone", label: "Số điện thoại" },
   { key: "businessModel", label: "Mô hình kinh doanh" },
-  { key: "type", label: "Loại" }, { key: "registered", label: "Số khách đăng ký" },
+  { key: "note", label: "Ghi chú" },
+  { key: "registered", label: "Số khách đăng ký" },
   { key: "checkedIn", label: "Số khách check-in" }, { key: "status", label: "Trạng thái" },
   { key: "sync", label: "Đồng bộ Lark" }, { key: "checkedInAt", label: "Check-in lúc" },
   { key: "workshop", label: "Workshop" },
@@ -67,7 +68,9 @@ export default function ThongKePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [gotoPage, setGotoPage] = useState("1");
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
-    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
+    Object.fromEntries(
+      TABLE_COLUMNS.map(({ key }) => [key, key !== "sync" && key !== "checkedInAt"]),
+    ) as Record<ColumnKey, boolean>);
   const selectableColumns = useMemo(
     () => selectedWorkshopIds.length === 1 ? TABLE_COLUMNS.filter(({ key }) => key !== "workshop") : TABLE_COLUMNS,
     [selectedWorkshopIds.length],
@@ -310,7 +313,7 @@ export default function ThongKePage() {
                       {visibleColumns.name && <th className="text-left px-3 py-2">Tên</th>}
                       {visibleColumns.phone && <th className="text-left px-3 py-2">Số điện thoại</th>}
                       {visibleColumns.businessModel && <th className="text-left px-3 py-2">Mô hình kinh doanh</th>}
-                      {visibleColumns.type && <th className="text-left px-3 py-2">Loại</th>}
+                      {visibleColumns.note && <th className="text-left px-3 py-2 min-w-[320px]">Ghi chú</th>}
                       {visibleColumns.registered && <th className="text-center px-3 py-2">Số khách đăng ký</th>}
                       {visibleColumns.checkedIn && <th className="text-center px-3 py-2">Số khách check-in</th>}
                       {visibleColumns.status && <th className="text-center px-3 py-2">Trạng thái</th>}
@@ -325,7 +328,7 @@ export default function ThongKePage() {
                         {visibleColumns.name && <td className="px-3 py-2 font-medium text-ink">{g.full_name}</td>}
                         {visibleColumns.phone && <td className="px-3 py-2 font-mono text-xs text-muted whitespace-nowrap">{g.phone || "—"}</td>}
                         {visibleColumns.businessModel && <td className="px-3 py-2 text-muted">{g.business_model || "—"}</td>}
-                        {visibleColumns.type && <td className="px-3 py-2 text-muted">{g.guest_type || "—"}</td>}
+                        {visibleColumns.note && <td className="px-3 py-2 text-muted min-w-[320px] max-w-[480px] break-words whitespace-pre-wrap">{g.notes_summary || "—"}</td>}
                         {visibleColumns.registered && <td className="px-3 py-2 text-center">{g.party_size || 1}</td>}
                         {visibleColumns.checkedIn && <td className="px-3 py-2 text-center">
                           {g.checkin_status === "checked_in" ? (

@@ -131,6 +131,7 @@ class GuestOut(BaseModel):
     role_title: str | None
     guest_type: str | None
     note: str | None
+    notes_summary: str | None = None
     source: str | None = None
     source_detail: str | None = None
     creator_name: str | None = None

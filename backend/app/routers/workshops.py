@@ -4,6 +4,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import func, nulls_last, select, text
@@ -15,6 +16,7 @@ from ..db import get_db
 from ..models import (
     AdminUser,
     Guest,
+    GuestNote,
     RegistrationForm,
     RegistrationFormWorkshop,
     RegistrationSubmission,
@@ -38,6 +40,7 @@ from ..auth.dependencies import require_permission
 from ..services.guest_provenance import normalize_guest_source
 
 logger = logging.getLogger("workshops")
+VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 router = APIRouter(prefix="/api", tags=["workshops"])
 
 ALLOWED_MIMES = {
@@ -477,7 +480,35 @@ async def list_guests(
     else:
         stmt = stmt.order_by(order_col.desc(), Guest.full_name)
     rows = (await db.execute(stmt)).scalars().all()
-    return rows
+    if not rows:
+        return []
+
+    guest_ids = [g.id for g in rows]
+    note_rows = (await db.execute(
+        select(GuestNote.guest_id, GuestNote.content, GuestNote.created_at, AdminUser.name)
+        .outerjoin(AdminUser, AdminUser.id == GuestNote.author_user_id)
+        .where(GuestNote.guest_id.in_(guest_ids))
+        .order_by(GuestNote.created_at.desc(), GuestNote.id.desc())
+    )).all()
+    notes_by_guest: dict[uuid.UUID, list[str]] = {}
+    for guest_id, content, created_at, author_name in note_rows:
+        author = (author_name or "—").strip() or "—"
+        if created_at is not None:
+            local_dt = created_at.astimezone(VN_TZ) if created_at.tzinfo else created_at.replace(tzinfo=VN_TZ)
+            time_str = f"{local_dt.strftime('%H:%M:%S')} {local_dt.day}/{local_dt.month}/{local_dt.year}"
+        else:
+            time_str = "—"
+        line = f"{author} · {time_str}: {content}"
+        notes_by_guest.setdefault(guest_id, []).append(line)
+
+    result: list[GuestOut] = []
+    for g in rows:
+        out = GuestOut.model_validate(g)
+        notes = notes_by_guest.get(g.id)
+        if notes:
+            out = out.model_copy(update={"notes_summary": "\n".join(notes)})
+        result.append(out)
+    return result
 
 
 @router.post("/workshops/{workshop_id}/guests", response_model=GuestOut, status_code=201)
