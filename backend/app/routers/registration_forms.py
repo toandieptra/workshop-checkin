@@ -284,6 +284,8 @@ async def submit_registration_form(
         guest,
         auto_confirm=workshop.auto_confirm_registration,
     )
+    from ..services.zalo_messages import enqueue_auto_send_new_guest
+    await enqueue_auto_send_new_guest(db, guest)
 
     submission = RegistrationSubmission(
         form_id=form.id,

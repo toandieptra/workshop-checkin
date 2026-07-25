@@ -509,6 +509,8 @@ async def create_guest(
         auto_confirm=w.auto_confirm_registration,
         confirmed_by=user.id,
     )
+    from ..services.zalo_messages import enqueue_auto_send_new_guest
+    await enqueue_auto_send_new_guest(db, g)
     await db.commit()
     await db.refresh(g)
     try:

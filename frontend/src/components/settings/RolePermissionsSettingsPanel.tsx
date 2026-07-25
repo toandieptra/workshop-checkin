@@ -27,12 +27,23 @@ const GROUPS = [
   { key: "uploads", label: "Tệp tải lên", description: "Tải tệp và tài nguyên lên hệ thống" },
   { key: "zbs", label: "Mẫu tin ZBS", description: "Xem mẫu tin, đồng bộ và cấu hình gửi tự động" },
   { key: "zalo_connections", label: "Kết nối Zalo", description: "Xem và quản lý Zalo OA, Zalo user" },
+  { key: "zalo_messages", label: "Tin nhắn Zalo", description: "Quản lý mẫu tin và gửi hàng loạt" },
   { key: "users", label: "Người dùng & phân quyền", description: "Quản lý người dùng và vai trò" },
 ];
 
 const ACTION_LABELS: Record<string, string> = {
   read: "Xem", write: "Tạo và chỉnh sửa", delete: "Xóa", export: "Xuất dữ liệu",
   manage: "Quản lý", sync: "Đồng bộ", create: "Tải lên",
+};
+const PERMISSION_LABELS: Record<string, string> = {
+  "zalo_templates.read": "Xem mẫu tin",
+  "zalo_templates.manage": "Quản lý mẫu tin (tổng hợp)",
+  "zalo_templates.create": "Tạo mẫu tin",
+  "zalo_templates.edit": "Sửa mẫu tin",
+  "zalo_templates.delete": "Xóa mẫu tin",
+  "zalo_messages.read": "Xem lịch sử gửi",
+  "zalo_messages.send": "Gửi tin nhắn (đơn/retry)",
+  "zalo_messages.bulk_send": "Gửi hàng loạt",
 };
 
 function RoleIcon({ selected }: { selected: boolean }) {
@@ -86,7 +97,9 @@ export default function RolePermissionsSettingsPanel() {
 
   const groupedPermissions = useMemo(() => GROUPS.map((group) => ({
     ...group,
-    permissions: (catalog?.permissions || []).filter((permission) => permission.startsWith(group.key + ".")),
+    permissions: (catalog?.permissions || []).filter((permission) => group.key === "zalo_messages"
+       ? permission.startsWith("zalo_templates.") || permission.startsWith("zalo_messages.")
+       : permission.startsWith(group.key + ".")),
   })).filter((group) => group.permissions.length), [catalog]);
 
   const currentRole = catalog?.roles.find((role) => role.key === selectedRole);
@@ -247,7 +260,7 @@ export default function RolePermissionsSettingsPanel() {
                               <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${checked ? "left-[18px]" : "left-0.5"}`} />
                             </span>
                             <span className="min-w-0">
-                              <span className="block text-sm font-medium text-text-primary">{ACTION_LABELS[action] || action}</span>
+                              <span className="block text-sm font-medium text-text-primary">{PERMISSION_LABELS[permission] || ACTION_LABELS[action] || action}</span>
                               <span className="block truncate font-mono text-[10px] text-muted">{permission}</span>
                             </span>
                           </label>

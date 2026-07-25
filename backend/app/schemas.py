@@ -351,6 +351,8 @@ class ZaloTemplateCreate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
     content_blocks: list[dict]
     status: str = "draft"
+    auto_send_new_guest: bool = False
+    auto_send_checkin: bool = False
 
 
 class ZaloTemplateUpdate(BaseModel):
@@ -358,6 +360,8 @@ class ZaloTemplateUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
     content_blocks: list[dict] | None = None
     status: str | None = None
+    auto_send_new_guest: bool | None = None
+    auto_send_checkin: bool | None = None
 
 
 class ZaloTemplateToggleRequest(BaseModel):
@@ -371,6 +375,8 @@ class ZaloTemplateOut(BaseModel):
     description: str | None = None
     content_blocks: list[dict]
     status: str
+    auto_send_new_guest: bool = False
+    auto_send_checkin: bool = False
     created_by: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime

@@ -20,7 +20,7 @@ export default function AdminNav() {
   const { can, logout } = useAuth();
   const items = [
     ...ITEMS.filter((item) => can(item.permission)),
-    ...(can(PERMISSIONS.usersView) || can(PERMISSIONS.connectionsView) || can(PERMISSIONS.zbsView)
+    ...(can(PERMISSIONS.usersView) || can(PERMISSIONS.connectionsView) || can(PERMISSIONS.zbsView) || can(PERMISSIONS.zaloTemplatesView)
       ? [{ href: "/admin/cai-dat", label: "Cài đặt", permission: PERMISSIONS.connectionsView }]
       : []),
   ];

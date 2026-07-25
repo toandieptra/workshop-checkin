@@ -8,7 +8,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..auth.dependencies import require_permission
+from ..auth.dependencies import require_any_permission, require_permission
 from ..db import get_db
 from ..models import Guest, ZaloDelivery, ZaloDeliveryBatch, ZaloDeliveryItem, ZaloTemplate
 from ..schemas import (ZaloBatchSendRequest, ZaloDeliveryItemOut, ZaloDeliveryOut,
@@ -83,8 +83,8 @@ async def get_template(template_id: uuid.UUID, db: AsyncSession = Depends(get_db
     return _template(template)
 
 
-@router.post("/templates", response_model=ZaloTemplateOut, status_code=201, dependencies=[Depends(require_permission("zalo_templates.manage"))])
-async def create_template(body: ZaloTemplateCreate, user=Depends(require_permission("zalo_templates.manage")), db: AsyncSession = Depends(get_db)):
+@router.post("/templates", response_model=ZaloTemplateOut, status_code=201, dependencies=[Depends(require_any_permission("zalo_templates.create", "zalo_templates.manage"))])
+async def create_template(body: ZaloTemplateCreate, user=Depends(require_any_permission("zalo_templates.create", "zalo_templates.manage")), db: AsyncSession = Depends(get_db)):
     if body.status not in {"draft", "active", "archived"}:
         raise HTTPException(400, "status không hợp lệ")
     try:
@@ -97,7 +97,7 @@ async def create_template(body: ZaloTemplateCreate, user=Depends(require_permiss
     return _template(template)
 
 
-@router.patch("/templates/{template_id}", response_model=ZaloTemplateOut, dependencies=[Depends(require_permission("zalo_templates.manage"))])
+@router.patch("/templates/{template_id}", response_model=ZaloTemplateOut, dependencies=[Depends(require_any_permission("zalo_templates.edit", "zalo_templates.manage"))])
 async def update_template(template_id: uuid.UUID, body: ZaloTemplateUpdate, db: AsyncSession = Depends(get_db)):
     template = await db.get(ZaloTemplate, template_id)
     if not template: raise HTTPException(404, "Không tìm thấy template")
@@ -113,19 +113,26 @@ async def update_template(template_id: uuid.UUID, body: ZaloTemplateUpdate, db: 
     return _template(template)
 
 
-@router.post("/templates/{template_id}/clone", response_model=ZaloTemplateOut, status_code=201, dependencies=[Depends(require_permission("zalo_templates.manage"))])
-async def clone_template(template_id: uuid.UUID, user=Depends(require_permission("zalo_templates.manage")), db: AsyncSession = Depends(get_db)):
+@router.post("/templates/{template_id}/clone", response_model=ZaloTemplateOut, status_code=201, dependencies=[Depends(require_any_permission("zalo_templates.create", "zalo_templates.manage"))])
+async def clone_template(template_id: uuid.UUID, user=Depends(require_any_permission("zalo_templates.create", "zalo_templates.manage")), db: AsyncSession = Depends(get_db)):
     source = await db.get(ZaloTemplate, template_id)
     if not source:
         raise HTTPException(404, "Không tìm thấy template")
-    clone = ZaloTemplate(name=f"{source.name} (bản sao)", description=source.description,
-                         content_blocks=source.content_blocks, status="draft", created_by=user.id)
+    clone = ZaloTemplate(
+        name=f"{source.name} (bản sao)",
+        description=source.description,
+        content_blocks=source.content_blocks,
+        status="draft",
+        auto_send_new_guest=False,
+        auto_send_checkin=False,
+        created_by=user.id,
+    )
     db.add(clone)
     await db.commit(); await db.refresh(clone)
     return _template(clone)
 
 
-@router.post("/templates/{template_id}/toggle", response_model=ZaloTemplateOut, dependencies=[Depends(require_permission("zalo_templates.manage"))])
+@router.post("/templates/{template_id}/toggle", response_model=ZaloTemplateOut, dependencies=[Depends(require_any_permission("zalo_templates.edit", "zalo_templates.manage"))])
 async def toggle_template(template_id: uuid.UUID, body: ZaloTemplateToggleRequest,
                           db: AsyncSession = Depends(get_db)):
     template = await db.get(ZaloTemplate, template_id)
@@ -140,7 +147,7 @@ async def toggle_template(template_id: uuid.UUID, body: ZaloTemplateToggleReques
     return _template(template)
 
 
-@router.delete("/templates/{template_id}", status_code=204, dependencies=[Depends(require_permission("zalo_templates.manage"))])
+@router.delete("/templates/{template_id}", status_code=204, dependencies=[Depends(require_any_permission("zalo_templates.delete", "zalo_templates.manage"))])
 async def delete_template(template_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     template = await db.get(ZaloTemplate, template_id)
     if not template: raise HTTPException(404, "Không tìm thấy template")
@@ -148,7 +155,7 @@ async def delete_template(template_id: uuid.UUID, db: AsyncSession = Depends(get
     await db.commit()
 
 
-@router.post("/media", dependencies=[Depends(require_permission("zalo_templates.manage"))])
+@router.post("/media", dependencies=[Depends(require_any_permission("zalo_templates.create", "zalo_templates.edit", "zalo_templates.manage"))])
 async def upload_media(kind: str, file: UploadFile = File(...)):
     if kind not in {"image", "video", "thumbnail"}: raise HTTPException(400, "kind không hợp lệ")
     return await save_media(file, "image" if kind in {"image", "thumbnail"} else "video")
@@ -185,7 +192,7 @@ async def _preflight(body, db):
             "eligible": eligible, "ineligible": ineligible}
 
 
-@router.post("/preflight", dependencies=[Depends(require_permission("zalo_messages.send")), Depends(require_permission("guests.read"))])
+@router.post("/preflight", dependencies=[Depends(require_any_permission("zalo_messages.bulk_send", "zalo_messages.send")), Depends(require_permission("guests.read"))])
 async def preflight(body: ZaloPreflightRequest, db: AsyncSession = Depends(get_db)):
     return await _preflight(body, db)
 
@@ -217,8 +224,8 @@ async def send_one(body: ZaloSendRequest, user=Depends(require_permission("zalo_
     return await _delivery(db, delivery.id)
 
 
-@router.post("/batches", response_model=ZaloDeliveryOut, status_code=201, dependencies=[Depends(require_permission("zalo_messages.send")), Depends(require_permission("guests.read"))])
-async def send_batch(body: ZaloBatchSendRequest, user=Depends(require_permission("zalo_messages.send")), db: AsyncSession = Depends(get_db)):
+@router.post("/batches", response_model=ZaloDeliveryOut, status_code=201, dependencies=[Depends(require_any_permission("zalo_messages.bulk_send", "zalo_messages.send")), Depends(require_permission("guests.read"))])
+async def send_batch(body: ZaloBatchSendRequest, user=Depends(require_any_permission("zalo_messages.bulk_send", "zalo_messages.send")), db: AsyncSession = Depends(get_db)):
     template = await db.get(ZaloTemplate, body.template_id)
     if not template: raise HTTPException(404, "Không tìm thấy template")
     if template.status != "active": raise HTTPException(409, "Chỉ gửi được template đang active")

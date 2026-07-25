@@ -20,7 +20,11 @@ def test_admin_cannot_manage_users_by_default():
     assert "users.manage" not in effective_permissions("admin")
     assert "zalo_connections.manage" in effective_permissions("admin")
     assert "zalo_templates.manage" in effective_permissions("admin")
+    assert "zalo_templates.create" in effective_permissions("admin")
+    assert "zalo_templates.edit" in effective_permissions("admin")
+    assert "zalo_templates.delete" in effective_permissions("admin")
     assert "zalo_messages.send" in effective_permissions("admin")
+    assert "zalo_messages.bulk_send" in effective_permissions("admin")
 
 
 def test_user_cannot_access_admin_and_editor_cannot_manage_users():

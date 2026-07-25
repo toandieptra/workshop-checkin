@@ -84,3 +84,15 @@ def require_permission(permission: str):
             raise HTTPException(403, f"missing permission: {permission}")
         return user
     return dependency
+
+
+def require_any_permission(*permissions: str):
+    async def dependency(
+        user: AdminUser = Depends(current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> AdminUser:
+        granted = await effective_permissions_for_user(db, user.role, user.permission_overrides)
+        if not any(permission in granted for permission in permissions):
+            raise HTTPException(403, f"missing permission: {' or '.join(permissions)}")
+        return user
+    return dependency

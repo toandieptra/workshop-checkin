@@ -8,8 +8,11 @@ import pytest
 from app.config import settings
 from app.models import Guest, Workshop
 from app.services.zalo_messages import (
+    AUTO_SEND_CHECKIN,
+    AUTO_SEND_NEW_GUEST,
     calls_per_guest,
     create_delivery,
+    enqueue_auto_send,
     render_block,
     template_variables,
     validate_blocks,
@@ -160,3 +163,86 @@ def test_create_delivery_renders_each_guest_item_snapshot(monkeypatch):
     items = [value for value in db.added if value.__class__.__name__ == "ZaloDeliveryItem"]
     assert delivery.content_blocks[0]["text"] == "Chào {{full_name}}"
     assert [item.block_payload["text"] for item in items] == ["Chào Mai", "Chào Lan"]
+
+
+def test_enqueue_auto_send_uses_active_templates_and_dedupes(monkeypatch):
+    guest = Guest(id=uuid.uuid4(), full_name="Mai", phone="0901234567")
+    active = SimpleNamespace(
+        id=uuid.uuid4(), name="Active", status="active",
+        auto_send_new_guest=True, auto_send_checkin=False,
+        content_blocks=[{"type": "text", "text": "Xin chào"}],
+    )
+    inactive = SimpleNamespace(
+        id=uuid.uuid4(), name="Inactive", status="draft",
+        auto_send_new_guest=True, auto_send_checkin=False,
+        content_blocks=[{"type": "text", "text": "Không gửi"}],
+    )
+    created = []
+
+    class FakeResult:
+        def scalars(self):
+            return self
+
+        def __iter__(self):
+            return iter([active])
+
+    class FakeDb:
+        async def scalar(self, stmt):
+            return None
+
+        async def execute(self, stmt):
+            return FakeResult()
+
+    async def fake_create_delivery(db, template, guests, created_by=None, batch_id=None, refresh=False, idempotency_key=None):
+        created.append((template.id, str(idempotency_key), [guest.id for guest in guests]))
+        return SimpleNamespace(id=uuid.uuid4(), template_id=template.id, idempotency_key=str(idempotency_key))
+
+    monkeypatch.setattr(settings, "ZALO_MESSAGES_ENABLED", True)
+    monkeypatch.setattr("app.services.zalo_messages.create_delivery", fake_create_delivery)
+
+    first = asyncio.run(enqueue_auto_send(FakeDb(), guest, AUTO_SEND_NEW_GUEST))
+    assert len(first) == 1
+    assert created == [(active.id, f"{AUTO_SEND_NEW_GUEST}:{active.id}:{guest.id}", [guest.id])]
+    assert inactive.id not in {item[0] for item in created}
+
+    class DedupDb(FakeDb):
+        async def scalar(self, stmt):
+            return uuid.uuid4()
+
+    second = asyncio.run(enqueue_auto_send(DedupDb(), guest, AUTO_SEND_NEW_GUEST))
+    assert second == []
+    assert len(created) == 1
+
+
+def test_enqueue_auto_send_checkin_selects_flag(monkeypatch):
+    guest = Guest(id=uuid.uuid4(), full_name="Mai", phone="0901234567")
+    template = SimpleNamespace(
+        id=uuid.uuid4(), name="Checkin", status="active",
+        auto_send_new_guest=False, auto_send_checkin=True,
+        content_blocks=[{"type": "text", "text": "Check-in ok"}],
+    )
+    created = []
+
+    class FakeResult:
+        def scalars(self):
+            return self
+
+        def __iter__(self):
+            return iter([template])
+
+    class FakeDb:
+        async def scalar(self, stmt):
+            return None
+
+        async def execute(self, stmt):
+            return FakeResult()
+
+    async def fake_create_delivery(db, template, guests, created_by=None, batch_id=None, refresh=False, idempotency_key=None):
+        created.append(str(idempotency_key))
+        return SimpleNamespace(id=uuid.uuid4())
+
+    monkeypatch.setattr(settings, "ZALO_MESSAGES_ENABLED", True)
+    monkeypatch.setattr("app.services.zalo_messages.create_delivery", fake_create_delivery)
+    deliveries = asyncio.run(enqueue_auto_send(FakeDb(), guest, AUTO_SEND_CHECKIN))
+    assert len(deliveries) == 1
+    assert created == [f"{AUTO_SEND_CHECKIN}:{template.id}:{guest.id}"]

@@ -312,6 +312,8 @@ class ZaloTemplate(Base):
     description: Mapped[str | None] = mapped_column(Text)
     content_blocks: Mapped[list[dict]] = mapped_column(JSONB, default=list, nullable=False)
     status: Mapped[str] = mapped_column(Text, default="draft", nullable=False)
+    auto_send_new_guest: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    auto_send_checkin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

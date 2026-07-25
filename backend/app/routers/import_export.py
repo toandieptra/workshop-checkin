@@ -75,6 +75,8 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
         await db.flush()
         if await apply_registration_policy(db, g, auto_confirm=w.auto_confirm_registration):
             confirmed += 1
+        from ..services.zalo_messages import enqueue_auto_send_new_guest
+        await enqueue_auto_send_new_guest(db, g)
         created += 1
     await db.commit()
     return {

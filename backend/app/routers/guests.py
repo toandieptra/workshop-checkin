@@ -171,7 +171,9 @@ async def _do_checkin(
     )
     db.add(log)
     from ..services.zbs import enqueue_checkin
+    from ..services.zalo_messages import enqueue_auto_send_checkin
     await enqueue_checkin(db, guest)
+    await enqueue_auto_send_checkin(db, guest)
     await db.commit()
     await mark_checked_in(guest.workshop_id, guest.id)
 
@@ -352,7 +354,10 @@ async def self_register_and_checkin(
     await db.flush()
     await confirm_registration(db, guest)
     from ..services.zbs import enqueue_checkin
+    from ..services.zalo_messages import enqueue_auto_send_new_guest, enqueue_auto_send_checkin
+    await enqueue_auto_send_new_guest(db, guest)
     await enqueue_checkin(db, guest)
+    await enqueue_auto_send_checkin(db, guest)
 
     log = CheckinLog(
         workshop_id=workshop.id,

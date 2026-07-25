@@ -28,6 +28,8 @@ export interface ZaloMessageTemplate {
   name: string;
   description?: string | null;
   status: ZaloMessageTemplateStatus;
+  auto_send_new_guest: boolean;
+  auto_send_checkin: boolean;
   blocks: ZaloMessageBlock[];
   created_at: string;
   updated_at: string;
@@ -42,6 +44,8 @@ export interface ZaloMessageTemplateInput {
   name: string;
   description?: string;
   status: ZaloMessageTemplateStatus;
+  auto_send_new_guest?: boolean;
+  auto_send_checkin?: boolean;
   blocks: Array<Omit<ZaloMessageBlock, "id"> & { id?: string }>;
 }
 

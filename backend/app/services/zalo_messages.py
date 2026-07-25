@@ -436,6 +436,50 @@ async def create_delivery(db: AsyncSession, template: ZaloTemplate, guests: list
     return delivery
 
 
+AUTO_SEND_NEW_GUEST = "auto_send_new_guest"
+AUTO_SEND_CHECKIN = "auto_send_checkin"
+
+
+async def _already_auto_sent(db: AsyncSession, template_id, guest_id, event_type: str) -> bool:
+    return await db.scalar(select(ZaloDelivery.id).where(
+        ZaloDelivery.template_id == template_id,
+        ZaloDelivery.idempotency_key == f"{event_type}:{template_id}:{guest_id}",
+    ).limit(1)) is not None
+
+
+async def enqueue_auto_send(db: AsyncSession, guest: Guest, event_type: str) -> list[ZaloDelivery]:
+    if not settings.ZALO_MESSAGES_ENABLED:
+        return []
+    if event_type not in {AUTO_SEND_NEW_GUEST, AUTO_SEND_CHECKIN}:
+        raise ValueError("event_type auto-send không hợp lệ")
+    flag = event_type
+    templates = list((await db.execute(select(ZaloTemplate).where(
+        ZaloTemplate.status == "active",
+        getattr(ZaloTemplate, flag).is_(True),
+    ).order_by(ZaloTemplate.updated_at.desc()))).scalars())
+    deliveries: list[ZaloDelivery] = []
+    for template in templates:
+        key = f"{event_type}:{template.id}:{guest.id}"
+        if await _already_auto_sent(db, template.id, guest.id, event_type):
+            continue
+        try:
+            delivery = await create_delivery(
+                db, template, [guest], created_by=None, idempotency_key=key,
+            )
+            deliveries.append(delivery)
+        except ValueError as exc:
+            log.warning("auto-send %s skipped for template=%s guest=%s: %s", event_type, template.id, guest.id, exc)
+    return deliveries
+
+
+async def enqueue_auto_send_new_guest(db: AsyncSession, guest: Guest) -> list[ZaloDelivery]:
+    return await enqueue_auto_send(db, guest, AUTO_SEND_NEW_GUEST)
+
+
+async def enqueue_auto_send_checkin(db: AsyncSession, guest: Guest) -> list[ZaloDelivery]:
+    return await enqueue_auto_send(db, guest, AUTO_SEND_CHECKIN)
+
+
 async def process_once(db: AsyncSession) -> None:
     now = datetime.now(timezone.utc)
     await db.execute(update(ZaloDeliveryItem).where(

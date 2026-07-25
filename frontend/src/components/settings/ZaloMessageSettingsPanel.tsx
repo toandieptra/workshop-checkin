@@ -417,9 +417,7 @@ function BlockEditor({
               <textarea
                 ref={(element) => { textareas.current[block.id] = element; }}
                 value={block.text || ""}
-                onChange={(event) =>
-                  patch(block.id, { text: event.target.value })
-                }
+                onChange={(event) => patch(block.id, { text: event.target.value })}
                 rows={4}
                 maxLength={2000}
                 placeholder="Nhập nội dung tin nhắn. Có thể dùng biến như {{full_name}}..."
@@ -555,6 +553,8 @@ function TemplateEditor({
           name: template.name,
           description: template.description || "",
           status: template.status,
+          auto_send_new_guest: template.auto_send_new_guest,
+          auto_send_checkin: template.auto_send_checkin,
           blocks: template.blocks.map((block) => ({
             ...block,
             id: block.id || blockId(),
@@ -564,6 +564,8 @@ function TemplateEditor({
           name: "",
           description: "",
           status: "draft",
+          auto_send_new_guest: false,
+          auto_send_checkin: false,
           blocks: [emptyBlock("text")],
         },
   );
@@ -660,7 +662,7 @@ function TemplateEditor({
                   Nội dung tin nhắn
                 </h3>
                 <p className="text-xs text-muted">
-                  Kéo thả hoặc dùng nút lên/xuống để đổi thứ tự block. Giới hạn: 50MB/file, 10 media/template, 2000 ký tự/text.
+                   Kéo thả hoặc dùng nút lên/xuống để đổi thứ tự block. Giới hạn: 50MB/file, 10 media/template, 2000 ký tự/text.
                 </p>
               </div>
               <BlockEditor
@@ -1138,9 +1140,13 @@ function BulkSendModal({
 
 export default function ZaloMessageSettingsPanel() {
   const { can } = useAuth();
-  const canManage = can(PERMISSIONS.zaloTemplatesManage);
+  const hasLegacyTemplateManage = can(PERMISSIONS.zaloTemplatesManage);
+  const canCreate = hasLegacyTemplateManage || can(PERMISSIONS.zaloTemplatesCreate);
+  const canEdit = hasLegacyTemplateManage || can(PERMISSIONS.zaloTemplatesEdit);
+  const canDelete = hasLegacyTemplateManage || can(PERMISSIONS.zaloTemplatesDelete);
   const canReadDeliveries = can(PERMISSIONS.zaloMessagesView);
   const canSend = can(PERMISSIONS.zaloMessagesSend);
+  const canBulkSend = canSend || can(PERMISSIONS.zaloMessagesBulkSend);
   const [templates, setTemplates] = useState<ZaloMessageTemplate[]>([]);
   const [quota, setQuota] = useState<ZaloMessageQuota>(EMPTY_QUOTA);
   const [status, setStatus] = useState<ZaloMessageTemplateStatus | "">("");
@@ -1157,6 +1163,7 @@ export default function ZaloMessageSettingsPanel() {
   >(undefined);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [historyTemplate, setHistoryTemplate] = useState<ZaloMessageTemplate | null>(null);
+  const [autoBusy, setAutoBusy] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1232,6 +1239,37 @@ export default function ZaloMessageSettingsPanel() {
       setError("Không thể cập nhật trạng thái: " + errorMessage(toggleError));
     }
   };
+  const toggleAutoSend = async (
+    template: ZaloMessageTemplate,
+    field: "auto_send_new_guest" | "auto_send_checkin",
+    value: boolean,
+  ) => {
+    const busyKey = `${template.id}:${field}`;
+    setAutoBusy(busyKey);
+    setError("");
+    setMessage("");
+    const previous = templates;
+    setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, [field]: value } : item));
+    try {
+      const updated = await updateZaloMessageTemplate(template.id, {
+        name: template.name,
+        description: template.description || "",
+        status: template.status,
+        auto_send_new_guest: field === "auto_send_new_guest" ? value : template.auto_send_new_guest,
+        auto_send_checkin: field === "auto_send_checkin" ? value : template.auto_send_checkin,
+        blocks: template.blocks,
+      });
+      setTemplates((current) => current.map((item) => item.id === template.id ? updated : item));
+      setMessage(field === "auto_send_new_guest"
+        ? (value ? "Đã bật tự gửi khi guest mới." : "Đã tắt tự gửi khi guest mới.")
+        : (value ? "Đã bật tự gửi khi check-in." : "Đã tắt tự gửi khi check-in."));
+    } catch (autoError) {
+      setTemplates(previous);
+      setError("Không thể cập nhật auto-send: " + errorMessage(autoError));
+    } finally {
+      setAutoBusy("");
+    }
+  };
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const quotaPercent = quota.limit
     ? Math.min(100, Math.round((quota.used / quota.limit) * 100))
@@ -1251,9 +1289,9 @@ export default function ZaloMessageSettingsPanel() {
             Tạo mẫu nhiều nội dung và gửi có kiểm soát đến khách tham dự.
           </p>
         </div>
-        {(canManage || canSend) && (
+        {(canCreate || canBulkSend) && (
           <div className="flex flex-wrap gap-2">
-            {canSend && (
+            {canBulkSend && (
               <button
                 type="button"
                 onClick={() => setBulkOpen(true)}
@@ -1265,7 +1303,7 @@ export default function ZaloMessageSettingsPanel() {
                 Gửi hàng loạt
               </button>
             )}
-            {canManage && (
+            {canCreate && (
               <button
                 type="button"
                 onClick={() => setEditing(null)}
@@ -1381,12 +1419,14 @@ export default function ZaloMessageSettingsPanel() {
           </div>
         </div>
         <div className="admin-table-scroll">
-          <table className="w-full min-w-[850px] text-sm">
+          <table className="w-full min-w-[1040px] text-sm">
             <thead className="bg-surface-muted text-left text-xs text-muted">
               <tr>
                 <th className="px-4 py-3">Tên mẫu tin</th>
                 <th className="px-4 py-3">Nội dung</th>
                 <th className="px-4 py-3">Trạng thái</th>
+                <th className="px-4 py-3">Guest mới</th>
+                <th className="px-4 py-3">Check-in</th>
                 <th className="px-4 py-3">Cập nhật</th>
                 <th className="px-4 py-3 text-right">Thao tác</th>
               </tr>
@@ -1395,7 +1435,7 @@ export default function ZaloMessageSettingsPanel() {
               {loading
                 ? [1, 2, 3, 4].map((row) => (
                     <tr key={row}>
-                      {[1, 2, 3, 4, 5].map((cell) => (
+                      {[1, 2, 3, 4, 5, 6, 7].map((cell) => (
                         <td key={cell} className="px-4 py-4">
                           <div className="h-4 animate-pulse rounded bg-surface-muted" />
                         </td>
@@ -1435,6 +1475,39 @@ export default function ZaloMessageSettingsPanel() {
                           >
                             {statusMeta.label}
                           </span>
+                          {template.status !== "active" && (template.auto_send_new_guest || template.auto_send_checkin) && (
+                            <div className="mt-1 text-[11px] text-amber-700">Chỉ gửi khi mẫu active</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <label className={`inline-flex items-center gap-2 ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                            <input
+                              type="checkbox"
+                              className="peer sr-only"
+                              checked={template.auto_send_new_guest}
+                              disabled={!canEdit || autoBusy === `${template.id}:auto_send_new_guest`}
+                              onChange={(event) => void toggleAutoSend(template, "auto_send_new_guest", event.target.checked)}
+                            />
+                            <span className={`relative h-5 w-9 shrink-0 rounded-full transition ${template.auto_send_new_guest ? "bg-brand" : "bg-[#cbd9db]"}`}>
+                              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${template.auto_send_new_guest ? "left-[18px]" : "left-0.5"}`} />
+                            </span>
+                            <span className="text-xs text-text-secondary">Tự gửi</span>
+                          </label>
+                        </td>
+                        <td className="px-4 py-3">
+                          <label className={`inline-flex items-center gap-2 ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                            <input
+                              type="checkbox"
+                              className="peer sr-only"
+                              checked={template.auto_send_checkin}
+                              disabled={!canEdit || autoBusy === `${template.id}:auto_send_checkin`}
+                              onChange={(event) => void toggleAutoSend(template, "auto_send_checkin", event.target.checked)}
+                            />
+                            <span className={`relative h-5 w-9 shrink-0 rounded-full transition ${template.auto_send_checkin ? "bg-brand" : "bg-[#cbd9db]"}`}>
+                              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${template.auto_send_checkin ? "left-[18px]" : "left-0.5"}`} />
+                            </span>
+                            <span className="text-xs text-text-secondary">Tự gửi</span>
+                          </label>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-muted">
                           {formatDateTime(template.updated_at)}
@@ -1447,12 +1520,12 @@ export default function ZaloMessageSettingsPanel() {
                               onClick={() => setEditing(template)}
                               className="min-h-8 font-semibold text-brand underline"
                             >
-                              {canManage ? "Sửa" : "Xem"}
+                              {canEdit ? "Sửa" : "Xem"}
                             </button>
-                            {canManage && (
+                            {canCreate && <button type="button" onClick={() => void clone(template)} className="min-h-8 font-semibold text-brand-teal underline">Nhân bản</button>}
+                            {canEdit && <button type="button" onClick={() => void toggle(template)} className="min-h-8 font-semibold text-amber-700 underline">{template.status === "active" ? "Tạm ngưng" : "Bật"}</button>}
+                            {canDelete && (
                               <>
-                                <button type="button" onClick={() => void clone(template)} className="min-h-8 font-semibold text-brand-teal underline">Nhân bản</button>
-                                <button type="button" onClick={() => void toggle(template)} className="min-h-8 font-semibold text-amber-700 underline">{template.status === "active" ? "Tạm ngưng" : "Bật"}</button>
                                 <button type="button" onClick={() => void remove(template)} className="min-h-8 font-semibold text-red-600 underline">Xóa</button>
                               </>
                             )}
@@ -1463,7 +1536,7 @@ export default function ZaloMessageSettingsPanel() {
                   })}
               {!loading && !templates.length && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-14 text-center">
+                  <td colSpan={7} className="px-4 py-14 text-center">
                     <div className="font-semibold text-ink">
                       Chưa có mẫu tin phù hợp
                     </div>
@@ -1505,7 +1578,7 @@ export default function ZaloMessageSettingsPanel() {
         <TemplateEditor
           template={editing}
           saving={saving}
-          readOnly={!canManage}
+          readOnly={editing ? !canEdit : !canCreate}
           onClose={() => setEditing(undefined)}
           onSave={(input) => void save(input)}
         />

@@ -540,6 +540,8 @@ type ZaloTemplateApi = Omit<ZaloMessageTemplate, "blocks"> & { content_blocks: A
 function normalizeZaloTemplate(template: ZaloTemplateApi): ZaloMessageTemplate {
   return {
     ...template,
+    auto_send_new_guest: Boolean(template.auto_send_new_guest),
+    auto_send_checkin: Boolean(template.auto_send_checkin),
     blocks: template.content_blocks.map((block, blockIndex) => {
       if (block.type === "image_album") {
         return {
@@ -574,6 +576,8 @@ function zaloTemplatePayload(body: ZaloMessageTemplateInput) {
     name: body.name,
     description: body.description || null,
     status: body.status,
+    auto_send_new_guest: Boolean(body.auto_send_new_guest),
+    auto_send_checkin: Boolean(body.auto_send_checkin),
     content_blocks: body.blocks.map((block) => block.type === "image"
       ? { type: "image_album", images: (block.images?.length ? block.images : block.url ? [{ id: block.id, url: block.url }] : []).map((image) => ({ url: image.url })) }
       : block.type === "text"
