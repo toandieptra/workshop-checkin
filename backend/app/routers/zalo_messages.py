@@ -165,7 +165,8 @@ async def _preflight(body, db):
         try:
             mapping = await resolve_recipient(db, guest, refresh=body.refresh_recipients)
         except ValueError as exc:
-            raise HTTPException(429, str(exc)) from exc
+            status_code = 503 if "account_owner_id" in str(exc) else 429
+            raise HTTPException(status_code, str(exc)) from exc
         detail = {"guest_id": guest.id, "full_name": guest.full_name, "phone": guest.phone}
         if mapping:
             eligible.append({**detail, "recipient_id": mapping.recipient_id,
@@ -191,7 +192,10 @@ async def preflight(body: ZaloPreflightRequest, db: AsyncSession = Depends(get_d
 
 @router.get("/quota", dependencies=[Depends(require_permission("zalo_messages.read"))])
 async def quota(db: AsyncSession = Depends(get_db)):
-    usage = await quota_usage(db, "message")
+    try:
+        usage = await quota_usage(db, "message")
+    except ValueError as exc:
+        raise HTTPException(503, str(exc)) from exc
     await db.commit()
     limit, used, reserved = usage.daily_limit, usage.used_count, usage.reserved_count
     return {"account_owner_id": usage.account_owner_id, "capability": usage.capability,

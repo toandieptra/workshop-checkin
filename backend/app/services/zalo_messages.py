@@ -478,7 +478,9 @@ async def process_once(db: AsyncSession) -> None:
         if block["type"] == "text":
             payload.update({"type": "text", "text": block["text"]})
         elif block["type"] == "image_album":
-            paths = [str(Path(settings.UPLOAD_DIR) / str(image["url"]).removeprefix("/uploads/")) for image in block["images"]]
+            # The bridge runs in a separate container and sees uploads at
+            # /uploads, while local development may use a host upload path.
+            paths = [f"/uploads/{str(image['url']).removeprefix('/uploads/')}" for image in block["images"]]
             payload.update({"type": "image_album", "paths": paths})
             if block.get("caption") is not None:
                 payload["caption"] = block["caption"]
