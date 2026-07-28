@@ -472,10 +472,11 @@ async def create_delivery(db: AsyncSession, template: ZaloTemplate, guests: list
                              idempotency_key=str(idempotency_key))
     db.add(delivery)
     await db.flush()
+    mappings = await resolve_recipients(db, guests, refresh=refresh)
     resolved: list[tuple[Guest, GuestZaloMapping]] = []
     workshops: dict = {}
     for guest in guests:
-        mapping = await resolve_recipient(db, guest, refresh=refresh)
+        mapping = mappings.get(guest.id)
         if mapping:
             resolved.append((guest, mapping))
             if guest.workshop_id not in workshops:

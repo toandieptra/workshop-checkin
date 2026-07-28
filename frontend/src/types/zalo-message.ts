@@ -69,6 +69,7 @@ export interface ZaloBulkPreflight {
   total: number;
   eligible_count: number;
   ineligible_count: number;
+  eligible_guest_ids: string[];
   quota_remaining: number;
   can_send: boolean;
 }

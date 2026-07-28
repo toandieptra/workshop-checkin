@@ -32,5 +32,6 @@ async def bridge_request(method: str, path: str, json: dict | None = None):
             detail = f"{detail} (request_id: {request_id})"
         log.warning("bridge_error status=%s request_id=%s detail=%s", response.status_code, request_id, detail)
         raise HTTPException(response.status_code if response.status_code < 500 else 502, detail)
-    log.info("bridge_success path=%s request_id=%s", path, payload.get("request_id"))
+    request_id = payload.get("request_id") if isinstance(payload, dict) else None
+    log.info("bridge_success path=%s request_id=%s", path, request_id)
     return payload

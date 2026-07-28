@@ -66,6 +66,32 @@ async def test_bridge_sends_bearer_token(monkeypatch):
     assert await zalo_agent.bridge_request("GET", "/status") == {"available": True}
 
 
+@pytest.mark.anyio
+async def test_bridge_accepts_list_payload(monkeypatch):
+    monkeypatch.setattr(settings, "ZALO_AGENT_BRIDGE_URL", "http://bridge.local")
+    monkeypatch.setattr(settings, "ZALO_AGENT_BRIDGE_TOKEN", "secret")
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return [{"ownId": "627379924046177199", "active": True}]
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def request(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(zalo_agent.httpx, "AsyncClient", lambda timeout: Client())
+    assert await zalo_agent.bridge_request("GET", "/accounts") == [{"ownId": "627379924046177199", "active": True}]
+
+
 def test_bridge_timeout_is_reported_as_unavailable(monkeypatch):
     request = httpx.Request("POST", "http://bridge/resolve-recipients")
     monkeypatch.setattr(settings, "ZALO_AGENT_BRIDGE_URL", "http://bridge")

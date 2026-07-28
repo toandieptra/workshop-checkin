@@ -696,7 +696,7 @@ export async function preflightZaloBulkMessage(body: {
   guest_ids: string[];
 }): Promise<ZaloBulkPreflight> {
   const [result, quota] = await Promise.all([
-    api<{ template_id: string; recipient_count: number; resolved_count: number; unresolved_count: number; quota_required: number }>("/zalo/preflight", { method: "POST", body: JSON.stringify({ ...body, refresh_recipients: false }) }),
+    api<{ template_id: string; recipient_count: number; resolved_count: number; unresolved_count: number; quota_required: number; can_send: boolean; eligible: Array<{ guest_id: string }> }>("/zalo/preflight", { method: "POST", body: JSON.stringify({ ...body, refresh_recipients: false }) }),
     getZaloMessageQuota(),
   ]);
   return {
@@ -704,8 +704,9 @@ export async function preflightZaloBulkMessage(body: {
     total: result.recipient_count,
     eligible_count: result.resolved_count,
     ineligible_count: result.unresolved_count,
+    eligible_guest_ids: result.eligible.map((guest) => guest.guest_id),
     quota_remaining: quota.remaining,
-    can_send: result.recipient_count > 0 && result.quota_required <= quota.remaining,
+    can_send: result.can_send && result.quota_required <= quota.remaining,
   };
 }
 

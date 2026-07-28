@@ -164,14 +164,17 @@ def test_create_delivery_renders_each_guest_item_snapshot(monkeypatch):
         async def get(self, model, key):
             return workshop if model is Workshop and key == workshop_id else None
 
-    async def resolve_recipient(db, guest, *, refresh=False):
-        return SimpleNamespace(recipient_id=str(guest.id), recipient_name=guest.full_name)
+    async def resolve_recipients(db, selected, *, refresh=False):
+        return {
+            guest.id: SimpleNamespace(recipient_id=str(guest.id), recipient_name=guest.full_name)
+            for guest in selected
+        }
 
     async def reserve_quota(db, amount, delivery_id):
         return None
 
     monkeypatch.setattr(settings, "ZALO_MESSAGES_ENABLED", True)
-    monkeypatch.setattr("app.services.zalo_messages.resolve_recipient", resolve_recipient)
+    monkeypatch.setattr("app.services.zalo_messages.resolve_recipients", resolve_recipients)
     monkeypatch.setattr("app.services.zalo_messages.reserve_quota", reserve_quota)
     db = FakeDb()
 
@@ -179,6 +182,53 @@ def test_create_delivery_renders_each_guest_item_snapshot(monkeypatch):
     items = [value for value in db.added if value.__class__.__name__ == "ZaloDeliveryItem"]
     assert delivery.content_blocks[0]["text"] == "Chào {{full_name}}"
     assert [item.block_payload["text"] for item in items] == ["Chào Mai", "Chào Lan"]
+
+
+def test_create_delivery_skips_unresolved_guests(monkeypatch):
+    resolved_guest = Guest(id=uuid.uuid4(), full_name="Mai")
+    unresolved_guest = Guest(id=uuid.uuid4(), full_name="Lan")
+    template = SimpleNamespace(
+        id=uuid.uuid4(), name="Greeting",
+        content_blocks=[{"type": "text", "text": "Chào {{full_name}}"}],
+    )
+
+    class FakeDb:
+        def __init__(self):
+            self.added = []
+
+        def add(self, value):
+            self.added.append(value)
+            if value.__class__.__name__ == "ZaloDelivery" and value.id is None:
+                value.id = uuid.uuid4()
+
+        async def flush(self):
+            pass
+
+        async def get(self, *_args):
+            return None
+
+    async def resolve_recipients(_db, _guests, *, refresh=False):
+        return {
+            resolved_guest.id: SimpleNamespace(
+                recipient_id=str(resolved_guest.id), recipient_name=resolved_guest.full_name,
+            ),
+        }
+
+    async def reserve_quota(_db, amount, _delivery_id):
+        assert amount == 1
+
+    monkeypatch.setattr(settings, "ZALO_MESSAGES_ENABLED", True)
+    monkeypatch.setattr("app.services.zalo_messages.resolve_recipients", resolve_recipients)
+    monkeypatch.setattr("app.services.zalo_messages.reserve_quota", reserve_quota)
+    db = FakeDb()
+
+    delivery = asyncio.run(create_delivery(
+        db, template, [resolved_guest, unresolved_guest], idempotency_key=uuid.uuid4(),
+    ))
+    items = [value for value in db.added if value.__class__.__name__ == "ZaloDeliveryItem"]
+
+    assert delivery.recipient_count == 1
+    assert [item.guest_id for item in items] == [resolved_guest.id]
 
 
 def test_resolve_recipients_uses_one_bulk_request_and_keeps_not_found_ineligible(monkeypatch):

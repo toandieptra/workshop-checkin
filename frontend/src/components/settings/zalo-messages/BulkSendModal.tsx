@@ -144,7 +144,7 @@ export default function BulkSendModal({
     if (
       !preflight ||
       !window.confirm(
-        `Xác nhận xếp hàng gửi mẫu tin cho ${selected.length} khách đã chọn?`,
+        `Xác nhận xếp hàng gửi mẫu tin cho ${preflight.eligible_count} khách đủ điều kiện?`,
       )
     )
       return;
@@ -154,7 +154,7 @@ export default function BulkSendModal({
       setResult(
         await sendZaloBulkMessage({
           template_id: templateId,
-          guest_ids: selected,
+          guest_ids: preflight.eligible_guest_ids,
         }),
       );
       onSent();
