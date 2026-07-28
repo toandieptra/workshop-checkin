@@ -83,6 +83,16 @@ function run(args, timeoutMs = 30_000) {
   });
 }
 
+function maskPhone(phone) {
+  return phone.length > 4 ? `${phone.slice(0, 3)}***${phone.slice(-2)}` : "***";
+}
+
+async function resolveRecipient(phone) {
+  let found = normalizeRecipient(await run(["friend", "find-phones", phone]), phone);
+  if (!found.user_id) found = normalizeRecipient(await run(["friend", "find", phone]), phone);
+  return found;
+}
+
 function safeAccount(account) {
   if (!account) return null;
   return {
@@ -226,18 +236,18 @@ async function requireActiveAccount(ownerId) {
   return account;
 }
 
-function rateLimit(accountId, bucket, limit) {
+function rateLimit(accountId, bucket, limit, count = 1) {
   const now = Date.now();
   const key = `${accountId}:${bucket}`;
   const timestamps = (rateLimits.get(key) || []).filter((timestamp) => now - timestamp < 60_000);
-  if (timestamps.length >= limit) {
+  if (timestamps.length + count > limit) {
     const retryAfter = Math.max(1, Math.ceil((60_000 - (now - timestamps[0])) / 1000));
     const error = new Error(`Rate limit exceeded for ${bucket}`);
     error.status = 429;
     error.retryAfter = retryAfter;
     throw error;
   }
-  timestamps.push(now);
+  for (let index = 0; index < count; index += 1) timestamps.push(now);
   rateLimits.set(key, timestamps);
 }
 
@@ -262,10 +272,10 @@ function urlValue(value, name) {
   return url;
 }
 
-async function runAccountOperation(ownerId, bucket, limit, action) {
+async function runAccountOperation(ownerId, bucket, limit, action, count = 1) {
   if (loginProcess) throw requestError("Không thể thao tác khi phiên đăng nhập Zalo đang chạy", 409);
   await requireActiveAccount(ownerId);
-  rateLimit(ownerId, bucket, limit);
+  rateLimit(ownerId, bucket, limit, count);
   await stopMcp();
   let actionError;
   try {
@@ -366,7 +376,7 @@ const server = createServer(async (request, response) => {
   let responseRequestId = null;
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
-    if (request.method === "POST" && (url.pathname === "/resolve-recipient" || url.pathname === "/messages")) responseRequestId = requestId();
+    if (request.method === "POST" && (url.pathname === "/resolve-recipient" || url.pathname === "/resolve-recipients" || url.pathname === "/messages")) responseRequestId = requestId();
     if (url.pathname === "/health") return send(response, 200, { status: "ok", mcpRunning: Boolean(mcpProcess), mcpHealthy });
     if (!authorized(request)) return send(response, 401, { ...(responseRequestId && { request_id: responseRequestId }), error: "Unauthorized" });
 
@@ -395,13 +405,40 @@ const server = createServer(async (request, response) => {
       const phone = typeof data.phone === "string" ? data.phone.replace(/[\s.-]/g, "") : "";
       if (!/^\+?[0-9]{8,15}$/.test(phone)) return send(response, 400, { request_id: id, error: "phone không hợp lệ" });
       const result = await serialize(() => runAccountOperation(data.account_owner_id, "friend_lookup", 15, async () => {
-        let found = normalizeRecipient(await run(["friend", "find-phones", phone]), phone);
-        if (!found.user_id) found = normalizeRecipient(await run(["friend", "find", phone]), phone);
-        return found;
+        return resolveRecipient(phone);
       }));
       return result.thread_id
         ? send(response, 200, { request_id: id, ...result })
         : send(response, 404, { request_id: id, error: "Không tìm thấy tài khoản Zalo cho số điện thoại" });
+    }
+    if (request.method === "POST" && url.pathname === "/resolve-recipients") {
+      const data = await readBody(request);
+      const id = responseRequestId;
+      if (!Array.isArray(data.recipients) || data.recipients.length < 1 || data.recipients.length > 1000) {
+        throw requestError("recipients phải chứa từ 1 đến 1000 phần tử");
+      }
+      const startedAt = Date.now();
+      const result = await serialize(() => runAccountOperation(data.account_owner_id, "friend_lookup", 15, async () => {
+        const recipients = [];
+        for (const item of data.recipients) {
+          const phone = typeof item.phone === "string" ? item.phone.replace(/[\s.-]/g, "") : "";
+          if (!/^\+?[0-9]{8,15}$/.test(phone)) {
+            recipients.push({ guest_id: item.guest_id, error: "phone không hợp lệ" });
+            continue;
+          }
+          try {
+            rateLimit(data.account_owner_id, "friend_lookup", 15);
+            recipients.push({ guest_id: item.guest_id, ...await resolveRecipient(phone) });
+          } catch (error) {
+            if (error?.status === 429) throw error;
+            console.warn(JSON.stringify({ event: "recipient_lookup_failed", request_id: id, guest_id: item.guest_id, phone: maskPhone(phone), error: error.message }));
+            recipients.push({ guest_id: item.guest_id, error: error.message });
+          }
+        }
+        return { recipients };
+      }, 0));
+      console.log(JSON.stringify({ event: "recipients_resolved", request_id: id, count: data.recipients.length, duration_ms: Date.now() - startedAt }));
+      return send(response, 200, { request_id: id, ...result });
     }
     if (request.method === "POST" && url.pathname === "/messages") {
       const data = await readBody(request);
@@ -449,6 +486,7 @@ const server = createServer(async (request, response) => {
   } catch (error) {
     const status = Number.isInteger(error?.status) ? error.status : 502;
     if (error?.retryAfter) response.setHeader("retry-after", String(error.retryAfter));
+    console.error(JSON.stringify({ event: "bridge_request_failed", request_id: responseRequestId, status, error: error instanceof Error ? error.message : "Bridge error" }));
     send(response, status, {
       ...(responseRequestId && { request_id: responseRequestId }),
       error: error instanceof Error ? error.message : "Bridge error",

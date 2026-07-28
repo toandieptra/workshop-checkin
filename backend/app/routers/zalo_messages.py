@@ -15,7 +15,7 @@ from ..schemas import (ZaloBatchSendRequest, ZaloDeliveryItemOut, ZaloDeliveryOu
                        ZaloPreflightRequest, ZaloSendRequest, ZaloTemplateCreate,
                        ZaloTemplateOut, ZaloTemplateToggleRequest, ZaloTemplateUpdate)
 from ..services.zalo_messages import (cache_remote_media, create_delivery, quota_usage,
-                                         reopen_quota, resolve_recipient, save_media,
+                                         reopen_quota, resolve_recipient, resolve_recipients, save_media,
                                          selected_guests, TEMPLATE_VARIABLES,
                                          validate_blocks)
 
@@ -168,12 +168,13 @@ async def _preflight(body, db):
     blocks = validate_blocks(template.content_blocks)
     eligible = []
     ineligible = []
+    try:
+        mappings = await resolve_recipients(db, guests, refresh=body.refresh_recipients)
+    except ValueError as exc:
+        status_code = 503 if "account_owner_id" in str(exc) else 429
+        raise HTTPException(status_code, str(exc)) from exc
     for guest in guests:
-        try:
-            mapping = await resolve_recipient(db, guest, refresh=body.refresh_recipients)
-        except ValueError as exc:
-            status_code = 503 if "account_owner_id" in str(exc) else 429
-            raise HTTPException(status_code, str(exc)) from exc
+        mapping = mappings.get(guest.id)
         detail = {"guest_id": guest.id, "full_name": guest.full_name, "phone": guest.phone}
         if mapping:
             eligible.append({**detail, "recipient_id": mapping.recipient_id,

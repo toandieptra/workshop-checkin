@@ -14,6 +14,7 @@ from app.services.zalo_messages import (
     create_delivery,
     enqueue_auto_send,
     render_block,
+    resolve_recipients,
     template_variables,
     validate_blocks,
 )
@@ -163,6 +164,66 @@ def test_create_delivery_renders_each_guest_item_snapshot(monkeypatch):
     items = [value for value in db.added if value.__class__.__name__ == "ZaloDeliveryItem"]
     assert delivery.content_blocks[0]["text"] == "Chào {{full_name}}"
     assert [item.block_payload["text"] for item in items] == ["Chào Mai", "Chào Lan"]
+
+
+def test_resolve_recipients_uses_one_bulk_request_and_keeps_not_found_ineligible(monkeypatch):
+    first = Guest(id=uuid.uuid4(), full_name="Mai", phone="0901234567")
+    missing = Guest(id=uuid.uuid4(), full_name="Lan", phone="0907654321")
+
+    class FakeDb:
+        def __init__(self):
+            self.mappings = {}
+
+        async def get(self, model, key):
+            return self.mappings.get(key) if model.__name__ == "GuestZaloMapping" else None
+
+        def add(self, mapping):
+            self.mappings[mapping.guest_id] = mapping
+
+        async def flush(self):
+            pass
+
+    class QuotaDb:
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+    class QuotaContext:
+        async def __aenter__(self):
+            return QuotaDb()
+
+        async def __aexit__(self, *_args):
+            pass
+
+    calls = []
+
+    async def fake_bridge(method, path, payload):
+        calls.append((method, path, payload))
+        return {
+            "request_id": "req-bulk",
+            "recipients": [
+                {"guest_id": str(first.id), "thread_id": "123456789", "recipient_name": "Mai Zalo"},
+                {"guest_id": str(missing.id), "error": "Không tìm thấy tài khoản Zalo"},
+            ],
+        }
+
+    async def fake_consume_quota(_db, kind, amount):
+        assert (kind, amount) == ("friend_lookup", 2)
+
+    monkeypatch.setattr(settings, "ZALO_AGENT_ACCOUNT_OWNER_ID", "627379924046177199")
+    monkeypatch.setattr("app.services.zalo_messages.async_session_maker", QuotaContext)
+    monkeypatch.setattr("app.services.zalo_messages.consume_quota", fake_consume_quota)
+    monkeypatch.setattr("app.services.zalo_messages.bridge_request", fake_bridge)
+
+    resolved = asyncio.run(resolve_recipients(FakeDb(), [first, missing]))
+
+    assert set(resolved) == {first.id}
+    assert resolved[first.id].recipient_name == "Mai Zalo"
+    assert len(calls) == 1
+    assert calls[0][1] == "/resolve-recipients"
+    assert len(calls[0][2]["recipients"]) == 2
 
 
 def test_enqueue_auto_send_uses_active_templates_and_dedupes(monkeypatch):

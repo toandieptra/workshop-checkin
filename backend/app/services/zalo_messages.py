@@ -254,6 +254,60 @@ async def resolve_recipient(db: AsyncSession, guest: Guest, *, refresh: bool = F
     return mapping
 
 
+async def resolve_recipients(db: AsyncSession, guests: list[Guest], *, refresh: bool = False) -> dict:
+    if not settings.ZALO_AGENT_ACCOUNT_OWNER_ID:
+        raise ValueError("Chưa cấu hình account_owner_id")
+    pending = []
+    resolved = {}
+    for guest in guests:
+        mapping = await db.get(GuestZaloMapping, guest.id)
+        if mapping and mapping.account_owner_id == settings.ZALO_AGENT_ACCOUNT_OWNER_ID and not refresh:
+            resolved[guest.id] = mapping
+        else:
+            pending.append(guest)
+
+    if not pending:
+        return resolved
+
+    async with async_session_maker() as quota_db:
+        try:
+            await consume_quota(quota_db, "friend_lookup", len(pending))
+            await quota_db.commit()
+        except Exception:
+            await quota_db.rollback()
+            raise
+
+    result = await bridge_request("POST", "/resolve-recipients", {
+        "account_owner_id": settings.ZALO_AGENT_ACCOUNT_OWNER_ID,
+        "recipients": [
+            {"guest_id": str(guest.id), "name": guest.full_name, "phone": guest.phone}
+            for guest in pending
+        ],
+    })
+    items = {item.get("guest_id"): item for item in result.get("recipients", [])}
+    for guest in pending:
+        item = items.get(str(guest.id), {})
+        recipient_id = str(item.get("thread_id") or item.get("recipient_id") or item.get("user_id") or item.get("id") or "").strip()
+        if not recipient_id:
+            continue
+        mapping = await db.get(GuestZaloMapping, guest.id)
+        if mapping is None:
+            mapping = GuestZaloMapping(
+                guest_id=guest.id,
+                account_owner_id=settings.ZALO_AGENT_ACCOUNT_OWNER_ID,
+                recipient_id=recipient_id,
+            )
+            db.add(mapping)
+        mapping.account_owner_id = settings.ZALO_AGENT_ACCOUNT_OWNER_ID
+        mapping.recipient_id = recipient_id
+        mapping.recipient_name = item.get("recipient_name") or item.get("name")
+        mapping.resolution = item
+        mapping.resolved_at = mapping.refreshed_at = datetime.now(timezone.utc)
+        await db.flush()
+        resolved[guest.id] = mapping
+    return resolved
+
+
 async def selected_guests(db: AsyncSession, guest_ids: list, workshop_id=None) -> list[Guest]:
     stmt = select(Guest).where(Guest.deleted_at.is_(None))
     if guest_ids:
