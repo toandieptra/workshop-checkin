@@ -198,8 +198,8 @@ export default function ZaloMessageSettingsPanel() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div>
-      <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+      <div className="mb-5 flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-accent">
             Zalo cá nhân
@@ -243,7 +243,7 @@ export default function ZaloMessageSettingsPanel() {
       {message && (
         <div
           role="status"
-          className="mb-4 flex items-center justify-between rounded-md border border-success-border bg-success-soft px-4 py-3 text-sm text-success"
+          className="mb-4 flex shrink-0 items-center justify-between rounded-md border border-success-border bg-success-soft px-4 py-3 text-sm text-success"
         >
           <span>{message}</span>
           <button
@@ -259,7 +259,7 @@ export default function ZaloMessageSettingsPanel() {
       {error && (
         <div
           role="alert"
-          className="mb-4 flex items-center justify-between rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-error"
+          className="mb-4 flex shrink-0 items-center justify-between rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-error"
         >
           <span>{error}</span>
           <button
@@ -275,8 +275,8 @@ export default function ZaloMessageSettingsPanel() {
 
       <QuotaCard quota={quota} />
 
-      <section className="overflow-hidden rounded-lg border border-line bg-white shadow-sm">
-        <div className="border-b border-line px-4 py-4">
+      <section className="overflow-hidden rounded-lg border border-line bg-white shadow-sm lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+        <div className="shrink-0 border-b border-line px-4 py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-heading font-bold text-ink">
@@ -348,14 +348,14 @@ export default function ZaloMessageSettingsPanel() {
             </div>
           </div>
         </div>
-        <div className="admin-table-scroll">
+        <div className="admin-table-scroll lg:min-h-0 lg:max-h-none lg:flex-1">
           <table className="w-full min-w-[960px] text-sm">
             <thead className="bg-surface-muted text-left text-xs text-muted">
               <tr>
                 <th className="px-4 py-3">Tên mẫu tin</th>
                 <th className="px-4 py-3">Nội dung</th>
-                <th className="px-4 py-3">Trạng thái</th>
-                <th className="px-4 py-3">Guest mới</th>
+                <th className="px-4 py-3 text-center">Trạng thái</th>
+                <th className="px-4 py-3">Đăng ký</th>
                 <th className="px-4 py-3">Check-in</th>
                 <th className="px-4 py-3">Cập nhật</th>
                 <th className="px-4 py-3 text-right">Thao tác</th>
@@ -399,7 +399,7 @@ export default function ZaloMessageSettingsPanel() {
                           text · {counts.image || 0} ảnh · {counts.video || 0}{" "}
                           video
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 text-center">
                           <span
                             className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusMeta.className}`}
                           >
@@ -515,7 +515,7 @@ export default function ZaloMessageSettingsPanel() {
             </tbody>
           </table>
         </div>
-        <div className="flex items-center justify-between border-t border-line px-4 py-3 text-sm">
+        <div className="admin-table-pagination flex shrink-0 items-center justify-between border-t border-line px-4 py-3 text-sm">
           <span className="text-muted">Tổng cộng {total} mẫu tin</span>
           <div className="flex items-center gap-2">
             <button

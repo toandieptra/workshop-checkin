@@ -156,7 +156,7 @@ export default function AdminFormsPage() {
 
   return (
     <div className="px-3 py-3 pb-20 sm:p-6 md:h-[calc(100dvh-3.5rem)] md:pb-6">
-      <div className="max-w-7xl mx-auto md:flex md:h-full md:min-h-0 md:flex-col">
+      <div className="w-full md:flex md:h-full md:min-h-0 md:flex-col">
         <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4 md:shrink-0">
           <div>
             <h1 className="text-2xl font-bold text-brand-teal">Form đăng ký</h1>

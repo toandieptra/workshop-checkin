@@ -47,7 +47,7 @@ export default function AdminNav() {
 
   return (
     <header className="sticky top-0 z-20 bg-surface border-b border-line">
-      <div className="max-w-6xl mx-auto h-14 px-4 sm:px-6 flex items-center justify-between">
+      <div className="h-14 w-full px-4 sm:px-6 flex items-center justify-between">
         <Link href="/admin" className="block leading-none">
           <div className="text-brand text-[10px] font-semibold tracking-widest leading-none">HI SWEETIE VIỆT NAM</div>
           <div className="text-brand-teal font-bold text-sm leading-tight">Workshop Check-in</div>

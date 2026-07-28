@@ -28,15 +28,15 @@ export default function SettingsPage() {
   if (!activeTab) return <div className="p-8 text-center text-muted">403 — Bạn không có quyền xem cài đặt.</div>;
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      <div className="mb-5">
+    <main className="w-full px-4 py-6 sm:px-6 lg:flex lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:flex-col lg:overflow-hidden lg:py-5">
+      <div className="mb-5 shrink-0">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-accent">Quản trị hệ thống</p>
         <h1 className="font-heading mt-1 text-2xl font-bold text-ink">Cài đặt</h1>
         <p className="mt-1 text-sm text-muted">Quản lý tài khoản, quyền truy cập và các kết nối của hệ thống.</p>
       </div>
 
-      <div className="grid items-start gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
-        <aside className="overflow-hidden rounded-lg border border-line bg-white shadow-sm">
+      <div className="grid items-start gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[230px_minmax(0,1fr)] lg:grid-rows-1">
+        <aside className="overflow-hidden rounded-lg border border-line bg-white shadow-sm lg:min-h-0 lg:overflow-y-auto">
           <nav aria-label="Danh mục cài đặt" className="flex gap-2 overflow-x-auto p-2 lg:flex-col">
             {visibleTabs.map((tab) => {
               const active = tab.key === activeTab.key;
@@ -55,7 +55,7 @@ export default function SettingsPage() {
           </nav>
         </aside>
 
-        <section className="min-w-0">
+        <section className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
           {activeTab.key === "nguoi-dung" && <UsersSettingsPanel />}
           {activeTab.key === "phan-quyen" && <RolePermissionsSettingsPanel />}
           {activeTab.key === "ket-noi" && <ConnectionsSettingsPanel />}

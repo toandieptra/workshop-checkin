@@ -189,7 +189,7 @@ export default function ThongKePage() {
 
   return (
     <div className="p-4 sm:p-6 md:h-[calc(100dvh-3.5rem)] md:overflow-hidden">
-      <div className="max-w-7xl mx-auto md:flex md:h-full md:min-h-0 md:flex-col">
+      <div className="w-full md:flex md:h-full md:min-h-0 md:flex-col">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4 md:shrink-0">
           <h1 className="text-2xl font-bold text-brand-teal">Thống kê khách mời</h1>
           <button onClick={exportXlsx} disabled={!filtered.length || exporting || !can(PERMISSIONS.reportsExport)}

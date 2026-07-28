@@ -15,7 +15,7 @@ export default function QuotaCard({ quota }: { quota: ZaloMessageQuota }) {
         : "bg-brand";
 
   return (
-    <section className="mb-5 rounded-lg border border-line bg-white p-5 shadow-sm">
+    <section className="mb-5 shrink-0 rounded-lg border border-line bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="text-xs font-bold uppercase tracking-wide text-muted">

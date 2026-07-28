@@ -441,7 +441,7 @@ export default function AdminWorkshopPage() {
 
   return (
     <div className="px-3 py-3 pb-20 sm:p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="w-full">
         <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div>
             <h1 className="text-2xl font-bold text-brand-teal">Workshop</h1>

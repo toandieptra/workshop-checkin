@@ -291,7 +291,7 @@ export default function DesktopAdmin() {
   // ----- Render -----
   return (
     <div className="min-h-[calc(100dvh-3.5rem)] p-6">
-      <div className="max-w-7xl mx-auto flex min-h-[calc(100dvh-6.5rem)] flex-col">
+      <div className="flex min-h-[calc(100dvh-6.5rem)] w-full flex-col">
         <h1 className="text-2xl font-bold text-brand-teal mb-4">Khách mời</h1>
         {msg && (
           <div className="mb-3 p-2 bg-brand/10 text-brand-teal rounded-sm text-sm flex items-center justify-between">
