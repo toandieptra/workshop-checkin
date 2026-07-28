@@ -73,6 +73,14 @@ export interface ZaloBulkPreflight {
   can_send: boolean;
 }
 
+export interface ZaloGuestSendStatus {
+  guest_id: string;
+  status: "sent" | "not_sent" | "failed";
+  delivery_id: string;
+  last_sent_at?: string | null;
+  last_error?: string | null;
+}
+
 export interface ZaloBulkSendResult {
   batch_id: string;
   status: string;

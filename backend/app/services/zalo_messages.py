@@ -38,6 +38,14 @@ KNOWN_TEMPLATE_VARIABLES = set(TEMPLATE_VARIABLES["guest"] + TEMPLATE_VARIABLES[
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
 
 
+def guest_send_status(statuses: list[str]) -> str:
+    if any(status in {"failed", "unknown"} for status in statuses):
+        return "failed"
+    if statuses and all(status == "sent" for status in statuses):
+        return "sent"
+    return "not_sent"
+
+
 def validate_public_media_url(value: str) -> str:
     if value.startswith("/uploads/"):
         return value

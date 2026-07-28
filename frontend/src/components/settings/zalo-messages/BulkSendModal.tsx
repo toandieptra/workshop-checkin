@@ -7,6 +7,7 @@ import {
 } from "@heroicons/react/24/outline";
 import {
   api,
+  listZaloGuestSendStatuses,
   preflightZaloBulkMessage,
   sendZaloBulkMessage,
 } from "@/lib/api";
@@ -14,6 +15,7 @@ import type { Guest, Workshop } from "@/hooks/useAdminGuests";
 import type {
   ZaloBulkPreflight,
   ZaloBulkSendResult,
+  ZaloGuestSendStatus,
   ZaloMessageTemplate,
 } from "@/types/zalo-message";
 import { useModalDismiss } from "./useModalDismiss";
@@ -30,6 +32,7 @@ export default function BulkSendModal({
 }) {
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [guests, setGuests] = useState<Guest[]>([]);
+  const [sendStatuses, setSendStatuses] = useState<Record<string, ZaloGuestSendStatus>>({});
   const [templateId, setTemplateId] = useState(
     templates.find((template) => template.status === "active")?.id || "",
   );
@@ -70,6 +73,7 @@ export default function BulkSendModal({
   useEffect(() => {
     if (!workshopId) {
       setGuests([]);
+      setSendStatuses({});
       return;
     }
     setLoading(true);
@@ -84,6 +88,28 @@ export default function BulkSendModal({
       )
       .finally(() => setLoading(false));
   }, [workshopId]);
+
+  useEffect(() => {
+    setSendStatuses({});
+    if (!workshopId || !templateId) return;
+    let cancelled = false;
+    void listZaloGuestSendStatuses(workshopId, templateId)
+      .then((statuses) => {
+        if (!cancelled) {
+          setSendStatuses(
+            Object.fromEntries(statuses.map((status) => [status.guest_id, status])),
+          );
+        }
+      })
+      .catch((loadError) => {
+        if (!cancelled) {
+          setError("Không tải được trạng thái gửi: " + errorMessage(loadError));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId, workshopId]);
 
   const filtered = guests.filter((guest) =>
     `${guest.full_name} ${guest.phone || ""}`
@@ -341,7 +367,7 @@ export default function BulkSendModal({
                   </div>
                 </div>
                 <div className="max-h-72 overflow-auto">
-                  <table className="w-full min-w-[600px] text-sm">
+                  <table className="w-full min-w-[720px] text-sm">
                     <thead className="sticky top-0 bg-white text-left text-xs text-muted">
                       <tr>
                         <th className="w-12 px-3 py-2">
@@ -376,6 +402,7 @@ export default function BulkSendModal({
                         </th>
                         <th className="px-3 py-2">Khách</th>
                         <th className="px-3 py-2">Số điện thoại</th>
+                        <th className="px-3 py-2">Trạng thái gửi</th>
                         <th className="px-3 py-2">Trạng thái chọn</th>
                       </tr>
                     </thead>
@@ -383,7 +410,7 @@ export default function BulkSendModal({
                       {loading ? (
                         <tr>
                           <td
-                            colSpan={4}
+                            colSpan={5}
                             className="p-8 text-center text-muted"
                           >
                             Đang tải...
@@ -421,6 +448,31 @@ export default function BulkSendModal({
                               {guest.phone || "—"}
                             </td>
                             <td className="px-3 py-2">
+                              {(() => {
+                                const sendStatus = sendStatuses[guest.id];
+                                const status = sendStatus?.status || "not_sent";
+                                const label = status === "sent"
+                                  ? "Đã gửi"
+                                  : status === "failed"
+                                    ? "Lỗi"
+                                    : "Chưa gửi";
+                                return (
+                                  <span
+                                    title={sendStatus?.last_error || undefined}
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                      status === "sent"
+                                        ? "bg-green-50 text-green-700"
+                                        : status === "failed"
+                                          ? "bg-red-50 text-red-700"
+                                          : "bg-surface-muted text-muted"
+                                    }`}
+                                  >
+                                    {label}
+                                  </span>
+                                );
+                              })()}
+                            </td>
+                            <td className="px-3 py-2">
                               <span
                                 className={`text-xs font-semibold ${
                                   selectedSet.has(guest.id)
@@ -439,7 +491,7 @@ export default function BulkSendModal({
                       {!loading && !filtered.length && (
                         <tr>
                           <td
-                            colSpan={4}
+                            colSpan={5}
                             className="p-8 text-center text-muted"
                           >
                             Không có khách phù hợp.

@@ -10,14 +10,14 @@ from sqlalchemy.orm import selectinload
 
 from ..auth.dependencies import require_any_permission, require_permission
 from ..db import get_db
-from ..models import Guest, ZaloDelivery, ZaloDeliveryBatch, ZaloDeliveryItem, ZaloTemplate
+from ..models import Guest, Workshop, ZaloDelivery, ZaloDeliveryBatch, ZaloDeliveryItem, ZaloTemplate
 from ..schemas import (ZaloBatchSendRequest, ZaloDeliveryItemOut, ZaloDeliveryOut,
-                       ZaloPreflightRequest, ZaloSendRequest, ZaloTemplateCreate,
+                       ZaloGuestSendStatusOut, ZaloPreflightRequest, ZaloSendRequest, ZaloTemplateCreate,
                        ZaloTemplateOut, ZaloTemplateToggleRequest, ZaloTemplateUpdate)
 from ..services.zalo_messages import (cache_remote_media, create_delivery, quota_usage,
-                                         reopen_quota, resolve_recipient, resolve_recipients, save_media,
-                                         selected_guests, TEMPLATE_VARIABLES,
-                                         validate_blocks)
+                                          guest_send_status, reopen_quota, resolve_recipient, resolve_recipients, save_media,
+                                          selected_guests, TEMPLATE_VARIABLES,
+                                          validate_blocks)
 
 router = APIRouter(prefix="/api/zalo", tags=["zalo-messages"])
 
@@ -242,6 +242,68 @@ async def send_batch(body: ZaloBatchSendRequest, user=Depends(require_any_permis
     except ValueError as exc: await db.rollback(); raise HTTPException(409, str(exc)) from exc
     await db.commit()
     return await _delivery(db, delivery.id)
+
+
+@router.get("/guest-send-statuses", response_model=list[ZaloGuestSendStatusOut], dependencies=[Depends(require_permission("zalo_messages.read")), Depends(require_permission("guests.read"))])
+async def guest_send_statuses(workshop_id: uuid.UUID, template_id: uuid.UUID,
+                              db: AsyncSession = Depends(get_db)):
+    if not await db.get(Workshop, workshop_id):
+        raise HTTPException(404, "Không tìm thấy workshop")
+    if not await db.get(ZaloTemplate, template_id):
+        raise HTTPException(404, "Không tìm thấy template")
+
+    delivery_guests = select(
+        ZaloDeliveryItem.guest_id.label("guest_id"),
+        ZaloDelivery.id.label("delivery_id"),
+        ZaloDelivery.created_at.label("delivery_created_at"),
+    ).join(
+        ZaloDelivery, ZaloDelivery.id == ZaloDeliveryItem.delivery_id,
+    ).join(
+        Guest, Guest.id == ZaloDeliveryItem.guest_id,
+    ).where(
+        Guest.workshop_id == workshop_id,
+        Guest.deleted_at.is_(None),
+        ZaloDelivery.template_id == template_id,
+    ).distinct().subquery()
+    ranked = select(
+        delivery_guests.c.guest_id,
+        delivery_guests.c.delivery_id,
+        func.row_number().over(
+            partition_by=delivery_guests.c.guest_id,
+            order_by=(delivery_guests.c.delivery_created_at.desc(), delivery_guests.c.delivery_id.desc()),
+        ).label("rank"),
+    ).subquery()
+    rows = (await db.execute(select(
+        ranked.c.guest_id,
+        ranked.c.delivery_id,
+        ZaloDeliveryItem.status,
+        ZaloDeliveryItem.sent_at,
+        ZaloDeliveryItem.last_error,
+    ).join(
+        ZaloDeliveryItem, ZaloDeliveryItem.delivery_id == ranked.c.delivery_id,
+    ).where(
+        ranked.c.rank == 1,
+        ZaloDeliveryItem.guest_id == ranked.c.guest_id,
+    ).order_by(ZaloDeliveryItem.block_position))).all()
+
+    grouped: dict[uuid.UUID, dict] = {}
+    for guest_id, delivery_id, status, sent_at, last_error in rows:
+        item = grouped.setdefault(guest_id, {
+            "guest_id": guest_id, "delivery_id": delivery_id,
+            "statuses": [], "last_sent_at": None, "last_error": None,
+        })
+        item["statuses"].append(status)
+        if sent_at and (not item["last_sent_at"] or sent_at > item["last_sent_at"]):
+            item["last_sent_at"] = sent_at
+        if last_error and not item["last_error"]:
+            item["last_error"] = last_error
+    return [{
+        "guest_id": item["guest_id"],
+        "delivery_id": item["delivery_id"],
+        "status": guest_send_status(item["statuses"]),
+        "last_sent_at": item["last_sent_at"],
+        "last_error": item["last_error"],
+    } for item in grouped.values()]
 
 
 @router.get("/deliveries", response_model=list[ZaloDeliveryOut], dependencies=[Depends(require_permission("zalo_messages.read"))])

@@ -13,11 +13,26 @@ from app.services.zalo_messages import (
     calls_per_guest,
     create_delivery,
     enqueue_auto_send,
+    guest_send_status,
     render_block,
     resolve_recipients,
     template_variables,
     validate_blocks,
 )
+
+
+@pytest.mark.parametrize(("statuses", "expected"), [
+    ([], "not_sent"),
+    (["pending"], "not_sent"),
+    (["sending", "sent"], "not_sent"),
+    (["sent"], "sent"),
+    (["sent", "sent"], "sent"),
+    (["failed"], "failed"),
+    (["sent", "failed"], "failed"),
+    (["unknown"], "failed"),
+])
+def test_guest_send_status_aggregates_delivery_items(statuses, expected):
+    assert guest_send_status(statuses) == expected
 
 
 def test_template_blocks_support_text_album_and_video(monkeypatch):

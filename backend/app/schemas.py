@@ -426,6 +426,14 @@ class ZaloDeliveryItemOut(BaseModel):
     updated_at: datetime
 
 
+class ZaloGuestSendStatusOut(BaseModel):
+    guest_id: uuid.UUID
+    status: str
+    delivery_id: uuid.UUID
+    last_sent_at: datetime | None = None
+    last_error: str | None = None
+
+
 class ZaloDeliveryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID

@@ -19,6 +19,7 @@ import type {
   ZaloTemplateVariable,
   ZaloDelivery,
   ZaloDeliveryItem,
+  ZaloGuestSendStatus,
 } from "@/types/zalo-message";
 
 // Mặc định dùng relative path để tận dụng Next.js rewrite (xem next.config.js).
@@ -725,6 +726,17 @@ export async function sendZaloBulkMessage(body: {
     skipped: 0,
     results: delivery.items?.map((item) => ({ guest_id: item.guest_id, full_name: item.recipient_name, status: item.status, error: item.last_error })),
   };
+}
+
+export function listZaloGuestSendStatuses(
+  workshopId: string,
+  templateId: string,
+): Promise<ZaloGuestSendStatus[]> {
+  const params = new URLSearchParams({
+    workshop_id: workshopId,
+    template_id: templateId,
+  });
+  return api<ZaloGuestSendStatus[]>(`/zalo/guest-send-statuses?${params}`);
 }
 
 export function preflightZaloRecipient(body: { template_id: string; guest_id: string; refresh_recipients?: boolean }) {
