@@ -2,6 +2,7 @@ import csv
 import io
 import uuid
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -12,10 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..models import Guest, Workshop
+from ..models import AdminUser, Guest, GuestNote, Workshop
 from ..auth.dependencies import require_permission
 
 router = APIRouter(prefix="/api", tags=["import-export"])
+VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 COLS = ["full_name", "phone", "email", "business_model", "role_title", "guest_type"]
 
@@ -127,6 +129,24 @@ async def export_guests(
 
     rows = (await db.execute(stmt)).all()
 
+    notes_by_guest: dict[uuid.UUID, list[str]] = {}
+    guest_ids = [guest.id for guest, _ in rows]
+    if guest_ids:
+        note_rows = (await db.execute(
+            select(GuestNote.guest_id, GuestNote.content, GuestNote.created_at, AdminUser.name)
+            .outerjoin(AdminUser, AdminUser.id == GuestNote.author_user_id)
+            .where(GuestNote.guest_id.in_(guest_ids))
+            .order_by(GuestNote.created_at.desc(), GuestNote.id.desc())
+        )).all()
+        for guest_id, content, created_at, author_name in note_rows:
+            author = (author_name or "—").strip() or "—"
+            if created_at is not None:
+                local_dt = created_at.astimezone(VN_TZ) if created_at.tzinfo else created_at.replace(tzinfo=VN_TZ)
+                time_str = f"{local_dt.strftime('%H:%M:%S')} {local_dt.day}/{local_dt.month}/{local_dt.year}"
+            else:
+                time_str = "—"
+            notes_by_guest.setdefault(guest_id, []).append(f"{author} · {time_str}: {content}")
+
     def _fmt(dt):
         # openpyxl không hỗ trợ datetime có tzinfo — Postgres trả về aware
         # datetime khi cột khai báo DateTime(timezone=True). Convert sang
@@ -156,6 +176,7 @@ async def export_guests(
     ]
     body_rows = []
     for g, w_name in rows:
+        notes = notes_by_guest.get(g.id)
         body_rows.append([
             w_name,
             g.full_name,
@@ -166,7 +187,7 @@ async def export_guests(
             g.role_title or "",
             g.guest_type or "",
             g.party_size,
-            g.note or "",
+            "\n".join(notes) if notes else g.note or "",
             _checkin_label(g.checkin_status),
             _fmt(g.checked_in_at),
             _sync_label(g.sync_status),
@@ -192,9 +213,11 @@ async def export_guests(
 
     date_fmt = "yyyy-mm-dd hh:mm:ss"
     date_col_indexes = [headers.index(h) + 1 for h in ("checked_in_at", "registered_at", "created_at")]
+    note_col_index = headers.index("note") + 1
     for row in body_rows:
         ws.append(row)
         excel_row = ws.max_row
+        ws.cell(row=excel_row, column=note_col_index).alignment = Alignment(vertical="top", wrap_text=True)
         for col_idx in date_col_indexes:
             ws.cell(row=excel_row, column=col_idx).number_format = date_fmt
 
