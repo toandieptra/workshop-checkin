@@ -159,6 +159,7 @@ export default function AdminWorkshopPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [mobileLimit, setMobileLimit] = useState(10);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyMediaId, setBusyMediaId] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -415,8 +416,9 @@ export default function AdminWorkshopPage() {
   };
 
   const removeMedia = async (m: WorkshopMedia) => {
-    if (!editingId) return;
+    if (!editingId || busyMediaId === m.id) return;
     if (!confirm(`Xóa file "${m.file_name || m.file_url}"?`)) return;
+    setBusyMediaId(m.id);
     try {
       await deleteWorkshopMedia(editingId, m.id);
       setDetail((prev) =>
@@ -425,6 +427,8 @@ export default function AdminWorkshopPage() {
       setMsg("Đã xóa media");
     } catch (e: any) {
       setMsg("Lỗi xóa media: " + (e?.message || "không rõ"));
+    } finally {
+      setBusyMediaId(null);
     }
   };
 
@@ -1021,9 +1025,10 @@ export default function AdminWorkshopPage() {
                           </div>
                           <button
                             onClick={() => removeMedia(m)}
-                            className="text-xs text-red-600 px-2 py-1"
+                            disabled={busyMediaId === m.id}
+                            className="text-xs text-red-600 px-2 py-1 disabled:opacity-40"
                           >
-                            Xóa
+                            {busyMediaId === m.id ? "Đang xóa..." : "Xóa"}
                           </button>
                         </li>
                       ))}

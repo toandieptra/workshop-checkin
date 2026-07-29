@@ -35,6 +35,7 @@ def test_export_guests_includes_structured_notes_and_legacy_fallback():
         workshop_id=uuid.uuid4(),
         full_name="Nguyễn Văn A",
         note="Ghi chú legacy không được ưu tiên",
+        source="Đại lý giới thiệu",
         party_size=1,
         checkin_status="not_checked_in",
     )
@@ -43,6 +44,8 @@ def test_export_guests_includes_structured_notes_and_legacy_fallback():
         workshop_id=uuid.uuid4(),
         full_name="Trần Thị B",
         note="Chỉ có ghi chú legacy",
+        source="Khác",
+        source_detail="Bạn bè giới thiệu",
         party_size=1,
         checkin_status="checked_in",
     )
@@ -65,6 +68,7 @@ def test_export_guests_includes_structured_notes_and_legacy_fallback():
     worksheet = workbook.active
     headers = [cell.value for cell in worksheet[1]]
     note_column = headers.index("note") + 1
+    source_column = headers.index("source") + 1
 
     assert worksheet.cell(2, note_column).value == (
         "Admin · 10:04:05 28/7/2026: Ghi chú mới nhất\n"
@@ -72,3 +76,5 @@ def test_export_guests_includes_structured_notes_and_legacy_fallback():
     )
     assert worksheet.cell(2, note_column).alignment.wrap_text is True
     assert worksheet.cell(3, note_column).value == "Chỉ có ghi chú legacy"
+    assert worksheet.cell(2, source_column).value == "Đại lý giới thiệu"
+    assert worksheet.cell(3, source_column).value == "Khác: Bạn bè giới thiệu"

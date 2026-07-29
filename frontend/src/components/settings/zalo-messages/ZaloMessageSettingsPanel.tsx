@@ -69,6 +69,7 @@ export default function ZaloMessageSettingsPanel() {
   const [historyTemplate, setHistoryTemplate] =
     useState<ZaloMessageTemplate | null>(null);
   const [autoBusy, setAutoBusy] = useState("");
+  const [rowBusy, setRowBusy] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,27 +117,37 @@ export default function ZaloMessageSettingsPanel() {
   };
 
   const remove = async (template: ZaloMessageTemplate) => {
+    if (rowBusy) return;
     if (!window.confirm(`Xóa mẫu tin “${template.name}”?`)) return;
+    setRowBusy(template.id);
     try {
       await deleteZaloMessageTemplate(template.id);
       setMessage("Đã xóa mẫu tin.");
       await load();
     } catch (deleteError) {
       setError("Không thể xóa mẫu tin: " + errorMessage(deleteError));
+    } finally {
+      setRowBusy("");
     }
   };
 
   const clone = async (template: ZaloMessageTemplate) => {
+    if (rowBusy) return;
+    setRowBusy(template.id);
     try {
       await cloneZaloMessageTemplate(template.id);
       setMessage("Đã nhân bản mẫu tin.");
       await load();
     } catch (cloneError) {
       setError("Không thể nhân bản mẫu tin: " + errorMessage(cloneError));
+    } finally {
+      setRowBusy("");
     }
   };
 
   const toggle = async (template: ZaloMessageTemplate) => {
+    if (rowBusy) return;
+    setRowBusy(template.id);
     try {
       await toggleZaloMessageTemplate(
         template.id,
@@ -146,6 +157,8 @@ export default function ZaloMessageSettingsPanel() {
       await load();
     } catch (toggleError) {
       setError("Không thể cập nhật trạng thái: " + errorMessage(toggleError));
+    } finally {
+      setRowBusy("");
     }
   };
 
@@ -486,12 +499,13 @@ export default function ZaloMessageSettingsPanel() {
                           {formatDateTime(template.updated_at)}
                         </td>
                         <td className="px-4 py-3">
-                          <TemplateRowActions
+                           <TemplateRowActions
                             template={template}
                             canEdit={canEdit}
                             canCreate={canCreate}
                             canDelete={canDelete}
-                            canReadDeliveries={canReadDeliveries}
+                             canReadDeliveries={canReadDeliveries}
+                             busy={rowBusy === template.id}
                             onEdit={() => setEditing(template)}
                             onHistory={() => setHistoryTemplate(template)}
                             onClone={() => void clone(template)}

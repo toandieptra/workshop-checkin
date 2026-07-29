@@ -98,6 +98,17 @@ export function useAdminGuests() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [guestDetails, setGuestDetails] = useState<Record<string, GuestDetailState>>({});
+  const [busyGuestIds, setBusyGuestIds] = useState<Set<string>>(() => new Set());
+  const [importing, setImporting] = useState(false);
+
+  const setGuestBusy = useCallback((id: string, busy: boolean) => {
+    setBusyGuestIds((current) => {
+      const next = new Set(current);
+      if (busy) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
 
   const emptyNewGuest = (): NewGuestInput => ({
     full_name: "",
@@ -119,12 +130,12 @@ export function useAdminGuests() {
     return ws;
   }, []);
 
-  const loadGuests = useCallback(async (id: string, q?: string, sort?: string) => {
+  const loadGuests = useCallback(async (id: string, q?: string, sort?: string, adminLoading = true) => {
     if (!id) return;
     const params = new URLSearchParams();
     params.set("sort_registered_at", sort || "desc");
     if (q) params.set("search", q);
-    setGuests(await api<Guest[]>("/workshops/" + id + "/guests?" + params.toString()));
+    setGuests(await api<Guest[]>("/workshops/" + id + "/guests?" + params.toString(), { adminLoading }));
   }, []);
 
   const loadAllGuests = useCallback(async (id: string) => {
@@ -138,7 +149,7 @@ export function useAdminGuests() {
   const loadZbsStatus = useCallback(async (id: string) => {
     if (!id) return;
     try {
-      setZbsStatus(await api<Record<string, Record<string, ZbsDelivery>>>("/workshops/" + id + "/zbs-status"));
+      setZbsStatus(await api<Record<string, Record<string, ZbsDelivery>>>("/workshops/" + id + "/zbs-status", { adminLoading: false }));
     } catch {
       setZbsStatus({});
     }
@@ -227,7 +238,7 @@ export function useAdminGuests() {
   // ----- WS + fallback poll -----
   const { connected } = useWebSocket((data: any) => {
     if (data?.type === "welcome" && data.workshop_id === wid) {
-      loadGuests(wid, debouncedSearch);
+      void loadGuests(wid, debouncedSearch, undefined, false);
     }
   });
 
@@ -237,7 +248,7 @@ export function useAdminGuests() {
     let isInitial = true;
     const poll = async () => {
       try {
-        const res = await api<any>("/checkin/welcome/latest");
+        const res = await api<any>("/checkin/welcome/latest", { adminLoading: false });
         if (res && res.id) {
           if (isInitial) {
             isInitial = false;
@@ -246,7 +257,7 @@ export function useAdminGuests() {
           }
           if (res.id !== lastEventId) {
             lastEventId = res.id;
-            if (res.workshop_id === wid) loadGuests(wid, debouncedSearch);
+            if (res.workshop_id === wid) void loadGuests(wid, debouncedSearch, undefined, false);
           }
         }
       } catch {
@@ -296,17 +307,26 @@ export function useAdminGuests() {
 
   const delGuest = useCallback(
     async (id: string): Promise<boolean> => {
+      if (busyGuestIds.has(id)) return false;
       if (!confirm("Xóa khách này?")) return false;
-      await api("/guests/" + id, { method: "DELETE" });
-      setGuestDetails((current) => {
-        const next = { ...current };
-        delete next[id];
-        return next;
-      });
-      await loadGuests(wid, debouncedSearch);
-      return true;
+      setGuestBusy(id, true);
+      try {
+        await api("/guests/" + id, { method: "DELETE" });
+        setGuestDetails((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+        await loadGuests(wid, debouncedSearch);
+        return true;
+      } catch (e: any) {
+        setMsg("Lỗi xóa khách: " + (e?.message || "không rõ"));
+        return false;
+      } finally {
+        setGuestBusy(id, false);
+      }
     },
-    [wid, debouncedSearch, loadGuests],
+    [busyGuestIds, wid, debouncedSearch, loadGuests, setGuestBusy],
   );
 
   const doCheckin = useCallback(
@@ -369,15 +389,23 @@ export function useAdminGuests() {
 
   const toggleVip = useCallback(
     async (guest: Guest) => {
+      if (busyGuestIds.has(guest.id)) return;
       const vip = (guest.guest_type || "").trim().toLowerCase() !== "vip";
-      await api("/guests/" + guest.id, {
-        method: "PATCH",
-        body: JSON.stringify({ guest_type: vip ? "VIP" : null }),
-      });
-      await loadGuests(wid, debouncedSearch);
-      await refreshCachedGuestDetail(guest.id);
+      setGuestBusy(guest.id, true);
+      try {
+        await api("/guests/" + guest.id, {
+          method: "PATCH",
+          body: JSON.stringify({ guest_type: vip ? "VIP" : null }),
+        });
+        await loadGuests(wid, debouncedSearch);
+        await refreshCachedGuestDetail(guest.id);
+      } catch (e: any) {
+        setMsg("Lỗi cập nhật VIP: " + (e?.message || "không rõ"));
+      } finally {
+        setGuestBusy(guest.id, false);
+      }
     },
-    [wid, debouncedSearch, loadGuests, refreshCachedGuestDetail],
+    [busyGuestIds, wid, debouncedSearch, loadGuests, refreshCachedGuestDetail, setGuestBusy],
   );
 
   const copyPhone = useCallback(async (phone: string) => {
@@ -414,14 +442,22 @@ export function useAdminGuests() {
 
   const importFile = useCallback(
     async (file: File) => {
+      if (importing) return;
+      setImporting(true);
       setMsg("Đang nhập dữ liệu...");
-      const fd = new FormData();
-      fd.append("file", file);
-      const data = await apiForm<any>("/workshops/" + wid + "/import", fd);
-      setMsg("Nhập: " + data.imported + "/" + data.total_rows + " dòng");
-      await loadGuests(wid, debouncedSearch);
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        const data = await apiForm<any>("/workshops/" + wid + "/import", fd);
+        setMsg("Nhập: " + data.imported + "/" + data.total_rows + " dòng");
+        await loadGuests(wid, debouncedSearch);
+      } catch (e: any) {
+        setMsg("Lỗi nhập dữ liệu: " + (e?.message || "không rõ"));
+      } finally {
+        setImporting(false);
+      }
     },
-    [wid, debouncedSearch, loadGuests],
+    [importing, wid, debouncedSearch, loadGuests],
   );
 
   // ----- derived -----
@@ -471,6 +507,8 @@ export function useAdminGuests() {
     setStatusFilter,
     newGuest,
     setNewGuest,
+    busyGuestIds,
+    importing,
     // derived
     visibleGuests,
     totalRegistered,

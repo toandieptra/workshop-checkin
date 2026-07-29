@@ -18,6 +18,7 @@ export default function TemplateRowActions({
   canCreate,
   canDelete,
   canReadDeliveries,
+  busy,
   onEdit,
   onHistory,
   onClone,
@@ -29,6 +30,7 @@ export default function TemplateRowActions({
   canCreate: boolean;
   canDelete: boolean;
   canReadDeliveries: boolean;
+  busy: boolean;
   onEdit: () => void;
   onHistory: () => void;
   onClone: () => void;
@@ -96,7 +98,8 @@ export default function TemplateRowActions({
       <button
         type="button"
         onClick={onEdit}
-        className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-brand px-3 text-xs font-semibold text-brand transition hover:bg-brand/5"
+        disabled={busy}
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-brand px-3 text-xs font-semibold text-brand transition hover:bg-brand/5 disabled:opacity-40"
       >
         <PencilSquareIcon className="h-4 w-4" aria-hidden />
         {canEdit ? "Sửa" : "Xem"}
@@ -106,7 +109,8 @@ export default function TemplateRowActions({
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
-            className="grid h-9 w-9 place-items-center rounded-md border border-line text-ink transition hover:bg-surface-muted"
+            disabled={busy}
+            className="grid h-9 w-9 place-items-center rounded-md border border-line text-ink transition hover:bg-surface-muted disabled:opacity-40"
             aria-label="Thêm thao tác"
             aria-expanded={open}
             aria-haspopup="menu"

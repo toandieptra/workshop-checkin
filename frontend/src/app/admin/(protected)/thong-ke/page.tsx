@@ -10,15 +10,17 @@ interface Workshop { id: string; name: string; slug: string; }
 interface Guest {
   id: string; workshop_id: string; full_name: string; phone?: string; email?: string;
   company?: string; business_model?: string; role_title?: string; guest_type?: string; note?: string; notes_summary?: string;
+  source?: string | null; source_detail?: string | null;
   party_size?: number; actual_party_size?: number; checkin_status: string; checked_in_at?: string;
   created_at?: string; registered_at?: string | null;
   sync_status?: string;
 }
 type CheckinFilter = "all" | "checked_in" | "not_checked_in";
-type ColumnKey = "name" | "phone" | "businessModel" | "note" | "registered" | "checkedIn" | "status" | "sync" | "checkedInAt" | "workshop";
+type ColumnKey = "name" | "phone" | "businessModel" | "source" | "note" | "registered" | "checkedIn" | "status" | "sync" | "checkedInAt" | "workshop";
 const TABLE_COLUMNS = [
   { key: "name", label: "Tên" }, { key: "phone", label: "Số điện thoại" },
   { key: "businessModel", label: "Mô hình kinh doanh" },
+  { key: "source", label: "Nguồn" },
   { key: "note", label: "Ghi chú" },
   { key: "registered", label: "Số khách đăng ký" },
   { key: "checkedIn", label: "Số khách check-in" }, { key: "status", label: "Trạng thái" },
@@ -307,12 +309,13 @@ export default function ThongKePage() {
               <div className="py-20 text-center text-muted md:flex md:flex-1 md:items-center md:justify-center">Không có khách khớp bộ lọc</div>
             ) : (
               <div className="admin-table-scroll md:min-h-0 md:max-h-none md:flex-1">
-                <table className="w-full text-sm min-w-[1000px]">
+                <table className="w-full text-sm min-w-[1180px]">
                   <thead className="bg-surface-muted text-muted text-xs">
                     <tr>
                       {visibleColumns.name && <th className="text-left px-3 py-2">Tên</th>}
                       {visibleColumns.phone && <th className="text-left px-3 py-2">Số điện thoại</th>}
-                      {visibleColumns.businessModel && <th className="text-left px-3 py-2">Mô hình kinh doanh</th>}
+                       {visibleColumns.businessModel && <th className="text-left px-3 py-2">Mô hình kinh doanh</th>}
+                       {visibleColumns.source && <th className="text-left px-3 py-2 min-w-[180px]">Nguồn</th>}
                       {visibleColumns.note && <th className="text-left px-3 py-2 min-w-[320px]">Ghi chú</th>}
                       {visibleColumns.registered && <th className="text-center px-3 py-2">Số khách đăng ký</th>}
                       {visibleColumns.checkedIn && <th className="text-center px-3 py-2">Số khách check-in</th>}
@@ -328,6 +331,7 @@ export default function ThongKePage() {
                         {visibleColumns.name && <td className="px-3 py-2 font-medium text-ink">{g.full_name}</td>}
                         {visibleColumns.phone && <td className="px-3 py-2 font-mono text-xs text-muted whitespace-nowrap">{g.phone || "—"}</td>}
                         {visibleColumns.businessModel && <td className="px-3 py-2 text-muted">{g.business_model || "—"}</td>}
+                        {visibleColumns.source && <td className="px-3 py-2 text-muted">{g.source === "Khác" && g.source_detail ? `Khác: ${g.source_detail}` : g.source || "—"}</td>}
                         {visibleColumns.note && <td className="px-3 py-2 text-muted min-w-[320px] max-w-[480px] break-words whitespace-pre-wrap">{g.notes_summary || "—"}</td>}
                         {visibleColumns.registered && <td className="px-3 py-2 text-center">{g.party_size || 1}</td>}
                         {visibleColumns.checkedIn && <td className="px-3 py-2 text-center">

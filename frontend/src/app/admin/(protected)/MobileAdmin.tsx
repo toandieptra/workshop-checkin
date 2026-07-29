@@ -253,6 +253,7 @@ export default function MobileAdmin() {
     setNewGuest,
     createGuest,
     delGuest,
+    busyGuestIds,
     retryZbs,
     reload,
   } = useAdminGuests();
@@ -445,7 +446,8 @@ export default function MobileAdmin() {
               onToggleVip={() => toggleVip(g)}
               onCopyPhone={() => g.phone && copyPhone(g.phone)}
               onDelete={() => delGuest(g.id)}
-              onRetryZbs={retryZbs}
+               onRetryZbs={retryZbs}
+               busy={busyGuestIds.has(g.id)}
               workshopId={currentWorkshop?.id || ""}
               workshopName={currentWorkshop?.name || "Workshop"}
             />
@@ -584,6 +586,7 @@ function GuestCard({
   onRetryZbs,
   workshopId,
   workshopName,
+  busy,
 }: {
   g: Guest;
   onConfirmRegistration: () => void;
@@ -595,6 +598,7 @@ function GuestCard({
   onRetryZbs: (delivery: ZbsDelivery) => void;
   workshopId: string;
   workshopName: string;
+  busy: boolean;
 }) {
   const vip = isVip(g);
   const checked = g.checkin_status === "checked_in";
@@ -655,7 +659,7 @@ function GuestCard({
       <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL_WIDTH }} aria-hidden={!open}>
         <button
           type="button"
-          disabled={!open}
+          disabled={!open || busy}
           tabIndex={open ? 0 : -1}
           onClick={() => {
             onDelete();
@@ -731,6 +735,7 @@ function GuestCard({
         {g.phone ? (
           <button
             onClick={guardAction(onCopyPhone)}
+            disabled={busy}
             className="inline-flex items-center gap-1 bg-surface-muted font-mono px-2 py-1 rounded-md text-text-secondary active:bg-cyan-bg"
             title="Sao chép SĐT"
           >
@@ -758,7 +763,8 @@ function GuestCard({
         {g.registration_status !== "confirmed" ? (
           <button
             onClick={guardAction(onConfirmRegistration)}
-            className="inline-flex h-11 items-center justify-center gap-1.5 rounded-md border border-brand bg-brand text-[13px] font-bold text-brand-teal active:opacity-90"
+            disabled={busy}
+            className="inline-flex h-11 items-center justify-center gap-1.5 rounded-md border border-brand bg-brand text-[13px] font-bold text-brand-teal active:opacity-90 disabled:opacity-50"
           >
             <IconCheck className="h-3.5 w-3.5" />
             Xác nhận đăng ký
@@ -766,7 +772,8 @@ function GuestCard({
         ) : checked ? (
           <button
             onClick={guardAction(onUncheckin)}
-            className="inline-flex items-center justify-center gap-1.5 h-11 rounded-md text-[13px] font-semibold border bg-success-soft text-success border-success-border active:opacity-90"
+            disabled={busy}
+            className="inline-flex items-center justify-center gap-1.5 h-11 rounded-md text-[13px] font-semibold border bg-success-soft text-success border-success-border active:opacity-90 disabled:opacity-50"
           >
             <IconCheck className="w-3.5 h-3.5" />
             Đã check-in · {formatHm(g.checked_in_at)}
@@ -774,7 +781,8 @@ function GuestCard({
         ) : (
           <button
             onClick={guardAction(onCheckin)}
-            className="inline-flex items-center justify-center gap-1.5 h-11 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90"
+            disabled={busy}
+            className="inline-flex items-center justify-center gap-1.5 h-11 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 disabled:opacity-50"
           >
             <IconCheck className="w-3.5 h-3.5" />
             Check-in · {registered} khách
@@ -782,9 +790,10 @@ function GuestCard({
         )}
         <button
           onClick={guardAction(onToggleVip)}
+          disabled={busy}
           aria-label={vip ? "Bỏ đánh dấu VIP" : "Đánh dấu VIP"}
           title={vip ? "Bỏ VIP" : "Đánh dấu VIP"}
-          className={`inline-flex items-center justify-center h-11 rounded-md border ${
+          className={`inline-flex items-center justify-center h-11 rounded-md border disabled:opacity-50 ${
             vip
               ? "bg-brand-gold-soft border-brand-gold text-brand-gold"
               : "border-line text-muted bg-surface"
@@ -801,8 +810,9 @@ function GuestCard({
         <button
           type="button"
           onClick={guardAction(onDelete)}
+          disabled={busy}
           aria-label={`Xóa ${g.full_name}`}
-          className="hidden h-11 items-center justify-center rounded-md border border-red-200 text-red-600 [@media(pointer:fine)]:inline-flex"
+          className="hidden h-11 items-center justify-center rounded-md border border-red-200 text-red-600 disabled:opacity-50 [@media(pointer:fine)]:inline-flex"
         >
           <IconTrash className="h-4 w-4" />
         </button>
@@ -895,7 +905,7 @@ function CheckinSheet({
         </div>
         <div className="mt-5 grid grid-cols-2 gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="h-12 rounded-md border border-line font-semibold text-brand-teal">Hủy</button>
-          <button type="button" disabled={busy} onClick={async () => { setBusy(true); await onConfirm(actual); }} className="h-12 rounded-md bg-brand font-bold text-brand-teal disabled:opacity-50">{busy ? "Đang check-in..." : `Check-in · ${actual} khách`}</button>
+          <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { await onConfirm(actual); } finally { setBusy(false); } }} className="h-12 rounded-md bg-brand font-bold text-brand-teal disabled:opacity-50">{busy ? "Đang check-in..." : `Check-in · ${actual} khách`}</button>
         </div>
       </div>
     </div>

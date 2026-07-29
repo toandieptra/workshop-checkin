@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import AdminNav from "@/components/AdminNav";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { AdminLoadingProvider } from "@/contexts/AdminLoadingContext";
 
 /**
  * Layout chung cho toàn bộ /admin (kể cả /admin/login).
@@ -9,11 +11,15 @@ import { AuthProvider } from "@/contexts/AuthContext";
  */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
-      <div className="min-h-screen bg-surface-muted">
-        <AdminNav />
-        <main>{children}</main>
-      </div>
-    </AuthProvider>
+    <Suspense>
+      <AdminLoadingProvider>
+        <AuthProvider>
+          <div className="min-h-screen bg-surface-muted">
+            <AdminNav />
+            <main>{children}</main>
+          </div>
+        </AuthProvider>
+      </AdminLoadingProvider>
+    </Suspense>
   );
 }

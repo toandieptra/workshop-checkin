@@ -21,6 +21,7 @@ import type {
   ZaloDeliveryItem,
   ZaloGuestSendStatus,
 } from "@/types/zalo-message";
+import { beginAdminPending } from "@/contexts/AdminLoadingContext";
 
 // Mặc định dùng relative path để tận dụng Next.js rewrite (xem next.config.js).
 // Khi dev local nếu muốn trỏ thẳng backend, set NEXT_PUBLIC_API_URL="http://localhost:8427/api".
@@ -36,6 +37,16 @@ export class ApiError extends Error {
 function authHeaders(init?: RequestInit): Headers {
   const headers = new Headers(init?.headers);
   return headers;
+}
+
+export interface ApiRequestInit extends RequestInit {
+  adminLoading?: boolean;
+}
+
+function requestInit(init?: ApiRequestInit): [RequestInit | undefined, () => void] {
+  if (!init) return [init, beginAdminPending()];
+  const { adminLoading = true, ...fetchInit } = init;
+  return [fetchInit, adminLoading ? beginAdminPending() : () => {}];
 }
 
 async function throwApiError(res: Response): Promise<never> {
@@ -56,47 +67,62 @@ async function throwApiError(res: Response): Promise<never> {
   throw new ApiError(res.status, `${res.status}${message ? ": " + message : ""}`);
 }
 
-export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const hasBody = init?.body !== undefined && init.body !== null && init.body !== "";
-  const headers = authHeaders(init);
+export async function api<T = any>(path: string, init?: ApiRequestInit): Promise<T> {
+  const [fetchInit, endPending] = requestInit(init);
+  const hasBody = fetchInit?.body !== undefined && fetchInit.body !== null && fetchInit.body !== "";
+  const headers = authHeaders(fetchInit);
   if (hasBody && !headers.has("Content-Type") && !(init?.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-    credentials: "include",
-  });
-  if (!res.ok) await throwApiError(res);
-  if (res.status === 204) return undefined as T;
-  return res.json();
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...fetchInit,
+      headers,
+      cache: "no-store",
+      credentials: "include",
+    });
+    if (!res.ok) await throwApiError(res);
+    if (res.status === 204) return undefined as T;
+    return res.json();
+  } finally {
+    endPending();
+  }
 }
 
 export async function apiForm<T = any>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { method: "POST", body: form, cache: "no-store", credentials: "include", headers: authHeaders({ method: "POST" }) });
-  if (!res.ok) await throwApiError(res);
-  return res.json();
+  const endPending = beginAdminPending();
+  try {
+    const res = await fetch(`${API_URL}${path}`, { method: "POST", body: form, cache: "no-store", credentials: "include", headers: authHeaders({ method: "POST" }) });
+    if (!res.ok) await throwApiError(res);
+    return res.json();
+  } finally {
+    endPending();
+  }
 }
 
 /**
  * Admin identity APIs live under `/api/admin` while business APIs use the
  * configured API base. Normalize both local proxy and absolute API builds.
  */
-export async function adminApi<T = any>(path: string, init?: RequestInit): Promise<T> {
+export async function adminApi<T = any>(path: string, init?: ApiRequestInit): Promise<T> {
+  const [fetchInit, endPending] = requestInit(init);
   const prefix = API_URL.endsWith("/api") ? `${API_URL}/admin` : "/api/admin";
-  const hasBody = init?.body !== undefined && init.body !== null && init.body !== "";
-  const headers = authHeaders(init);
-  if (hasBody && !headers.has("Content-Type") && !(init?.body instanceof FormData)) {
+  const hasBody = fetchInit?.body !== undefined && fetchInit.body !== null && fetchInit.body !== "";
+  const headers = authHeaders(fetchInit);
+  if (hasBody && !headers.has("Content-Type") && !(fetchInit?.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
-  const res = await fetch(`${prefix}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-    credentials: "include",
-  });
-  if (!res.ok) await throwApiError(res);
-  if (res.status === 204) return undefined as T;
-  return res.json();
+  try {
+    const res = await fetch(`${prefix}${path}`, {
+      ...fetchInit,
+      headers,
+      cache: "no-store",
+      credentials: "include",
+    });
+    if (!res.ok) await throwApiError(res);
+    if (res.status === 204) return undefined as T;
+    return res.json();
+  } finally {
+    endPending();
+  }
 }
 
 /**
@@ -111,6 +137,8 @@ export async function downloadGuestsXlsx(params: {
   status?: "all" | "checked_in" | "not_checked_in";
   filename?: string;
 }): Promise<void> {
+  const endPending = beginAdminPending();
+  try {
   const qs = new URLSearchParams();
   qs.set("status", params.status ?? "all");
   if (params.workshopIds && params.workshopIds.length) {
@@ -140,6 +168,9 @@ export async function downloadGuestsXlsx(params: {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+  } finally {
+    endPending();
+  }
 }
 
 export function maskPhone(phone?: string | null): string {
@@ -513,7 +544,7 @@ export function startZaloAgentLogin() {
 }
 
 export function getZaloAgentLogin(sessionId: string) {
-  return api<import("@/types/zalo-agent").ZaloQrSession>(`/zalo-agent/login/${encodeURIComponent(sessionId)}`);
+  return api<import("@/types/zalo-agent").ZaloQrSession>(`/zalo-agent/login/${encodeURIComponent(sessionId)}`, { adminLoading: false });
 }
 
 export function switchZaloAgentAccount(ownerId: string) {

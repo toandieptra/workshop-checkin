@@ -3,11 +3,13 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAdminLoading } from "@/contexts/AdminLoadingContext";
 
 function AdminLoginForm() {
   const search = useSearchParams();
   const [submitting, setSubmitting] = useState(false);
   const { status, error } = useAuth();
+  const { begin } = useAdminLoading();
 
   const redirectTo = search?.get("redirect") || "/admin";
 
@@ -16,8 +18,19 @@ function AdminLoginForm() {
   }, [status, redirectTo]);
 
   const login = () => {
+    if (submitting) return;
+    const endPending = begin();
     setSubmitting(true);
-    window.location.assign(`/api/auth/lark/login?return_to=${encodeURIComponent(redirectTo)}`);
+    try {
+      window.location.assign(`/api/auth/lark/login?return_to=${encodeURIComponent(redirectTo)}`);
+      window.setTimeout(() => {
+        endPending();
+        setSubmitting(false);
+      }, 15000);
+    } catch {
+      endPending();
+      setSubmitting(false);
+    }
   };
 
   return (

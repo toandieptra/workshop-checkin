@@ -18,6 +18,11 @@ html, body {
 
 * { box-sizing: border-box; }
 
+.admin-loading,
+.admin-loading * {
+  cursor: progress !important;
+}
+
 .font-heading {
   font-family: Montserrat, Manrope, Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
 }

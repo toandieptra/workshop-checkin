@@ -167,8 +167,13 @@ async def export_guests(
             "error": "Lỗi đồng bộ",
         }.get(s or "", s or "")
 
+    def _source_label(source: str | None, detail: str | None) -> str:
+        if source == "Khác" and detail:
+            return f"Khác: {detail}"
+        return source or ""
+
     headers = [
-        "workshop", "full_name", "phone", "email", "company", "business_model",
+        "workshop", "full_name", "phone", "email", "company", "business_model", "source",
         "role_title", "guest_type", "party_size", "note",
         "checkin_status", "checked_in_at",
         "sync_status", "lark_record_id",
@@ -184,6 +189,7 @@ async def export_guests(
             g.email or "",
             g.company or "",
             g.business_model or "",
+            _source_label(g.source, g.source_detail),
             g.role_title or "",
             g.guest_type or "",
             g.party_size,

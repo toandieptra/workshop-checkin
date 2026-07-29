@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { hasPermission, type Permission } from "@/lib/permissions";
+import { useAdminLoading } from "@/contexts/AdminLoadingContext";
 
 export interface AuthUser {
   id: string;
@@ -39,8 +40,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
+  const { begin } = useAdminLoading();
 
   const refresh = useCallback(async () => {
+    const endPending = begin();
     setStatus("loading");
     setError(null);
     try {
@@ -54,12 +57,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setStatus("unauthenticated");
       setError(e?.message || "Không thể kiểm tra phiên đăng nhập.");
+    } finally {
+      endPending();
     }
-  }, []);
+  }, [begin]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
   const logout = useCallback(async () => {
+    const endPending = begin();
     try {
       await fetch("/api/auth/logout", {
         method: "POST", credentials: "include",
@@ -69,8 +75,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setStatus("unauthenticated");
       router.replace("/admin/login");
       router.refresh();
+      endPending();
     }
-  }, [router]);
+  }, [begin, router]);
 
   const permissions = useMemo(() => Array.isArray(user?.permissions) ? user!.permissions! : [], [user]);
   const value = useMemo<AuthValue>(() => ({

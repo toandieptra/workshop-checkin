@@ -142,6 +142,8 @@ export default function DesktopAdmin() {
     sendZbsManually,
     guestDetails,
     loadGuestDetail,
+    busyGuestIds,
+    importing,
   } = useAdminGuests();
   const defaultVisibleColumns: ColumnKey[] = [
     "name", "phone", "businessModel", "source", "creator",
@@ -323,12 +325,13 @@ export default function DesktopAdmin() {
               >
                 {exportBusy ? "Đang xuất..." : "Xuất Excel"}
               </button>
-              <label className="border border-line px-3 py-2 rounded-sm text-sm cursor-pointer">
-                Nhập CSV/XLSX
+              <label className={`border border-line px-3 py-2 rounded-sm text-sm ${importing ? "opacity-50" : "cursor-pointer"}`}>
+                {importing ? "Đang nhập..." : "Nhập CSV/XLSX"}
                 <input
                   type="file"
                   accept=".csv,.xlsx,.xls"
                   className="hidden"
+                  disabled={importing}
                   onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])}
                 />
               </label>
@@ -692,15 +695,17 @@ export default function DesktopAdmin() {
                           >
                             Sửa
                           </button>
-                           <button
-                             onClick={(event) => { event.stopPropagation(); void toggleVip(g); }}
-                            className="rounded-sm border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted"
+                            <button
+                              onClick={(event) => { event.stopPropagation(); void toggleVip(g); }}
+                             disabled={busyGuestIds.has(g.id)}
+                             className="rounded-sm border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted disabled:opacity-40"
                           >
                             {vip ? "Bỏ VIP" : "VIP"}
                           </button>
-                           <button
-                             onClick={(event) => { event.stopPropagation(); void delGuest(g.id).then((deleted) => { if (deleted) setExpandedGuestId(null); }); }}
-                            className="rounded-sm border border-red-200 px-2 py-1 text-xs text-red-600"
+                            <button
+                              onClick={(event) => { event.stopPropagation(); void delGuest(g.id).then((deleted) => { if (deleted) setExpandedGuestId(null); }); }}
+                             disabled={busyGuestIds.has(g.id)}
+                             className="rounded-sm border border-red-200 px-2 py-1 text-xs text-red-600 disabled:opacity-40"
                           >
                             Xóa
                           </button>
