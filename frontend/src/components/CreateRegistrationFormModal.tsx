@@ -6,7 +6,7 @@ import {
   getWorkshops,
   type RegistrationForm,
 } from "@/lib/api";
-import { publicUrl as buildPublicUrl } from "@/lib/urls";
+import { getClientOrigin, getPublicOrigin } from "@/lib/urls";
 
 interface Workshop {
   id: string;
@@ -81,7 +81,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
   if (!open) return null;
 
   const publicUrl = created
-    ? buildPublicUrl(`/register/${created.token}`) || `${window.location.origin}/register/${created.token}`
+    ? `${getPublicOrigin() || getClientOrigin()}/register/${created.token}`
     : "";
 
   const submit = async () => {
