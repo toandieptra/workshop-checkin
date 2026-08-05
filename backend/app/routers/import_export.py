@@ -9,17 +9,26 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
 from ..models import AdminUser, Guest, GuestNote, Workshop
 from ..auth.dependencies import require_permission
+from ..services.guest_provenance import GUEST_SOURCE_OPTIONS
 
 router = APIRouter(prefix="/api", tags=["import-export"])
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 COLS = ["full_name", "phone", "email", "business_model", "role_title", "guest_type"]
+BUSINESS_MODEL_KNOWN = {
+    "Đang kinh doanh cà phê / trà sữa",
+    "Cung cấp dịch vụ đào tạo, setup quán",
+    "Công ty / Hộ kinh doanh cung cấp nguyên liệu",
+    "Đang chuẩn bị mở quán",
+    "Đối tác hợp tác thương hiệu",
+}
+BUSINESS_MODEL_FILTER_OPTIONS = BUSINESS_MODEL_KNOWN | {"Khác"}
 
 
 def _parse_int(v, default: int = 1) -> int:
@@ -95,13 +104,21 @@ async def export_guests(
     workshop_id: str | None = Query(default=None, description="uuid hoặc 'all'"),
     workshop_ids: str | None = Query(default=None, description="Danh sách UUID workshop, cách nhau bằng dấu phẩy"),
     status: str = Query(default="all", pattern="^(all|checked_in|not_checked_in)$"),
+    business_model: str | None = Query(default=None),
+    source: str | None = Query(default=None),
 ):
     """Xuất khách ra file .xlsx.
 
     - workshop_id: uuid của workshop, hoặc 'all' / None để xuất tất cả workshop
       (khi đó thêm cột 'workshop' để biết khách thuộc workshop nào).
     - status: 'all' | 'checked_in' | 'not_checked_in'.
+    - business_model, source: bộ lọc đang chọn trên trang thống kê.
     """
+    if business_model and business_model not in BUSINESS_MODEL_FILTER_OPTIONS:
+        raise HTTPException(400, "Mô hình kinh doanh không hợp lệ")
+    if source and source not in GUEST_SOURCE_OPTIONS:
+        raise HTTPException(400, "Nguồn khách không hợp lệ")
+
     stmt = (
         select(Guest, Workshop.name)
         .join(Workshop, Guest.workshop_id == Workshop.id)
@@ -125,6 +142,13 @@ async def export_guests(
         stmt = stmt.where(Guest.checkin_status == "checked_in")
     elif status == "not_checked_in":
         stmt = stmt.where(Guest.checkin_status != "checked_in")
+    normalized_business_model = func.trim(func.coalesce(Guest.business_model, ""))
+    if business_model == "Khác":
+        stmt = stmt.where(normalized_business_model.not_in(BUSINESS_MODEL_KNOWN))
+    elif business_model:
+        stmt = stmt.where(normalized_business_model == business_model)
+    if source:
+        stmt = stmt.where(Guest.source == source)
     stmt = stmt.order_by(Guest.checkin_status.desc(), Guest.full_name)
 
     rows = (await db.execute(stmt)).all()

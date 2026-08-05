@@ -128,13 +128,15 @@ export async function adminApi<T = any>(path: string, init?: ApiRequestInit): Pr
 /**
  * Tải file Excel danh sách khách từ backend `/api/export/guests`.
  *
- * - Tự build query (`status`, `workshop_ids`) theo filter của trang gọi.
+ * - Tự build query theo filter của trang gọi.
  * - Tự download blob về máy user (Content-Disposition của backend).
  * - Ném Error nếu backend trả lỗi (để UI hiển thị).
  */
 export async function downloadGuestsXlsx(params: {
   workshopIds?: string[];
   status?: "all" | "checked_in" | "not_checked_in";
+  businessModel?: string;
+  source?: string;
   filename?: string;
 }): Promise<void> {
   const endPending = beginAdminPending();
@@ -144,6 +146,8 @@ export async function downloadGuestsXlsx(params: {
   if (params.workshopIds && params.workshopIds.length) {
     qs.set("workshop_ids", params.workshopIds.join(","));
   }
+  if (params.businessModel) qs.set("business_model", params.businessModel);
+  if (params.source) qs.set("source", params.source);
   const res = await fetch(`${API_URL}/export/guests?${qs.toString()}`, {
     credentials: "include",
     cache: "no-store",

@@ -183,6 +183,8 @@ export default function ThongKePage() {
       await downloadGuestsXlsx({
         workshopIds: selectedWorkshopIds.length ? selectedWorkshopIds : undefined,
         status: checkin,
+        businessModel: businessModel || undefined,
+        source: source || undefined,
         filename: "thong-ke_" + new Date().toISOString().slice(0, 10) + ".xlsx",
       });
     } catch (e: any) {

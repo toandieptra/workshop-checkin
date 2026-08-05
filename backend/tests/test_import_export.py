@@ -3,6 +3,8 @@ import io
 import uuid
 from datetime import datetime, timezone
 
+import pytest
+from fastapi import HTTPException
 from openpyxl import load_workbook
 
 from app.models import Guest
@@ -20,8 +22,10 @@ class Result:
 class FakeDb:
     def __init__(self, guest_rows, note_rows):
         self.results = iter((Result(guest_rows), Result(note_rows)))
+        self.statements = []
 
-    async def execute(self, _stmt):
+    async def execute(self, stmt):
+        self.statements.append(stmt)
         return next(self.results)
 
 
@@ -63,6 +67,8 @@ def test_export_guests_includes_structured_notes_and_legacy_fallback():
         workshop_id=None,
         workshop_ids=None,
         status="all",
+        business_model=None,
+        source=None,
     ))
     workbook = load_workbook(io.BytesIO(asyncio.run(response_bytes(response))))
     worksheet = workbook.active
@@ -78,3 +84,48 @@ def test_export_guests_includes_structured_notes_and_legacy_fallback():
     assert worksheet.cell(3, note_column).value == "Chỉ có ghi chú legacy"
     assert worksheet.cell(2, source_column).value == "Đại lý giới thiệu"
     assert worksheet.cell(3, source_column).value == "Khác: Bạn bè giới thiệu"
+
+
+def test_export_guests_applies_business_model_and_source_filters():
+    db = FakeDb([], [])
+
+    asyncio.run(export_guests(
+        db=db,
+        workshop_id=None,
+        workshop_ids=None,
+        status="all",
+        business_model="Khác",
+        source="Đại lý giới thiệu",
+    ))
+
+    query = db.statements[0].compile()
+    sql = str(query)
+    assert "trim(coalesce(guests.business_model" in sql
+    assert "NOT IN" in sql
+    assert "guests.source =" in sql
+    assert "Đại lý giới thiệu" in query.params.values()
+
+
+@pytest.mark.parametrize(
+    ("business_model", "source", "message"),
+    [
+        ("Không hợp lệ", None, "Mô hình kinh doanh không hợp lệ"),
+        (None, "Không hợp lệ", "Nguồn khách không hợp lệ"),
+    ],
+)
+def test_export_guests_rejects_invalid_filters(business_model, source, message):
+    db = FakeDb([], [])
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(export_guests(
+            db=db,
+            workshop_id=None,
+            workshop_ids=None,
+            status="all",
+            business_model=business_model,
+            source=source,
+        ))
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == message
+    assert db.statements == []
