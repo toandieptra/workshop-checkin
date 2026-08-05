@@ -196,8 +196,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
       <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.72fr)] lg:items-start">
         {step === "form" && selectedWorkshop && (
           <aside className="hidden overflow-hidden rounded-[28px] bg-[radial-gradient(circle_at_20%_18%,rgba(0,183,204,0.34),transparent_30%),radial-gradient(circle_at_center,#1A5F6A_0%,#0D3B42_76%)] p-10 text-white shadow-[0_28px_80px_rgba(13,59,66,0.24)] lg:block" aria-label="Thông tin workshop">
-            <p className="text-xs font-bold uppercase tracking-[0.12em] text-cyan-soft">Workshop Diệp Trà</p>
-            <div className="mt-6 font-heading text-5xl font-bold leading-tight tracking-[-0.04em]">Đăng ký tham dự workshop</div>
+            <div className="font-heading text-5xl font-bold leading-tight tracking-[-0.04em]">Đăng ký tham dự workshop</div>
             <p className="mt-4 max-w-xl text-base leading-7 text-white/80">Xác nhận thông tin workshop trước khi gửi đăng ký.</p>
             <div className="mt-10 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
               <h2 className="font-heading text-2xl font-bold">{selectedWorkshop.name}</h2>

@@ -81,6 +81,8 @@ export interface NewGuestInput {
 
 export type StatusFilter = "all" | "checked_in" | "not_checked_in";
 
+const LAST_WORKSHOP_STORAGE_KEY = "workshop-checkin:last-admin-workshop";
+
 /**
  * Hook tập trung state + action cho trang Admin Khách mời.
  * Cả MobileAdmin và DesktopAdmin cùng consume để tránh duplicate logic.
@@ -126,7 +128,16 @@ export function useAdminGuests() {
   const refreshWorkshops = useCallback(async () => {
     const ws = await api<Workshop[]>("/workshops");
     setWorkshops(ws);
-    setWid((curr) => curr || ws[0]?.id || "");
+    setWid((current) => {
+      if (current && ws.some((workshop) => workshop.id === current)) return current;
+      try {
+        const stored = window.localStorage.getItem(LAST_WORKSHOP_STORAGE_KEY);
+        if (stored && ws.some((workshop) => workshop.id === stored)) return stored;
+      } catch {
+        /* localStorage có thể bị chặn bởi trình duyệt */
+      }
+      return ws[0]?.id || "";
+    });
     return ws;
   }, []);
 
@@ -196,6 +207,15 @@ export function useAdminGuests() {
   useEffect(() => {
     refreshWorkshops();
   }, [refreshWorkshops]);
+
+  useEffect(() => {
+    if (!wid) return;
+    try {
+      window.localStorage.setItem(LAST_WORKSHOP_STORAGE_KEY, wid);
+    } catch {
+      /* localStorage có thể bị chặn bởi trình duyệt */
+    }
+  }, [wid]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);

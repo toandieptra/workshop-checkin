@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { PERMISSIONS } from "@/lib/permissions";
 import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
 import { useOutsidePointerDown } from "@/hooks/useOutsidePointerDown";
+import { GUEST_SOURCE_OPTIONS, type GuestSource } from "@/lib/guest-sources";
 
 interface Workshop { id: string; name: string; slug: string; }
 interface Guest {
@@ -43,6 +44,7 @@ const BUSINESS_MODEL_FILTER_OPTIONS = [
 ] as const;
 
 type BusinessModelFilter = "" | (typeof BUSINESS_MODEL_FILTER_OPTIONS)[number];
+type SourceFilter = "" | GuestSource;
 
 const WS_NAME: Record<string, string> = {};
 
@@ -65,6 +67,7 @@ export default function ThongKePage() {
   const [loading, setLoading] = useState(true);
   const [checkin, setCheckin] = useState<CheckinFilter>("all");
   const [businessModel, setBusinessModel] = useState<BusinessModelFilter>("");
+  const [source, setSource] = useState<SourceFilter>("");
   const [exporting, setExporting] = useState(false);
   const [pageSize, setPageSize] = useState(25);
   const [currentPage, setCurrentPage] = useState(1);
@@ -122,9 +125,10 @@ export default function ThongKePage() {
       if (checkin === "checked_in" && g.checkin_status !== "checked_in") return false;
       if (checkin === "not_checked_in" && g.checkin_status === "checked_in") return false;
       if (!matchesBusinessModelFilter(g.business_model, businessModel)) return false;
+      if (source && g.source !== source) return false;
       return true;
     });
-  }, [guests, checkin, businessModel]);
+  }, [guests, checkin, businessModel, source]);
 
   const kpi = useMemo(() => {
     const registeredGuests = filtered.reduce((s, g) => s + (g.party_size || 1), 0);
@@ -154,7 +158,7 @@ export default function ThongKePage() {
   useEffect(() => {
     setCurrentPage(1);
     setGotoPage("1");
-  }, [selectedWorkshopIds, checkin, businessModel, pageSize]);
+  }, [selectedWorkshopIds, checkin, businessModel, source, pageSize]);
 
   useEffect(() => {
     if (currentPage > pageCount) setCurrentPage(pageCount);
@@ -285,6 +289,23 @@ export default function ThongKePage() {
                 <option value="">Tất cả</option>
                 {BUSINESS_MODEL_FILTER_OPTIONS.map((opt) => (
                   <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 min-w-[220px] max-w-full lg:min-w-0 lg:flex-1">
+              <label className="text-xs font-semibold text-muted whitespace-nowrap" htmlFor="filter-source">
+                Nguồn
+              </label>
+              <select
+                id="filter-source"
+                aria-label="Nguồn khách"
+                className="flex-1 border border-line rounded-sm px-2 py-1.5 text-sm bg-surface min-w-[160px] max-w-[min(420px,90vw)] lg:min-w-0 lg:max-w-none"
+                value={source}
+                onChange={(e) => setSource(e.target.value as SourceFilter)}
+              >
+                <option value="">Tất cả</option>
+                {GUEST_SOURCE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>{option}</option>
                 ))}
               </select>
             </div>
