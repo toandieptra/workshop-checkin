@@ -96,6 +96,7 @@ export default function AdminFormsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingForm, setEditingForm] = useState<RegistrationForm | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, key !== "qr"])) as Record<ColumnKey, boolean>);
@@ -113,6 +114,21 @@ export default function AdminFormsPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  const openCreateModal = () => {
+    setEditingForm(null);
+    setModalOpen(true);
+  };
+
+  const openEditModal = (form: RegistrationForm) => {
+    setEditingForm(form);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditingForm(null);
+  };
 
   const copyLink = async (token: string) => {
     try {
@@ -165,7 +181,7 @@ export default function AdminFormsPage() {
             </p>
           </div>
           <button
-            onClick={() => setModalOpen(true)}
+            onClick={openCreateModal}
             className="min-h-11 w-full bg-brand text-brand-teal px-4 py-2 rounded-md text-sm font-semibold whitespace-nowrap sm:w-auto sm:rounded-sm"
           >
             + Tạo Form Đăng Ký
@@ -236,7 +252,8 @@ export default function AdminFormsPage() {
                     <button onClick={() => copyLink(f.token)} className="min-h-11 rounded-md border border-line px-2 text-xs font-semibold text-brand-teal">{copiedToken === f.token ? "Đã copy" : "Sao chép"}</button>
                     <FormQr token={f.token} compact />
                   </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 border-t border-line pt-2">
+                  <div className="mt-2 grid grid-cols-3 gap-2 border-t border-line pt-2">
+                    <button onClick={() => openEditModal(f)} disabled={busyId === f.id} className="min-h-11 rounded-md border border-line text-xs font-semibold text-brand-teal disabled:opacity-50">Sửa</button>
                     <button onClick={() => toggleActive(f)} disabled={busyId === f.id} className="min-h-11 rounded-md border border-line text-xs font-semibold text-brand-teal disabled:opacity-50">{f.is_active ? "Tắt form" : "Bật form"}</button>
                     <button onClick={() => remove(f)} disabled={busyId === f.id} className="min-h-11 rounded-md border border-red-200 text-xs font-semibold text-red-600 disabled:opacity-50">Xóa form</button>
                   </div>
@@ -309,6 +326,13 @@ export default function AdminFormsPage() {
                       {visibleColumns.actions && <td className="px-3 py-3 align-top">
                         <div className="flex items-center gap-3 flex-wrap">
                           <button
+                            onClick={() => openEditModal(f)}
+                            disabled={busyId === f.id}
+                            className="text-brand-teal underline min-h-[32px] disabled:opacity-50"
+                          >
+                            Sửa
+                          </button>
+                          <button
                             onClick={() => toggleActive(f)}
                             disabled={busyId === f.id}
                             className="text-brand underline min-h-[32px] disabled:opacity-50"
@@ -347,8 +371,13 @@ export default function AdminFormsPage() {
 
       <CreateRegistrationFormModal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={closeModal}
+        editingForm={editingForm}
         onCreated={(form) => setForms((prev) => [form, ...prev])}
+        onUpdated={(form) => {
+          setForms((prev) => prev.map((current) => (current.id === form.id ? form : current)));
+          setMsg("Đã cập nhật form");
+        }}
       />
     </div>
   );

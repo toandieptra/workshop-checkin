@@ -4,6 +4,7 @@ import QRCode from "react-qr-code";
 import {
   createRegistrationForm,
   getWorkshops,
+  updateRegistrationForm,
   type RegistrationForm,
 } from "@/lib/api";
 import { getClientOrigin, getPublicOrigin } from "@/lib/urls";
@@ -18,10 +19,16 @@ interface Workshop {
 interface Props {
   open: boolean;
   onClose: () => void;
+  editingForm?: RegistrationForm | null;
   onCreated?: (form: RegistrationForm) => void;
+  onUpdated?: (form: RegistrationForm) => void;
 }
 
-export default function CreateRegistrationFormModal({ open, onClose, onCreated }: Props) {
+function selectedIds(form: RegistrationForm): string[] {
+  return form.workshops?.length ? form.workshops.map((workshop) => workshop.id) : [form.workshop_id];
+}
+
+export default function CreateRegistrationFormModal({ open, onClose, editingForm, onCreated, onUpdated }: Props) {
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [selectedWorkshopIds, setSelectedWorkshopIds] = useState<string[]>([]);
   const [greeting, setGreeting] = useState("");
@@ -45,10 +52,23 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
           return s !== "draft" && s !== "cancelled";
         });
         setWorkshops(list);
-        if (list[0]) setSelectedWorkshopIds((prev) => (prev.length ? prev : [list[0].id]));
+        if (editingForm) {
+          setSelectedWorkshopIds(selectedIds(editingForm));
+        } else if (list[0]) {
+          setSelectedWorkshopIds((prev) => (prev.length ? prev : [list[0].id]));
+        }
       })
       .catch(() => setError("Không tải được danh sách workshop"));
-  }, [open]);
+  }, [open, editingForm]);
+
+  useEffect(() => {
+    if (!open) return;
+    setGreeting(editingForm?.greeting || "");
+    setSelectedWorkshopIds(
+      editingForm ? selectedIds(editingForm) : [],
+    );
+    setError("");
+  }, [open, editingForm]);
 
   useEffect(() => {
     if (!open) return;
@@ -80,8 +100,9 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
 
   if (!open) return null;
 
-  const publicUrl = created
-    ? `${getPublicOrigin() || getClientOrigin()}/register/${created.token}`
+  const currentForm = created || editingForm;
+  const publicUrl = currentForm
+    ? `${getPublicOrigin() || getClientOrigin()}/register/${currentForm.token}`
     : "";
 
   const submit = async () => {
@@ -89,6 +110,15 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
     setBusy(true);
     setError("");
     try {
+      if (editingForm) {
+        const form = await updateRegistrationForm(editingForm.id, {
+          workshop_ids: selectedWorkshopIds,
+          greeting: greeting.trim(),
+        });
+        onUpdated?.(form);
+        onClose();
+        return;
+      }
       const form = await createRegistrationForm({
         workshop_ids: selectedWorkshopIds,
         greeting: greeting.trim() || undefined,
@@ -96,7 +126,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
       setCreated(form);
       onCreated?.(form);
     } catch (e: any) {
-      setError("Lỗi tạo form: " + (e?.message || "không rõ"));
+      setError(`${editingForm ? "Lỗi cập nhật form" : "Lỗi tạo form"}: ${e?.message || "không rõ"}`);
     } finally {
       setBusy(false);
     }
@@ -114,7 +144,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
 
   const downloadQr = () => {
     const svg = qrWrapRef.current?.querySelector("svg");
-    if (!svg || !created) return;
+    if (!svg || !currentForm) return;
     const size = 240;
     const scale = 4;
     const svgData = new XMLSerializer().serializeToString(svg);
@@ -134,7 +164,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
       URL.revokeObjectURL(objUrl);
       const a = document.createElement("a");
       a.href = canvas.toDataURL("image/png");
-      a.download = `form-dang-ky-${created.token}.png`;
+      a.download = `form-dang-ky-${currentForm.token}.png`;
       a.click();
     };
     img.src = objUrl;
@@ -164,8 +194,8 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
           <>
             <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
               <div>
-                <h2 id="create-registration-form-title" className="font-semibold text-brand-teal">Tạo Form Đăng Ký</h2>
-                <p className="mt-1 text-xs text-muted">Tạo form để khách đăng ký tham gia workshop.</p>
+                <h2 id="create-registration-form-title" className="font-semibold text-brand-teal">{editingForm ? "Sửa Form Đăng Ký" : "Tạo Form Đăng Ký"}</h2>
+                <p className="mt-1 text-xs text-muted">{editingForm ? "Cập nhật workshop và lời chào. Link form sẽ không thay đổi." : "Tạo form để khách đăng ký tham gia workshop."}</p>
               </div>
               <button type="button" onClick={onClose} disabled={busy} aria-label="Đóng" className="min-h-11 min-w-11 text-xl leading-none text-muted disabled:opacity-50">×</button>
             </div>
@@ -215,6 +245,15 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
                   onChange={(e) => setGreeting(e.target.value)}
                 />
               </label>
+
+              {editingForm && (
+                <div className="mt-3">
+                  <span className="block text-muted text-xs mb-1">Link form (không thay đổi)</span>
+                  <div className="break-all rounded-sm border border-line bg-surface-muted px-3 py-2 font-mono text-xs text-muted">
+                    {publicUrl}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-2 border-t border-line bg-surface px-4 py-3 sm:flex sm:justify-end sm:px-5">
@@ -230,7 +269,7 @@ export default function CreateRegistrationFormModal({ open, onClose, onCreated }
                 disabled={busy || !selectedWorkshopIds.length}
                 className="min-h-11 bg-brand text-brand-teal px-3 py-1.5 rounded-md text-sm font-semibold disabled:opacity-50 sm:rounded-sm"
               >
-                {busy ? "Đang tạo..." : "Tạo form"}
+                {busy ? (editingForm ? "Đang lưu..." : "Đang tạo...") : (editingForm ? "Lưu thay đổi" : "Tạo form")}
               </button>
             </div>
           </>
