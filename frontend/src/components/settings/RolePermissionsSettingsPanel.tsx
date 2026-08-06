@@ -165,14 +165,14 @@ export default function RolePermissionsSettingsPanel() {
   if (!can(PERMISSIONS.usersManage)) return <div className="max-w-6xl mx-auto p-6 text-error">Bạn không có quyền quản lý vai trò.</div>;
 
   return (
-    <div>
-      <div className="mb-5">
+    <div className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+      <div className="mb-5 lg:shrink-0">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-accent">Quản trị người dùng</p>
         <h1 className="font-heading mt-1 text-2xl font-bold text-ink">Vai trò & quyền hạn</h1>
         <p className="mt-1 text-sm text-muted">Chọn một vai trò và thiết lập quyền truy cập chi tiết cho các chức năng workshop.</p>
       </div>
 
-      <div className="grid min-h-[650px] overflow-hidden rounded-lg border border-line bg-white shadow-sm lg:grid-cols-[300px_1fr]">
+      <div className="grid min-h-[650px] overflow-hidden rounded-lg border border-line bg-white shadow-sm lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr] lg:overflow-y-auto">
         <aside className="border-b border-line bg-[#f8fbfb] lg:border-b-0 lg:border-r">
           <div className="border-b border-line px-5 py-4">
             <div className="flex items-center justify-between">

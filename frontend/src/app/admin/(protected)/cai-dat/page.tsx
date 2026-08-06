@@ -55,7 +55,7 @@ export default function SettingsPage() {
           </nav>
         </aside>
 
-        <section className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
+        <section className="min-w-0 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
           {activeTab.key === "nguoi-dung" && <UsersSettingsPanel />}
           {activeTab.key === "phan-quyen" && <RolePermissionsSettingsPanel />}
           {activeTab.key === "ket-noi" && <ConnectionsSettingsPanel />}
