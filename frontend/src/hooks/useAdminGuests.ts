@@ -108,6 +108,7 @@ export function useAdminGuests() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [showDuplicateOnly, setShowDuplicateOnly] = useState(false);
   const [guestDetails, setGuestDetails] = useState<Record<string, GuestDetailState>>({});
   const [busyGuestIds, setBusyGuestIds] = useState<Set<string>>(() => new Set());
   const [importing, setImporting] = useState(false);
@@ -526,16 +527,6 @@ export function useAdminGuests() {
     [allGuests],
   );
 
-  const visibleGuests = useMemo(
-    () =>
-      guestsWithZbs.filter((g) => {
-        if (statusFilter === "checked_in") return g.checkin_status === "checked_in";
-        if (statusFilter === "not_checked_in") return g.checkin_status !== "checked_in";
-        return true;
-      }),
-    [guestsWithZbs, statusFilter],
-  );
-
   const normalizePhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "");
   const duplicatePhones = useMemo(() => {
     const count = new Map<string, number>();
@@ -545,6 +536,21 @@ export function useAdminGuests() {
     });
     return new Set([...count.entries()].filter(([, c]) => c > 1).map(([p]) => p));
   }, [guestsWithZbs]);
+
+  const visibleGuests = useMemo(
+    () => {
+      let result = guestsWithZbs.filter((g) => {
+        if (statusFilter === "checked_in") return g.checkin_status === "checked_in";
+        if (statusFilter === "not_checked_in") return g.checkin_status !== "checked_in";
+        return true;
+      });
+      if (showDuplicateOnly) {
+        result = result.filter((g) => duplicatePhones.has(normalizePhone(g.phone)));
+      }
+      return result;
+    },
+    [guestsWithZbs, statusFilter, showDuplicateOnly, duplicatePhones],
+  );
 
   const clearDuplicateGuest = useCallback(() => setDuplicateGuest(null), []);
 
@@ -565,6 +571,8 @@ export function useAdminGuests() {
     setSearch,
     statusFilter,
     setStatusFilter,
+    showDuplicateOnly,
+    setShowDuplicateOnly,
     newGuest,
     setNewGuest,
     busyGuestIds,

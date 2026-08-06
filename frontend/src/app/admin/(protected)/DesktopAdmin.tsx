@@ -139,6 +139,8 @@ export default function DesktopAdmin() {
     setSearch,
     statusFilter,
     setStatusFilter,
+    showDuplicateOnly,
+    setShowDuplicateOnly,
     currentWorkshop,
     msg,
     setMsg,
@@ -567,6 +569,15 @@ export default function DesktopAdmin() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={showDuplicateOnly}
+                  onChange={(e) => setShowDuplicateOnly(e.target.checked)}
+                  className="w-4 h-4 rounded accent-brand-teal"
+                />
+                <span className={showDuplicateOnly ? "text-red-600 font-semibold" : "text-muted"}>Trùng SĐT</span>
+              </label>
               <ColumnVisibilityMenu columns={TABLE_COLUMNS} visible={visibleColumns} onChange={setVisibleColumns} />
             </div>
           </div>
