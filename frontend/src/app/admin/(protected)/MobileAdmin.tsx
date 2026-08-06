@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import QrDisplay from "@/components/QrDisplay";
-import { useAdminGuests, type Guest, type NewGuestInput, type ZbsDelivery } from "@/hooks/useAdminGuests";
+import { useAdminGuests, type Guest, type NewGuestInput, type ZbsDelivery, type DuplicatedGuestInfo } from "@/hooks/useAdminGuests";
+import { api } from "@/lib/api";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
 import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
 import GuestQr from "@/components/GuestQr";
@@ -163,6 +164,10 @@ function isVip(g: Guest): boolean {
   return (g.guest_type || "").trim().toLowerCase() === "vip";
 }
 
+function normalizePhone(p: string | null | undefined): string {
+  return (p || "").replace(/\D/g, "");
+}
+
 function SyncBadge({ status }: { status?: string }) {
   if (status === "synced") {
     return <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand">Lark ✓</span>;
@@ -256,6 +261,9 @@ export default function MobileAdmin() {
     busyGuestIds,
     retryZbs,
     reload,
+    duplicatePhones,
+    duplicateGuest,
+    clearDuplicateGuest,
   } = useAdminGuests();
 
   const [linkCopied, setLinkCopied] = useState(false);
@@ -264,10 +272,22 @@ export default function MobileAdmin() {
   const [checkinGuest, setCheckinGuest] = useState<Guest | null>(null);
   const [showEventTools, setShowEventTools] = useState(false);
   const [origin, setOrigin] = useState(getPublicOrigin);
+  const [editGuest, setEditGuest] = useState<DuplicatedGuestInfo | null>(null);
 
   useEffect(() => {
     if (!origin) setOrigin(getClientOrigin());
   }, [origin]);
+
+  useEffect(() => {
+    if (!duplicateGuest) return;
+    const ok = window.confirm(
+      `Số điện thoại này đã đăng ký tham gia ${currentWorkshop?.name || "workshop này"}, bạn có muốn sửa thông tin không?`
+    );
+    if (ok) {
+      setEditGuest(duplicateGuest);
+    }
+    clearDuplicateGuest();
+  }, [duplicateGuest, currentWorkshop, clearDuplicateGuest]);
 
   const welcomeUrl = currentWorkshop && origin
     ? `${origin}/welcome?w=${encodeURIComponent(currentWorkshop.slug)}`
@@ -450,6 +470,7 @@ export default function MobileAdmin() {
                busy={busyGuestIds.has(g.id)}
               workshopId={currentWorkshop?.id || ""}
               workshopName={currentWorkshop?.name || "Workshop"}
+              duplicatePhone={duplicatePhones.has(normalizePhone(g.phone))}
             />
           ))
         )}
@@ -515,6 +536,18 @@ export default function MobileAdmin() {
           onConfirm={async (actual) => {
             await doCheckin(checkinGuest, actual);
             setCheckinGuest(null);
+          }}
+        />
+      )}
+
+      {editGuest && (
+        <EditCustomerSheet
+          guest={editGuest}
+          onClose={() => setEditGuest(null)}
+          onSaved={async () => {
+            setEditGuest(null);
+            setMsg("Đã lưu thông tin khách.");
+            await reload();
           }}
         />
       )}
@@ -587,6 +620,7 @@ function GuestCard({
   workshopId,
   workshopName,
   busy,
+  duplicatePhone,
 }: {
   g: Guest;
   onConfirmRegistration: () => void;
@@ -599,6 +633,7 @@ function GuestCard({
   workshopId: string;
   workshopName: string;
   busy: boolean;
+  duplicatePhone?: boolean;
 }) {
   const vip = isVip(g);
   const checked = g.checkin_status === "checked_in";
@@ -685,7 +720,9 @@ function GuestCard({
         className={`relative bg-surface border rounded-md p-3 shadow-sm ${
           vip
             ? "border-brand ring-1 ring-brand bg-gradient-to-b from-cyan-bg to-white"
-            : "border-line"
+            : duplicatePhone
+              ? "border-red-300 bg-red-50"
+              : "border-line"
         }`}
       >
       {/* Row 1: name + badges | count chip */}
@@ -1119,6 +1156,190 @@ function AddCustomerSheet({
           >
             <IconPlus className="w-3.5 h-3.5" />
             Thêm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditCustomerSheet({
+  guest,
+  onClose,
+  onSaved,
+}: {
+  guest: DuplicatedGuestInfo;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    full_name: guest.full_name || "",
+    phone: guest.phone || "",
+    business_model: guest.business_model || "",
+    party_size: guest.party_size || 1,
+    is_vip: (guest.guest_type || "").toLowerCase() === "vip",
+  });
+
+  const save = async () => {
+    const full_name = form.full_name.trim();
+    const phone = form.phone.trim();
+    const business_model = form.business_model.trim();
+    const party_size = Math.max(1, Math.floor(Number(form.party_size)) || 1);
+    if (!full_name || !phone || !business_model) return;
+    setBusy(true);
+    try {
+      await api(`/guests/${guest.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          full_name,
+          phone,
+          business_model,
+          party_size,
+          guest_type: form.is_vip ? "vip" : null,
+        }),
+      });
+      onSaved();
+    } catch (e: any) {
+      /* lỗi sẽ được hiển thị qua msg state của parent */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Sửa thông tin khách"
+    >
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+        aria-label="Đóng"
+      />
+      <div className="relative w-full max-w-md bg-surface rounded-t-2xl shadow-xl animate-sheet-up pb-[env(safe-area-inset-bottom)]">
+        <div className="pt-2 flex justify-center">
+          <div className="w-10 h-1 rounded-full bg-border-strong opacity-50" />
+        </div>
+        <div className="px-4 pt-2 pb-3 flex items-center gap-2 border-b border-line">
+          <div className="w-7 h-7 rounded-full bg-brand/10 text-brand inline-flex items-center justify-center shrink-0">
+            <IconUser className="w-3.5 h-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-heading font-bold text-[15px] text-brand-teal leading-tight">
+              Sửa thông tin khách
+            </div>
+            <p className="text-[11px] text-muted leading-tight">
+              SĐT này đã có trong workshop
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Đóng"
+            className="w-8 h-8 rounded-md text-text-secondary hover:bg-brand/5 hover:text-brand-teal inline-flex items-center justify-center"
+          >
+            <IconClose className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-4 py-3 space-y-3 max-h-[70vh] overflow-y-auto">
+          <Field label="Họ tên" required>
+            <input
+              autoFocus
+              type="text"
+              value={form.full_name}
+              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              placeholder="Nguyễn Văn A"
+              className="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-brand-teal placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
+            />
+          </Field>
+
+          <Field label="Số điện thoại" required>
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              placeholder="0901234567"
+              className="w-full px-3 py-2 border border-line rounded-md text-sm font-mono bg-surface text-brand-teal placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Số khách" required>
+              <div className="flex items-stretch h-[38px] border border-line rounded-md overflow-hidden bg-surface focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20">
+                <button
+                  type="button"
+                  aria-label="Giảm số khách"
+                  disabled={form.party_size <= 1}
+                  onClick={() => setForm({ ...form, party_size: Math.max(1, form.party_size - 1) })}
+                  className="px-3 flex items-center justify-center text-brand-teal disabled:opacity-40 active:bg-brand/10"
+                >
+                  <IconMinus className="w-3.5 h-3.5" />
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.party_size}
+                  onChange={(e) => setForm({ ...form, party_size: Math.max(1, parseInt(e.target.value) || 1) })}
+                  className="flex-1 w-full min-w-0 text-center text-sm bg-surface text-brand-teal border-x border-line focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <button
+                  type="button"
+                  aria-label="Tăng số khách"
+                  onClick={() => setForm({ ...form, party_size: form.party_size + 1 })}
+                  className="px-3 flex items-center justify-center text-brand-teal active:bg-brand/10"
+                >
+                  <IconPlus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </Field>
+
+            <Field label="VIP">
+              <label className="h-[38px] px-3 inline-flex items-center gap-2 border border-line rounded-md text-sm text-brand-teal bg-surface">
+                <input
+                  type="checkbox"
+                  checked={form.is_vip}
+                  onChange={(e) => setForm({ ...form, is_vip: e.target.checked })}
+                  className="w-4 h-4 rounded accent-brand-teal"
+                />
+                Khách VIP
+              </label>
+            </Field>
+          </div>
+
+          <Field label="Mô hình kinh doanh" required>
+            <select
+              value={form.business_model}
+              onChange={(e) => setForm({ ...form, business_model: e.target.value })}
+              className="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-brand-teal focus:border-brand focus:ring-2 focus:ring-brand/20 focus:outline-none"
+            >
+              <option value="" disabled>— Chọn mô hình —</option>
+              {form.business_model && !(BUSINESS_MODEL_OPTIONS as readonly string[]).includes(form.business_model) && (
+                <option value={form.business_model}>{form.business_model}</option>
+              )}
+              {BUSINESS_MODEL_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        <div className="px-4 py-3 border-t border-line grid grid-cols-2 gap-2">
+          <button
+            onClick={onClose}
+            className="h-10 rounded-md text-[13px] font-semibold border border-line bg-surface text-brand-teal active:bg-cyan-pale"
+          >
+            Hủy
+          </button>
+          <button
+            onClick={save}
+            disabled={busy || !form.full_name.trim() || !form.phone.trim() || !form.business_model}
+            className="h-10 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy ? "Đang lưu..." : "Lưu"}
           </button>
         </div>
       </div>

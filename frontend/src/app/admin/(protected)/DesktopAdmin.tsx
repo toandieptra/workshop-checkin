@@ -4,7 +4,7 @@ import QrDisplay from "@/components/QrDisplay";
 import { api, downloadGuestsXlsx } from "@/lib/api";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
 import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
-import { useAdminGuests, type Guest, type ZbsDelivery } from "@/hooks/useAdminGuests";
+import { useAdminGuests, type Guest, type ZbsDelivery, type DuplicatedGuestInfo } from "@/hooks/useAdminGuests";
 import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
 import GuestQr from "@/components/GuestQr";
 import GuestDetailRow from "@/components/GuestDetailRow";
@@ -30,6 +30,10 @@ function truncate(s: string | null | undefined, n = 40): string {
 
 function isVip(g: Guest): boolean {
   return (g.guest_type || "").trim().toLowerCase() === "vip";
+}
+
+function normalizePhone(p: string | null | undefined): string {
+  return (p || "").replace(/\D/g, "");
 }
 
 function SyncBadge({ status, error }: { status?: string; error?: string | null }) {
@@ -144,6 +148,9 @@ export default function DesktopAdmin() {
     loadGuestDetail,
     busyGuestIds,
     importing,
+    duplicatePhones,
+    duplicateGuest,
+    clearDuplicateGuest,
   } = useAdminGuests();
   const defaultVisibleColumns: ColumnKey[] = [
     "name", "phone", "businessModel", "source", "creator",
@@ -196,6 +203,24 @@ export default function DesktopAdmin() {
       setExpandedGuestId(null);
     }
   }, [expandedGuestId, visibleGuests]);
+
+  useEffect(() => {
+    if (!duplicateGuest) return;
+    const ok = window.confirm(
+      `Số điện thoại này đã đăng ký tham gia ${currentWorkshop?.name || "workshop này"}, bạn có muốn sửa thông tin không?`
+    );
+    if (ok) {
+      openEdit({
+        id: duplicateGuest.id,
+        full_name: duplicateGuest.full_name,
+        phone: duplicateGuest.phone,
+        business_model: duplicateGuest.business_model,
+        party_size: duplicateGuest.party_size,
+        guest_type: duplicateGuest.guest_type,
+      } as Guest);
+    }
+    clearDuplicateGuest();
+  }, [duplicateGuest, currentWorkshop, clearDuplicateGuest]);
 
   // ----- Lark write-back (desktop-only) -----
   const [larkBusy, setLarkBusy] = useState(false);
@@ -581,7 +606,7 @@ export default function DesktopAdmin() {
                            toggleGuestDetail(g.id);
                          }
                        }}
-                       className={`${expanded ? "border-x-2 border-t-2 border-brand bg-cyan-50" : vip ? "bg-cyan-50" : ""} cursor-pointer hover:bg-brand/5 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand`}
+                       className={`${expanded ? "border-x-2 border-t-2 border-brand bg-cyan-50" : vip ? "bg-cyan-50" : duplicatePhones.has(normalizePhone(g.phone)) ? "bg-red-50" : ""} cursor-pointer hover:bg-brand/5 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand`}
                      >
                         {visibleColumns.name && <td className="px-3 py-2 align-top">
                          <div className="flex items-start justify-between gap-3">

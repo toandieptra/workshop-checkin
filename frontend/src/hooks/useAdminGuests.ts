@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, apiForm } from "@/lib/api";
+import { api, apiForm, API_URL } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
 export interface Workshop {
@@ -81,6 +81,15 @@ export interface NewGuestInput {
 
 export type StatusFilter = "all" | "checked_in" | "not_checked_in";
 
+export interface DuplicatedGuestInfo {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  business_model: string | null;
+  party_size: number;
+  guest_type: string | null;
+}
+
 const LAST_WORKSHOP_STORAGE_KEY = "workshop-checkin:last-admin-workshop";
 
 /**
@@ -123,6 +132,7 @@ export function useAdminGuests() {
   });
 
   const [newGuest, setNewGuest] = useState<NewGuestInput>(emptyNewGuest);
+  const [duplicateGuest, setDuplicateGuest] = useState<DuplicatedGuestInfo | null>(null);
 
   // ----- data loading -----
   const refreshWorkshops = useCallback(async () => {
@@ -303,8 +313,10 @@ export function useAdminGuests() {
       return false;
     }
     try {
-      await api("/workshops/" + wid + "/guests", {
+      const res = await fetch(`${API_URL}/workshops/${wid}/guests`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           full_name,
           phone,
@@ -315,6 +327,22 @@ export function useAdminGuests() {
           source_detail: source === "Khác" ? source_detail : undefined,
         }),
       });
+      if (res.status === 409) {
+        const data = await res.json();
+        setDuplicateGuest(data.existing_guest as DuplicatedGuestInfo);
+        setMsg(data.detail + ", bạn có muốn sửa thông tin không?");
+        return false;
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let message = text;
+        try {
+          const payload = JSON.parse(text);
+          message = typeof payload.detail === "string" ? payload.detail : text;
+        } catch { /* keep raw text */ }
+        setMsg("Lỗi thêm khách: " + (message || "không rõ"));
+        return false;
+      }
       setNewGuest(emptyNewGuest());
       setMsg("Đã thêm khách.");
       await loadGuests(wid, debouncedSearch);
@@ -508,6 +536,18 @@ export function useAdminGuests() {
     [guestsWithZbs, statusFilter],
   );
 
+  const normalizePhone = (p: string | null | undefined) => (p || "").replace(/\D/g, "");
+  const duplicatePhones = useMemo(() => {
+    const count = new Map<string, number>();
+    guestsWithZbs.forEach((g) => {
+      const p = normalizePhone(g.phone);
+      if (p) count.set(p, (count.get(p) || 0) + 1);
+    });
+    return new Set([...count.entries()].filter(([, c]) => c > 1).map(([p]) => p));
+  }, [guestsWithZbs]);
+
+  const clearDuplicateGuest = useCallback(() => setDuplicateGuest(null), []);
+
   const currentWorkshop = useMemo(
     () => workshops.find((w) => w.id === wid),
     [workshops, wid],
@@ -536,6 +576,8 @@ export function useAdminGuests() {
     totalRecords,
     checkedInRecords,
     currentWorkshop,
+    duplicatePhones,
+    duplicateGuest,
     // actions
     createGuest,
     delGuest,
@@ -551,6 +593,7 @@ export function useAdminGuests() {
     importFile,
     reload,
     refreshWorkshops,
+    clearDuplicateGuest,
     connected,
   };
 }

@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -530,6 +531,29 @@ async def create_guest(
     from ..services.registration_confirmation import apply_registration_policy
     from ..services.zbs import normalize_phone
     values["phone"] = normalize_phone(values.get("phone")) or None
+    if values["phone"]:
+        existing = (await db.execute(
+            select(Guest).where(
+                Guest.workshop_id == workshop_id,
+                Guest.deleted_at.is_(None),
+                func.regexp_replace(func.coalesce(Guest.phone, ""), r"\D", "", "g") == values["phone"],
+            )
+        )).scalars().first()
+        if existing:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": f"Số điện thoại này đã đăng ký tham gia {w.name}",
+                    "existing_guest": {
+                        "id": str(existing.id),
+                        "full_name": existing.full_name,
+                        "phone": existing.phone,
+                        "business_model": existing.business_model,
+                        "party_size": existing.party_size,
+                        "guest_type": existing.guest_type,
+                    },
+                },
+            )
     g = Guest(workshop_id=workshop_id, registered_at=datetime.now(timezone.utc), **values)
     g.registration_status = "pending"
     db.add(g)
