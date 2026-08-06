@@ -173,7 +173,7 @@ export default function RolePermissionsSettingsPanel() {
         <p className="mt-1 text-sm text-muted">Chọn một vai trò và thiết lập quyền truy cập chi tiết cho các chức năng workshop.</p>
       </div>
 
-      <div className="grid min-h-[650px] overflow-hidden rounded-lg border border-line bg-white shadow-sm lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr] lg:overflow-y-auto">
+      <div className="grid min-h-[650px] overflow-hidden rounded-lg border border-line bg-white shadow-sm lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr] lg:overflow-y-auto lg:items-start">
         <aside className="border-b border-line bg-[#f8fbfb] lg:border-b-0 lg:border-r">
           <div className="border-b border-line px-5 py-4">
             <div className="flex items-center justify-between">
