@@ -94,6 +94,9 @@ echo "[4/6] Recreate containers"
 "$DOCKER_BIN" compose exec -T postgres \
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/032_zalo_template_auto_send.sql
+"$DOCKER_BIN" compose exec -T postgres \
+  sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/033_reports_permissions.sql
 
 echo "[5/6] Current status"
 sleep 5

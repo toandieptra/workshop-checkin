@@ -21,7 +21,8 @@ interface PermissionCatalog {
 const GROUPS = [
   { key: "workshops", label: "Workshop", description: "Quản lý danh sách và thông tin workshop" },
   { key: "guests", label: "Khách mời", description: "Quản lý dữ liệu khách tham dự" },
-  { key: "checkin", label: "Check-in & thống kê", description: "Theo dõi và thực hiện check-in" },
+  { key: "checkin", label: "Check-in", description: "Theo dõi và thực hiện check-in" },
+  { key: "reports", label: "Thống kê", description: "Xem và xuất dữ liệu thống kê khách mời" },
   { key: "registration_forms", label: "Form đăng ký", description: "Quản lý biểu mẫu đăng ký workshop" },
   { key: "lark", label: "Gửi sang Lark", description: "Xem trạng thái và gửi dữ liệu Web Check-in sang Lark" },
   { key: "uploads", label: "Tệp tải lên", description: "Tải tệp và tài nguyên lên hệ thống" },
