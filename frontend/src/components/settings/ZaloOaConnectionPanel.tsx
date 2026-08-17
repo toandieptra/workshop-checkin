@@ -72,7 +72,7 @@ export default function ZaloOaConnectionPanel() {
         <div className="rounded-md bg-surface-muted p-3"><div className="text-xs font-semibold uppercase tracking-wide text-muted">Làm mới gần nhất</div><div className="mt-1 font-medium text-ink">{formatDateTime(status.last_refreshed_at)}</div></div>
         <div className="rounded-md bg-surface-muted p-3"><div className="text-xs font-semibold uppercase tracking-wide text-muted">Refresh Token</div><div className="mt-1 font-medium text-ink">{status.configured ? "Đã cấu hình" : "Chưa cấu hình"}</div></div>
       </div>}
-      {message && <div className="mt-3 rounded-md border border-success-border bg-success-soft p-3 text-sm text-success">{message}</div>}
+      {message && <div role="status" aria-live="polite" className="mt-3 rounded-md border border-success-border bg-success-soft p-3 text-sm text-success">{message}</div>}
       {(error || status?.last_refresh_error) && <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-error">{error || status?.last_refresh_error}</div>}
     </section>
   );

@@ -211,7 +211,6 @@ export async function lookupByPhone(phone: string, workshopSlug: string): Promis
 
 export interface SelfRegisterResult {
   guest: any;
-  lark_synced: boolean;
   warning: string | null;
 }
 
@@ -313,11 +312,10 @@ export interface WorkshopAdmin {
   branch?: string | null;
   maps_url?: string | null;
   registration_short_url?: string | null;
-  lark_workshop_name?: string | null;
-  lark_record_id?: string | null;
+  zalo_group_url?: string | null;
+  landing_registration_form_id?: string | null;
   created_at: string;
   updated_at?: string | null;
-  last_synced_at?: string | null;
   media: WorkshopMedia[];
   registration_forms: WorkshopLinkedForm[];
 }
@@ -333,7 +331,7 @@ export interface WorkshopWriteBody {
   branch?: string | null;
   maps_url?: string | null;
   registration_short_url?: string | null;
-  lark_workshop_name?: string | null;
+  zalo_group_url?: string | null;
 }
 
 export async function getWorkshops(status?: string): Promise<WorkshopAdmin[]> {
@@ -375,13 +373,6 @@ export async function hardDeleteWorkshop(id: string): Promise<void> {
   await api("/workshops/" + id + "?hard=true", { method: "DELETE" });
 }
 
-/** Đẩy 1 workshop local lên Lark config table (thủ công / backup). */
-export async function pushWorkshopToLark(
-  id: string,
-): Promise<{ workshop_id: string; lark_record_id: string | null; pushed: boolean }> {
-  return await api("/lark/sync/push-workshop/" + id, { method: "POST" });
-}
-
 export async function getWorkshopBranches(): Promise<string[]> {
   const res = await api<{ branches: string[] }>("/workshops/meta/branches");
   return res.branches || [];
@@ -402,6 +393,39 @@ export async function deleteWorkshopMedia(workshopId: string, mediaId: string): 
   await api("/workshops/" + workshopId + "/media/" + mediaId, { method: "DELETE" });
 }
 
+export async function listWorkshopRegistrationForms(workshopId: string): Promise<WorkshopLinkedForm[]> {
+  return await api("/workshops/" + workshopId + "/registration-forms");
+}
+
+export async function updateWorkshopLandingPage(
+  workshopId: string,
+  registrationFormId: string,
+): Promise<WorkshopAdmin> {
+  return await api("/workshops/" + workshopId + "/landing-page", {
+    method: "PATCH",
+    body: JSON.stringify({ registration_form_id: registrationFormId }),
+  });
+}
+
+export interface WorkshopLandingPagePublic {
+  id: string;
+  name: string;
+  slug: string;
+  event_date?: string | null;
+  event_time?: string | null;
+  location?: string | null;
+  status: WorkshopStatus | string;
+  branch?: string | null;
+  maps_url?: string | null;
+  zalo_group_url?: string | null;
+  media: WorkshopMedia[];
+  registration_form: WorkshopLinkedForm;
+}
+
+export async function getWorkshopLandingPage(slug: string): Promise<WorkshopLandingPagePublic> {
+  return await api("/public/workshops/by-slug/" + encodeURIComponent(slug) + "/landing-page");
+}
+
 // -----------------------------------------------------------------
 // Registration forms (Form đăng ký workshop)
 // -----------------------------------------------------------------
@@ -411,6 +435,7 @@ export interface RegistrationWorkshopOption {
   name: string;
   event_date?: string | null;
   location?: string | null;
+  zalo_group_url?: string | null;
   auto_confirm_registration: boolean;
 }
 
@@ -435,6 +460,7 @@ export interface RegistrationFormPublic {
   workshop_name: string;
   workshop_event_date?: string | null;
   workshop_location?: string | null;
+  zalo_group_url?: string | null;
   workshops: RegistrationWorkshopOption[];
 }
 

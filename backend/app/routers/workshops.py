@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, nulls_last, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,6 +29,8 @@ from ..schemas import (
     GuestCreate,
     GuestOut,
     WorkshopCreate,
+    WorkshopLandingPagePublic,
+    WorkshopLandingPageUpdate,
     WorkshopLinkedFormOut,
     WorkshopMediaOut,
     WorkshopOut,
@@ -169,6 +172,40 @@ async def _linked_forms(db: AsyncSession, workshop_id: uuid.UUID) -> list[Worksh
     return out
 
 
+async def _linked_form(
+    db: AsyncSession,
+    workshop_id: uuid.UUID,
+    form_id: uuid.UUID,
+) -> RegistrationForm | None:
+    form = await db.get(RegistrationForm, form_id)
+    if not form:
+        return None
+    linked_workshop_ids = (await db.execute(
+        select(RegistrationFormWorkshop.workshop_id).where(
+            RegistrationFormWorkshop.form_id == form_id
+        )
+    )).scalars().all()
+    if linked_workshop_ids:
+        return form if workshop_id in linked_workshop_ids else None
+    return form if form.workshop_id == workshop_id else None
+
+
+async def _linked_form_out(db: AsyncSession, form: RegistrationForm) -> WorkshopLinkedFormOut:
+    count = (await db.execute(
+        select(func.count(RegistrationSubmission.id)).where(
+            RegistrationSubmission.form_id == form.id
+        )
+    )).scalar_one()
+    return WorkshopLinkedFormOut(
+        id=form.id,
+        token=form.token,
+        greeting=form.greeting,
+        is_active=form.is_active,
+        submission_count=count,
+        created_at=form.created_at,
+    )
+
+
 async def _to_out(db: AsyncSession, w: Workshop, include_forms: bool = True) -> WorkshopOut:
     media = list(w.media) if w.media is not None else []
     forms = await _linked_forms(db, w.id) if include_forms else []
@@ -184,11 +221,10 @@ async def _to_out(db: AsyncSession, w: Workshop, include_forms: bool = True) -> 
         branch=w.branch,
         maps_url=w.maps_url,
         registration_short_url=w.registration_short_url,
-        lark_workshop_name=w.lark_workshop_name,
-        lark_record_id=w.lark_record_id,
+        zalo_group_url=w.zalo_group_url,
+        landing_registration_form_id=w.landing_registration_form_id,
         created_at=w.created_at,
         updated_at=w.updated_at,
-        last_synced_at=w.last_synced_at,
         media=[WorkshopMediaOut.model_validate(m) for m in media],
         registration_forms=forms,
     )
@@ -248,12 +284,6 @@ async def create_workshop(body: WorkshopCreate, db: AsyncSession = Depends(get_d
     db.add(w)
     await db.commit()
     w = await _get_workshop(db, w.id)
-    try:
-        from .lark_sync import _push_workshop_to_lark
-        await _push_workshop_to_lark(db, w)
-    except Exception as e:
-        logger.warning("auto push workshop to lark failed for %s: %s", w.id, e)
-    w = await _get_workshop(db, w.id)
     return await _to_out(db, w)
 
 
@@ -290,12 +320,6 @@ async def update_workshop(
     w.updated_at = datetime.now(timezone.utc)
     await db.commit()
     w = await _get_workshop(db, workshop_id)
-    try:
-        from .lark_sync import _push_workshop_to_lark
-        await _push_workshop_to_lark(db, w)
-    except Exception as e:
-        logger.warning("auto push workshop (update) to lark failed for %s: %s", w.id, e)
-    w = await _get_workshop(db, workshop_id)
     return await _to_out(db, w)
 
 
@@ -310,6 +334,31 @@ async def update_workshop_status(
     w.status = body.status
     w.updated_at = datetime.now(timezone.utc)
     await db.commit()
+    w = await _get_workshop(db, workshop_id)
+    return await _to_out(db, w)
+
+
+@router.patch(
+    "/workshops/{workshop_id}/landing-page",
+    response_model=WorkshopOut,
+    dependencies=[Depends(require_permission("workshops.write"))],
+)
+async def update_workshop_landing_page(
+    workshop_id: uuid.UUID,
+    body: WorkshopLandingPageUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    w = await _get_workshop(db, workshop_id)
+    form = await _linked_form(db, workshop_id, body.registration_form_id)
+    if not form:
+        raise HTTPException(400, "Form đăng ký không thuộc workshop này")
+    w.landing_registration_form_id = form.id
+    w.updated_at = datetime.now(timezone.utc)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Form đăng ký không còn tồn tại")
     w = await _get_workshop(db, workshop_id)
     return await _to_out(db, w)
 
@@ -344,6 +393,37 @@ async def delete_workshop(
 async def list_workshop_forms(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await _get_workshop(db, workshop_id)
     return await _linked_forms(db, workshop_id)
+
+
+@router.get(
+    "/public/workshops/by-slug/{slug}/landing-page",
+    response_model=WorkshopLandingPagePublic,
+)
+async def get_workshop_landing_page(slug: str, db: AsyncSession = Depends(get_db)):
+    w = (await db.execute(
+        select(Workshop)
+        .options(selectinload(Workshop.media))
+        .where(Workshop.slug == slug)
+    )).scalar_one_or_none()
+    if not w or not w.landing_registration_form_id:
+        raise HTTPException(404, "Landing page không tồn tại")
+    form = await _linked_form(db, w.id, w.landing_registration_form_id)
+    if not form:
+        raise HTTPException(404, "Form đăng ký của landing page không còn hợp lệ")
+    return WorkshopLandingPagePublic(
+        id=w.id,
+        name=w.name,
+        slug=w.slug,
+        event_date=w.event_date,
+        event_time=w.event_time,
+        location=w.location,
+        status=w.status or "draft",
+        branch=w.branch,
+        maps_url=w.maps_url,
+        zalo_group_url=w.zalo_group_url,
+        media=[WorkshopMediaOut.model_validate(m) for m in list(w.media or [])],
+        registration_form=await _linked_form_out(db, form),
+    )
 
 
 @router.post("/workshops/{workshop_id}/media", response_model=list[WorkshopMediaOut], status_code=201, dependencies=[Depends(require_permission("workshops.write"))])
@@ -395,12 +475,6 @@ async def upload_workshop_media(
     for m in created:
         await db.refresh(m)
     result = [WorkshopMediaOut.model_validate(m) for m in created]
-    try:
-        from .lark_sync import _push_workshop_to_lark
-        w = await _get_workshop(db, workshop_id)
-        await _push_workshop_to_lark(db, w)
-    except Exception as e:
-        logger.warning("auto push workshop media to lark failed for %s: %s", workshop_id, e)
     return result
 
 
@@ -568,10 +642,4 @@ async def create_guest(
     await enqueue_auto_send_new_guest(db, g)
     await db.commit()
     await db.refresh(g)
-    try:
-        from .lark_sync import _push_guest_to_lark
-        await _push_guest_to_lark(db, g)
-    except Exception as e:
-        logger.warning("auto push guest to lark failed for %s: %s", g.id, e)
-    g = await db.get(Guest, g.id)
     return g

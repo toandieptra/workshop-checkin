@@ -59,7 +59,7 @@ export default function AdminNav() {
             aria-expanded={menuOpen}
             aria-controls="admin-mobile-navigation"
             onClick={() => setMenuOpen((v) => !v)}
-            className="p-2 -mr-2 text-brand-teal rounded-md active:bg-surface-muted"
+            className="grid h-11 w-11 -mr-2 place-items-center text-brand-teal rounded-md active:bg-surface-muted"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               {menuOpen ? (

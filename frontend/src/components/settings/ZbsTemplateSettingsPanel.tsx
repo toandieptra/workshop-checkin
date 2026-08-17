@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getZbsTemplate,
   listZbsTaskConfigs,
@@ -83,15 +83,52 @@ function DetailModal({ detail, loading, onClose }: {
   loading: boolean;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    (focusable()[0] || dialog).focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const elements = focusable();
+      if (!elements.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("keydown", handleKeyDown);
+    return () => dialog.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Chi tiết mẫu tin">
-      <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-xl bg-white shadow-xl sm:max-w-2xl sm:rounded-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
+      <div ref={dialogRef} tabIndex={-1} className="max-h-[92vh] w-full overflow-y-auto rounded-t-xl bg-white shadow-xl sm:max-w-2xl sm:rounded-xl" role="dialog" aria-modal="true" aria-labelledby="zbs-detail-title">
         <div className="sticky top-0 flex items-center justify-between border-b border-line bg-white px-5 py-4">
           <div>
-            <h2 className="font-heading text-lg font-bold text-ink">Chi tiết mẫu tin</h2>
+            <h2 id="zbs-detail-title" className="font-heading text-lg font-bold text-ink">Chi tiết mẫu tin</h2>
             {detail && <p className="mt-0.5 font-mono text-xs text-muted">{detail.template_id}</p>}
           </div>
-          <button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full text-2xl text-muted hover:bg-surface-muted" aria-label="Đóng">×</button>
+          <button type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full text-2xl text-muted hover:bg-surface-muted" aria-label="Đóng">×</button>
         </div>
         {loading ? (
           <div className="space-y-3 p-5" aria-label="Đang tải chi tiết">
@@ -163,6 +200,7 @@ export default function ZbsTemplateSettingsPanel() {
   const [detail, setDetail] = useState<ZbsTemplateDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const detailTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -227,7 +265,8 @@ export default function ZbsTemplateSettingsPanel() {
     }
   };
 
-  const openDetail = async (templateId: string) => {
+  const openDetail = async (templateId: string, trigger: HTMLButtonElement) => {
+    detailTriggerRef.current = trigger;
     setDetailOpen(true);
     setDetailLoading(true);
     setDetail(null);
@@ -240,21 +279,26 @@ export default function ZbsTemplateSettingsPanel() {
     }
   };
 
+  const closeDetail = useCallback(() => {
+    setDetailOpen(false);
+    requestAnimationFrame(() => detailTriggerRef.current?.focus());
+  }, []);
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div>
+    <div className="lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
       <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-accent">Zalo Business Solutions</p>
-          <h1 className="font-heading mt-1 text-2xl font-bold text-ink">Quản lý mẫu tin ZBS</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-teal">Zalo Business Solutions</p>
+          <h2 className="font-heading mt-1 text-2xl font-bold text-ink">Quản lý mẫu tin ZBS</h2>
           <p className="mt-1 text-sm text-muted">Cấu hình gửi tự động và lưu bản sao danh sách mẫu tin từ Zalo.</p>
         </div>
         {canManage && <button type="button" onClick={() => void synchronize()} disabled={syncing} className="min-h-10 rounded-md bg-brand px-4 text-sm font-semibold text-brand-teal disabled:opacity-50">{syncing ? "Đang đồng bộ..." : "Đồng bộ từ Zalo"}</button>}
       </div>
 
-      {message && <div className="mb-4 flex items-center justify-between rounded-md border border-success-border bg-success-soft px-4 py-3 text-sm text-success"><span>{message}</span><button onClick={() => setMessage("")} aria-label="Đóng thông báo">×</button></div>}
-      {error && <div className="mb-4 flex items-center justify-between rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-error"><span>{error}</span><button onClick={() => setError("")} aria-label="Đóng lỗi">×</button></div>}
+      {message && <div role="status" aria-live="polite" className="mb-4 flex items-center justify-between rounded-md border border-success-border bg-success-soft px-4 py-3 text-sm text-success"><span>{message}</span><button className="grid h-11 w-11 place-items-center" onClick={() => setMessage("")} aria-label="Đóng thông báo">×</button></div>}
+      {error && <div role="alert" className="mb-4 flex items-center justify-between rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-error"><span>{error}</span><button className="grid h-11 w-11 place-items-center" onClick={() => setError("")} aria-label="Đóng lỗi">×</button></div>}
 
       <section className="mb-5 rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -279,7 +323,7 @@ export default function ZbsTemplateSettingsPanel() {
                   <div className="mt-1 font-semibold text-ink">{taskConfig.task_label}</div>
                   <label className={`mt-4 flex w-fit items-center gap-3 ${canManage ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
                     <input type="checkbox" className="peer sr-only" checked={draft.enabled} disabled={!canManage || !taskConfig.system_enabled} onChange={(event) => setTaskDrafts((current) => ({ ...current, [taskConfig.task_key]: { ...draft, enabled: event.target.checked } }))} />
-                    <span className={`relative h-6 w-11 rounded-full transition ${draft.enabled ? "bg-brand" : "bg-gray-300"}`}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${draft.enabled ? "left-[22px]" : "left-0.5"}`} /></span>
+                    <span className={`relative h-6 w-11 rounded-full transition peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand-teal ${draft.enabled ? "bg-brand" : "bg-gray-300"}`}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${draft.enabled ? "left-[22px]" : "left-0.5"}`} /></span>
                     <span className="text-sm font-medium text-text-primary">Tự động gửi ZBS khi tác vụ hoàn tất</span>
                   </label>
                   {selectedStatus && selectedStatus !== "ENABLE" && <p className="mt-2 text-xs text-amber-700">Mẫu tin đang ở trạng thái {STATUS_META[selectedStatus]?.label || selectedStatus}; chưa thể bật tự động gửi.</p>}
@@ -305,10 +349,11 @@ export default function ZbsTemplateSettingsPanel() {
             <div><h2 className="font-heading font-bold text-ink">Danh sách mẫu tin đã đồng bộ</h2><p className="mt-0.5 text-xs text-muted">Đồng bộ gần nhất: {formatDateTime(lastSyncedAt)}</p></div>
             <div className="mt-3 flex flex-col gap-2 sm:mt-0 sm:flex-row">
               <form onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(searchInput); }} className="flex">
-                <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Tìm theo tên hoặc mã mẫu tin" className="min-h-10 min-w-0 rounded-l-md border border-line px-3 text-sm outline-none focus:border-brand sm:w-64" />
+                <label htmlFor="zbs-template-search" className="sr-only">Tìm mẫu tin ZBS</label>
+                <input id="zbs-template-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Tìm theo tên hoặc mã mẫu tin" className="min-h-11 min-w-0 rounded-l-md border border-line px-3 text-sm outline-none focus:border-brand sm:w-64" />
                 <button type="submit" className="rounded-r-md border border-l-0 border-line px-3 text-sm font-semibold text-brand-teal">Tìm</button>
               </form>
-              <select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value as ZbsTemplateStatus | ""); }} className="min-h-10 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-brand">
+              <select aria-label="Lọc mẫu tin theo trạng thái" value={status} onChange={(event) => { setPage(1); setStatus(event.target.value as ZbsTemplateStatus | ""); }} className="min-h-11 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-brand">
                 {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </div>
@@ -322,7 +367,7 @@ export default function ZbsTemplateSettingsPanel() {
               {loading ? [1, 2, 3, 4, 5].map((row) => <tr key={row}>{[1, 2, 3, 4, 5, 6, 7, 8].map((cell) => <td key={cell} className="px-4 py-4"><div className="h-4 animate-pulse rounded bg-surface-muted" /></td>)}</tr>) : templates.map((template) => {
                 const statusMeta = STATUS_META[template.status] || { label: template.status, className: "bg-gray-100 text-gray-600" };
                 const qualityMeta = template.quality ? QUALITY_META[template.quality] : null;
-                return <tr key={template.template_id} className="hover:bg-brand/5"><td className="px-4 py-3 font-mono text-xs text-muted">{template.template_id}</td><td className="px-4 py-3 font-semibold text-ink">{template.template_name}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusMeta.className}`}>{statusMeta.label}</span></td><td className={`px-4 py-3 font-medium ${qualityMeta?.className || "text-muted"}`}>{qualityMeta?.label || "Chưa đánh giá"}</td><td className="px-4 py-3 text-text-secondary">{template.tag ? TAG_LABELS[template.tag] || template.tag : "—"}</td><td className="px-4 py-3 text-text-secondary">{template.template_type ? TYPE_LABELS[template.template_type] : "—"}</td><td className="px-4 py-3 whitespace-nowrap text-muted">{formatDateTime(template.zalo_created_at)}</td><td className="px-4 py-3"><button type="button" onClick={() => void openDetail(template.template_id)} className="min-h-8 font-semibold text-brand underline">Xem chi tiết</button></td></tr>;
+                return <tr key={template.template_id} className="hover:bg-brand/5"><td className="px-4 py-3 font-mono text-xs text-muted">{template.template_id}</td><td className="px-4 py-3 font-semibold text-ink">{template.template_name}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusMeta.className}`}>{statusMeta.label}</span></td><td className={`px-4 py-3 font-medium ${qualityMeta?.className || "text-muted"}`}>{qualityMeta?.label || "Chưa đánh giá"}</td><td className="px-4 py-3 text-text-secondary">{template.tag ? TAG_LABELS[template.tag] || template.tag : "—"}</td><td className="px-4 py-3 text-text-secondary">{template.template_type ? TYPE_LABELS[template.template_type] : "—"}</td><td className="px-4 py-3 whitespace-nowrap text-muted">{formatDateTime(template.zalo_created_at)}</td><td className="px-4 py-3"><button type="button" onClick={(event) => void openDetail(template.template_id, event.currentTarget)} className="min-h-11 font-semibold text-brand-teal underline">Xem chi tiết</button></td></tr>;
               })}
               {!loading && !templates.length && <tr><td colSpan={8} className="px-4 py-14 text-center"><div className="font-semibold text-ink">Chưa có mẫu tin phù hợp</div><p className="mt-1 text-sm text-muted">Hãy đổi bộ lọc hoặc dùng nút “Đồng bộ từ Zalo” để tạo bản sao.</p></td></tr>}
             </tbody>
@@ -335,7 +380,7 @@ export default function ZbsTemplateSettingsPanel() {
         </div>
       </section>
 
-      {detailOpen && <DetailModal detail={detail} loading={detailLoading} onClose={() => setDetailOpen(false)} />}
+      {detailOpen && <DetailModal detail={detail} loading={detailLoading} onClose={closeDetail} />}
     </div>
   );
 }

@@ -10,6 +10,7 @@ from app.models import Guest, Workshop
 from app.services.zalo_messages import (
     AUTO_SEND_CHECKIN,
     AUTO_SEND_NEW_GUEST,
+    album_bridge_paths,
     calls_per_guest,
     create_delivery,
     enqueue_auto_send,
@@ -19,6 +20,25 @@ from app.services.zalo_messages import (
     template_variables,
     validate_blocks,
 )
+
+
+@pytest.mark.parametrize("suffix", [".png", ".jpg", ".jpeg", ".webp"])
+def test_album_bridge_paths_normalize_existing_uploads(monkeypatch, tmp_path, suffix):
+    folder = tmp_path / "zalo" / "image"
+    folder.mkdir(parents=True)
+    (folder / f"a{suffix}").write_bytes(b"binary")
+    monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path))
+
+    paths = album_bridge_paths([{"url": f"/uploads/zalo/image/a{suffix}"}])
+
+    assert paths == [f"/uploads/zalo/image/a{suffix}"]
+
+
+def test_album_bridge_paths_reject_missing_file_before_calling_bridge(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path))
+
+    with pytest.raises(ValueError, match="/uploads/zalo/image/gone.png"):
+        album_bridge_paths([{"url": "/uploads/zalo/image/gone.png"}])
 
 
 @pytest.mark.parametrize(("statuses", "expected"), [

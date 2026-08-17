@@ -1,4 +1,3 @@
-import logging
 import re
 import secrets
 import uuid
@@ -24,7 +23,6 @@ from ..auth.dependencies import require_permission
 from ..services.guest_provenance import normalize_guest_source, resolve_public_creator
 from ..services.registration_confirmation import apply_registration_policy
 
-logger = logging.getLogger("registration_forms")
 router = APIRouter(prefix="/api", tags=["registration-forms"])
 
 # Regex SĐT Việt Nam: cho phép số, khoảng trắng, +, -, (), . — 9-15 ký tự thô.
@@ -71,6 +69,7 @@ def _option(w: Workshop) -> RegistrationWorkshopOption:
         name=w.name,
         event_date=w.event_date,
         location=w.location,
+        zalo_group_url=w.zalo_group_url,
         auto_confirm_registration=w.auto_confirm_registration,
     )
 
@@ -117,6 +116,14 @@ async def _validate_workshop_ids(db: AsyncSession, ids: list[uuid.UUID]) -> list
 
 
 async def _replace_form_workshops(db: AsyncSession, form: RegistrationForm, workshop_ids: list[uuid.UUID]) -> None:
+    stale_landings = (await db.execute(
+        select(Workshop).where(
+            Workshop.landing_registration_form_id == form.id,
+            Workshop.id.not_in(workshop_ids),
+        )
+    )).scalars().all()
+    for workshop in stale_landings:
+        workshop.landing_registration_form_id = None
     await db.execute(delete(RegistrationFormWorkshop).where(RegistrationFormWorkshop.form_id == form.id))
     for wid in workshop_ids:
         db.add(RegistrationFormWorkshop(form_id=form.id, workshop_id=wid))
@@ -275,7 +282,6 @@ async def submit_registration_form(
         checkin_status="not_checked_in",
         registered_at=_now(),
         local_updated_at=_now(),
-        sync_status="pending_push",
     )
     db.add(guest)
     await db.flush()
@@ -304,20 +310,8 @@ async def submit_registration_form(
     await db.refresh(guest)
     await db.refresh(submission)
 
-    # Auto push lên Lark (best-effort, không chặn đăng ký)
-    lark_synced = False
-    try:
-        from .lark_sync import _push_guest_to_lark
-        await _push_guest_to_lark(db, guest)
-        lark_synced = True
-    except Exception as e:
-        logger.warning("auto push registration guest to lark failed for %s: %s", guest.id, e)
-
-    guest = await db.get(Guest, guest.id)
-
     return RegistrationSubmitResult(
         guest=GuestOut.model_validate(guest),
         submission_id=submission.id,
         registration_status=guest.registration_status,
-        lark_synced=lark_synced,
     )

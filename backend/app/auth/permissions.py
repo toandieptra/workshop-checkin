@@ -3,7 +3,6 @@ PERMISSIONS = frozenset({
     "guests.read", "guests.write", "guests.delete", "guests.export",
     "checkin.read", "checkin.manage",
     "registration_forms.read", "registration_forms.write",
-    "lark.read", "lark.sync",
     "uploads.create",
     "zbs.read", "zbs.manage",
     "zalo_connections.read", "zalo_connections.manage",
@@ -18,12 +17,12 @@ ROLE_PERMISSIONS = {
     "user": set(),
     "viewer": {
         "workshops.read", "guests.read", "checkin.read",
-        "registration_forms.read", "lark.read", "reports.read",
+        "registration_forms.read", "reports.read",
     },
     "editor": {
         "workshops.read", "guests.read", "guests.write",
         "checkin.read", "checkin.manage", "registration_forms.read",
-        "registration_forms.write", "uploads.create", "lark.read",
+        "registration_forms.write", "uploads.create",
         "reports.read", "reports.export",
     },
     "admin": PERMISSIONS - {"users.manage"},

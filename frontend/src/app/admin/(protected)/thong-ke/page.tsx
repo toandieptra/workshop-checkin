@@ -14,10 +14,9 @@ interface Guest {
   source?: string | null; source_detail?: string | null;
   party_size?: number; actual_party_size?: number; checkin_status: string; checked_in_at?: string;
   created_at?: string; registered_at?: string | null;
-  sync_status?: string;
 }
 type CheckinFilter = "all" | "checked_in" | "not_checked_in";
-type ColumnKey = "name" | "phone" | "businessModel" | "source" | "note" | "registered" | "checkedIn" | "status" | "sync" | "checkedInAt" | "workshop";
+type ColumnKey = "name" | "phone" | "businessModel" | "source" | "note" | "registered" | "checkedIn" | "status" | "checkedInAt" | "workshop";
 const TABLE_COLUMNS = [
   { key: "name", label: "Tên" }, { key: "phone", label: "Số điện thoại" },
   { key: "businessModel", label: "Mô hình kinh doanh" },
@@ -25,7 +24,7 @@ const TABLE_COLUMNS = [
   { key: "note", label: "Ghi chú" },
   { key: "registered", label: "Số khách đăng ký" },
   { key: "checkedIn", label: "Số khách check-in" }, { key: "status", label: "Trạng thái" },
-  { key: "sync", label: "Đồng bộ Lark" }, { key: "checkedInAt", label: "Check-in lúc" },
+  { key: "checkedInAt", label: "Check-in lúc" },
   { key: "workshop", label: "Workshop" },
 ] as const;
 
@@ -74,7 +73,7 @@ export default function ThongKePage() {
   const [gotoPage, setGotoPage] = useState("1");
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(
-      TABLE_COLUMNS.map(({ key }) => [key, key !== "sync" && key !== "checkedInAt"]),
+      TABLE_COLUMNS.map(({ key }) => [key, key !== "checkedInAt"]),
     ) as Record<ColumnKey, boolean>);
   const selectableColumns = useMemo(
     () => selectedWorkshopIds.length === 1 ? TABLE_COLUMNS.filter(({ key }) => key !== "workshop") : TABLE_COLUMNS,
@@ -137,12 +136,10 @@ export default function ThongKePage() {
     const checkedInGuests = filtered
       .filter((g) => g.checkin_status === "checked_in")
       .reduce((s, g) => s + (g.actual_party_size ?? g.party_size ?? 1), 0);
-    const synced = filtered.filter((g) => g.sync_status === "synced").length;
     const pct = (n: number, base: number) => (base ? Math.round((n / base) * 100) : 0);
     return {
-      registeredGuests, registeredRecords, checkedInGuests, checkedInRecords, synced,
+      registeredGuests, registeredRecords, checkedInGuests, checkedInRecords,
       pctCheckedIn: pct(checkedInGuests, registeredGuests),
-      pctSynced: pct(synced, registeredRecords),
     };
   }, [filtered]);
 
@@ -343,7 +340,6 @@ export default function ThongKePage() {
                       {visibleColumns.registered && <th className="text-center px-3 py-2">Số khách đăng ký</th>}
                       {visibleColumns.checkedIn && <th className="text-center px-3 py-2">Số khách check-in</th>}
                       {visibleColumns.status && <th className="text-center px-3 py-2">Trạng thái</th>}
-                      {visibleColumns.sync && <th className="text-center px-3 py-2">Đồng bộ Lark</th>}
                       {visibleColumns.checkedInAt && <th className="text-left px-3 py-2">Check-in lúc</th>}
                       {visibleColumns.workshop && selectedWorkshopIds.length !== 1 && <th className="text-left px-3 py-2">Workshop</th>}
                     </tr>
@@ -377,13 +373,6 @@ export default function ThongKePage() {
                           <span className={"text-xs px-2 py-0.5 rounded " + (g.checkin_status === "checked_in" ? "bg-green-50 text-green-700" : "bg-surface-muted text-muted")}>
                             {g.checkin_status === "checked_in" ? "Đã check-in" : "Chưa"}
                           </span>
-                        </td>}
-                        {visibleColumns.sync && <td className="px-3 py-2 text-center">
-                          {g.sync_status === "synced" ? (
-                            <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Đã gửi</span>
-                          ) : (
-                            <span className="text-xs px-2 py-0.5 rounded bg-surface-muted text-muted">{g.sync_status || "—"}</span>
-                          )}
                         </td>}
                         {visibleColumns.checkedInAt && <td className="px-3 py-2 text-muted text-xs">
                           {g.checked_in_at ? new Date(g.checked_in_at).toLocaleString("vi-VN") : "—"}

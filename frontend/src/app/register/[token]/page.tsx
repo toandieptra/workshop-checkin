@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
 import { formatEventDateTime, shortLocation } from "@/lib/date-format";
+import QRCode from "react-qr-code";
 
 // Trang phụ thuộc token ở runtime → không prerender tĩnh.
 export const dynamic = "force-dynamic";
@@ -22,8 +23,16 @@ function normalizePhone(raw: string): string {
   return d;
 }
 
-export default function RegisterPage({ params }: { params: { token: string } }) {
+export default function RegisterPage({
+  params,
+  searchParams,
+}: {
+  params: { token: string };
+  searchParams?: { workshop?: string; embedded?: string };
+}) {
   const token = params.token;
+  const embedded = searchParams?.embedded === "1";
+  const lockedWorkshopId = searchParams?.workshop || "";
 
   const [form, setForm] = useState<RegistrationFormPublic | null>(null);
   const [step, setStep] = useState<Step>("loading");
@@ -79,14 +88,58 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
           : f.workshop_id
           ? [{ id: f.workshop_id, name: f.workshop_name, event_date: f.workshop_event_date, location: f.workshop_location }]
           : [];
-        setWorkshopId(ws.length === 1 ? ws[0].id : "");
+        const lockedWorkshop = ws.find((workshop) => workshop.id === lockedWorkshopId);
+        setWorkshopId(lockedWorkshop?.id || (ws.length === 1 ? ws[0].id : ""));
         setStep(f.is_active ? "form" : "closed");
       } catch {
         setErrMsg("Form không tồn tại hoặc đã bị xoá.");
         setStep("error");
       }
     })();
-  }, [token]);
+  }, [lockedWorkshopId, token]);
+
+  useEffect(() => {
+    if (!embedded || window.parent === window) return;
+    // Đo body thay vì documentElement: documentElement bị kéo giãn theo chiều
+    // cao iframe nên chiều cao báo về không bao giờ co lại được.
+    const notifyHeight = () => window.parent.postMessage({
+      type: "registration-form-height",
+      height: Math.ceil(document.body.getBoundingClientRect().height),
+    }, window.location.origin);
+    notifyHeight();
+    const observer = new ResizeObserver(notifyHeight);
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, [embedded, errMsg, source, step]);
+
+  useEffect(() => {
+    if (!embedded) return;
+    const onReset = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "registration-reset") return;
+      setFullName("");
+      setPhone("");
+      setPartySize(1);
+      setBusinessModel("");
+      setSource("");
+      setSourceDetail("");
+      setErrWorkshop("");
+      setErrName("");
+      setErrPhone("");
+      setErrParty("");
+      setErrBusinessModel("");
+      setErrSource("");
+      setErrMsg("");
+      const opts = form?.workshops?.length
+        ? form.workshops
+        : form?.workshop_id
+        ? [{ id: form.workshop_id }]
+        : [];
+      setWorkshopId(lockedWorkshopId || (opts.length === 1 ? opts[0].id : ""));
+      setStep("form");
+    };
+    window.addEventListener("message", onReset);
+    return () => window.removeEventListener("message", onReset);
+  }, [embedded, lockedWorkshopId, form]);
 
   const validate = (): boolean => {
     let ok = true;
@@ -156,6 +209,14 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
       });
       setRegistrationStatus(result.registration_status);
       setStep("success");
+      if (embedded && window.parent !== window) {
+        window.parent.postMessage({
+          type: "registration-success",
+          zaloGroupUrl: selectedZaloGroupUrl,
+          status: result.registration_status,
+          fullName: fullName.trim(),
+        }, window.location.origin);
+      }
     } catch (e: any) {
       if (e?.message?.includes("410")) {
         setStep("closed");
@@ -167,17 +228,20 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
     }
   };
 
-  const workshopOptions = form?.workshops?.length ? form.workshops : form ? [{
+  const workshopOptions: Array<RegistrationFormPublic["workshops"][number]> = form?.workshops?.length ? form.workshops : form ? [{
     id: form.workshop_id,
     name: form.workshop_name,
     event_date: form.workshop_event_date,
     location: form.workshop_location,
+    zalo_group_url: form.zalo_group_url,
+    auto_confirm_registration: true,
   }] : [];
   const selectedWorkshop = workshopOptions.find((w) => w.id === workshopId) || workshopOptions[0];
+  const selectedZaloGroupUrl = selectedWorkshop?.zalo_group_url || form?.zalo_group_url || "";
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_12%_18%,rgba(0,183,204,0.14),transparent_32%),radial-gradient(circle_at_90%_10%,rgba(201,168,76,0.10),transparent_24%),linear-gradient(180deg,#FFFFFF_0%,#E8F4F5_100%)] px-4 py-5 text-brand-teal sm:px-6 lg:px-10 lg:py-7">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 pb-6 sm:pb-8">
+    <main className={embedded ? "bg-white text-brand-teal" : "min-h-screen bg-[radial-gradient(circle_at_12%_18%,rgba(0,183,204,0.14),transparent_32%),radial-gradient(circle_at_90%_10%,rgba(201,168,76,0.10),transparent_24%),linear-gradient(180deg,#FFFFFF_0%,#E8F4F5_100%)] px-4 py-5 text-brand-teal sm:px-6 lg:px-10 lg:py-7"}>
+      {!embedded && <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 pb-6 sm:pb-8">
         <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-[14px] bg-[radial-gradient(circle_at_50%_30%,#1A5F6A,#0D3B42)] font-heading text-sm font-extrabold tracking-[-0.05em] text-white shadow-[0_12px_26px_rgba(13,59,66,0.22)]">
             HS
@@ -191,10 +255,10 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
           <span className="h-2 w-2 rounded-full bg-brand shadow-[0_0_0_5px_rgba(0,183,204,0.12)]" />
           Hotline: 0973 123 230
         </a>
-      </div>
+      </div>}
 
-      <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.72fr)] lg:items-start">
-        {step === "form" && selectedWorkshop && (
+      <div className={embedded ? "w-full" : "mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.72fr)] lg:items-start"}>
+        {!embedded && step === "form" && selectedWorkshop && (
           <aside className="hidden overflow-hidden rounded-[28px] bg-[radial-gradient(circle_at_20%_18%,rgba(0,183,204,0.34),transparent_30%),radial-gradient(circle_at_center,#1A5F6A_0%,#0D3B42_76%)] p-10 text-white shadow-[0_28px_80px_rgba(13,59,66,0.24)] lg:block" aria-label="Thông tin workshop">
             <div className="font-heading text-5xl font-bold leading-tight tracking-[-0.04em]">Đăng ký tham dự workshop</div>
             <p className="mt-4 max-w-xl text-base leading-7 text-white/80">Xác nhận thông tin workshop trước khi gửi đăng ký.</p>
@@ -205,11 +269,28 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                 {selectedWorkshop.location && <div><dt className="text-xs font-bold uppercase tracking-wide text-cyan-soft">Địa điểm</dt><dd className="mt-1 font-semibold">{selectedWorkshop.location}</dd></div>}
               </dl>
             </div>
+            {selectedZaloGroupUrl && (
+              <div className="mt-8 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur" aria-label="Group Zalo Workshop">
+                <div className="text-xs font-bold uppercase tracking-wide text-cyan-soft">Group Zalo Workshop</div>
+                <p className="mt-2 text-sm leading-6 text-white/80">Tham gia group ngay để kết nối và nhận lịch trình, công thức, slide và media sự kiện.</p>
+                <div className="mt-5 flex items-center gap-5">
+                  <div className="grid shrink-0 place-items-center rounded-2xl bg-white p-3 shadow-[0_8px_24px_rgba(13,59,66,0.2)]" aria-label="Mã QR tham gia Group Zalo">
+                    <QRCode value={selectedZaloGroupUrl} size={116} bgColor="#ffffff" fgColor="#0D3B42" level="M" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm leading-6 text-white/80">Quét mã QR hoặc nhấn nút để tham gia.</p>
+                    <a href={selectedZaloGroupUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full bg-brand px-5 text-sm font-extrabold text-brand-teal shadow-[0_10px_24px_rgba(0,183,204,0.28)] transition hover:bg-brand-accent">
+                      Mở Group Zalo
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
             {form?.greeting && <p className="mt-8 whitespace-pre-line text-sm leading-7 text-white/80">{form.greeting}</p>}
           </aside>
         )}
-        <div className="relative w-full rounded-[28px] border border-line bg-white/95 p-6 shadow-[0_24px_70px_rgba(13,59,66,0.14)] backdrop-blur sm:p-8">
-          <div className="absolute inset-x-0 top-0 h-1.5 rounded-t-[28px] bg-[linear-gradient(90deg,#00B7CC,#2E8B8F,#C9A84C)]" />
+        <div className={embedded ? "relative w-full bg-white" : "relative w-full rounded-[28px] border border-line bg-white/95 p-6 shadow-[0_24px_70px_rgba(13,59,66,0.14)] backdrop-blur sm:p-8"}>
+          {!embedded && <div className="absolute inset-x-0 top-0 h-1.5 rounded-t-[28px] bg-[linear-gradient(90deg,#00B7CC,#2E8B8F,#C9A84C)]" />}
 
           {step === "loading" && (
             <div className="space-y-6 py-6">
@@ -229,12 +310,14 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
 
           {step === "form" && (
             <>
-              <h1 className="font-heading text-3xl font-bold leading-tight tracking-[-0.035em] text-brand-teal sm:text-[34px]">
-                Thông tin đăng ký
+              <div className={embedded ? "border-b border-line bg-[linear-gradient(180deg,#fff,#fbfdfe)] px-5 pb-4 pt-5 sm:px-6" : ""}>
+              <h1 className={`${embedded ? "text-center font-sans text-2xl" : "font-heading text-3xl tracking-[-0.035em] sm:text-[34px]"} font-bold leading-tight text-brand-teal`}>
+                {embedded ? "Đăng ký tham gia Workshop" : "Thông tin đăng ký"}
               </h1>
-              <p className="mt-2 text-sm leading-6 text-[#3A6B74]">
+              <p className={`mt-2 text-sm leading-6 text-[#3A6B74] ${embedded ? "text-center" : ""}`}>
                 Vui lòng để lại thông tin chính xác để đội ngũ Hi Sweetie Việt Nam xác nhận suất tham dự.
               </p>
+              </div>
 
               {form?.greeting && (
                 <div className="mt-5 flex gap-3 rounded-2xl border border-line bg-[#E8F4F5]/80 p-4 text-sm leading-6 text-[#3A6B74]">
@@ -249,14 +332,14 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                 </div>
               )}
 
-              {selectedWorkshop && <div className="mb-5 rounded-xl border border-line bg-surface-muted px-4 py-3 text-sm text-text-secondary lg:hidden">
+              {selectedWorkshop && !embedded && <div className="mb-5 rounded-xl border border-line bg-surface-muted px-4 py-3 text-sm text-text-secondary lg:hidden">
                 <div className="font-semibold text-brand-teal">{selectedWorkshop.name}</div>
                 <div className="mt-1 text-xs">{formatEventDateTime(selectedWorkshop.event_date, undefined, true)}{selectedWorkshop.location ? ` · ${shortLocation(selectedWorkshop.location)}` : ""}</div>
               </div>}
 
-              <form className="mt-6 space-y-4" onSubmit={(event) => { event.preventDefault(); void submit(); }} noValidate>
+              <form className={`${embedded ? "px-5 pb-6 pt-5 sm:px-6" : "mt-6"} space-y-4`} onSubmit={(event) => { event.preventDefault(); void submit(); }} noValidate>
                 <div>
-                  {workshopOptions.length > 1 ? <>
+                  {workshopOptions.length > 1 && !lockedWorkshopId ? <>
                     <label htmlFor="registration-workshop" className="mb-2 block text-sm font-bold text-brand-teal">Workshop <span className="text-brand-accent">*</span></label>
                     <select
                       id="registration-workshop" name="workshop" required ref={workshopRef}
@@ -282,12 +365,12 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Nguyễn Văn A"
                     aria-invalid={Boolean(errName)} aria-describedby={errName ? "registration-name-error" : undefined}
-                    className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition placeholder:text-[#7BA4AA] focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
+                    className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition placeholder:text-[#9ca3af] focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
                   />
                   {errName && <div id="registration-name-error" role="alert" className="mt-1.5 text-xs font-semibold text-red-600">{errName}</div>}
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-[1fr_0.72fr]">
+                <div className={`grid gap-3 ${embedded ? "grid-cols-[minmax(0,1.25fr)_minmax(132px,.75fr)]" : "sm:grid-cols-[1fr_0.72fr] sm:gap-4"}`}>
                   <div>
                     <label htmlFor="registration-phone" className="mb-2 block text-sm font-bold text-brand-teal">
                       Số điện thoại <span className="text-brand-accent">*</span>
@@ -298,7 +381,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="0909 123 456"
                       aria-invalid={Boolean(errPhone)} aria-describedby={`registration-phone-hint${errPhone ? " registration-phone-error" : ""}`}
-                      className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 font-mono text-[15px] font-medium text-brand-teal transition placeholder:text-[#7BA4AA] focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
+                      className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 font-mono text-[15px] font-medium text-brand-teal transition placeholder:text-[#9ca3af] focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
                     />
                     <div id="registration-phone-hint" className="mt-1.5 text-xs leading-5 text-text-secondary">Dùng để xác nhận suất tham dự.</div>
                     {errPhone && <div id="registration-phone-error" role="alert" className="mt-1.5 text-xs font-semibold text-red-600">{errPhone}</div>}
@@ -308,7 +391,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                     <label htmlFor="registration-party" className="mb-2 block text-sm font-bold text-brand-teal">
                       Số khách <span className="text-brand-accent">*</span>
                     </label>
-                    <div className="grid min-h-[52px] grid-cols-[52px_minmax(0,1fr)_52px] overflow-hidden rounded-[14px] border-[1.5px] border-line bg-white transition focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10">
+                    <div className={`grid min-h-[52px] overflow-hidden rounded-[14px] border-[1.5px] border-line bg-white transition focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10 ${embedded ? "grid-cols-[44px_minmax(0,1fr)_44px]" : "grid-cols-[52px_minmax(0,1fr)_52px]"}`}>
                       <button
                         type="button"
                         aria-label="Giảm số khách"
@@ -380,7 +463,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                       value={sourceDetail}
                       onChange={(e) => setSourceDetail(e.target.value)}
                       placeholder="Vui lòng ghi rõ"
-                      className="mt-3 min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition placeholder:text-[#7BA4AA] focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
+                      className="mt-3 min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition placeholder:text-[#9ca3af] focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
                     />
                   )}
                   {errSource && <div className="mt-1.5 text-xs font-semibold text-red-600">{errSource}</div>}
@@ -391,7 +474,7 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
                   disabled={busy}
                   className="mt-2 min-h-[56px] w-full rounded-2xl bg-brand px-5 py-4 text-[15px] font-extrabold tracking-[0.03em] text-brand-teal shadow-[0_16px_32px_rgba(0,183,204,0.23)] transition hover:bg-brand-accent disabled:cursor-not-allowed disabled:bg-[#7AA5A8] disabled:text-white disabled:shadow-none"
                 >
-                  {busy ? "Đang gửi đăng ký..." : "Gửi đăng ký"}
+                  {busy ? "Đang gửi đăng ký..." : embedded ? "Nhận vé Miễn phí ngay" : "Gửi đăng ký"}
                 </button>
 
                 <p className="text-center text-xs leading-5 text-[#5A8A92]">
@@ -402,26 +485,58 @@ export default function RegisterPage({ params }: { params: { token: string } }) 
           )}
 
           {step === "success" && (
-            <StateCard
-              tone={registrationStatus === "confirmed" ? "success" : "warning"}
-              label={registrationStatus === "confirmed" ? "Đã xác nhận" : "Chờ xác nhận"}
-              title={registrationStatus === "confirmed" ? "Đăng ký thành công" : "Đăng ký đã được tiếp nhận"}
-              description={registrationStatus === "confirmed"
-                ? [
-                    `Cảm ơn ${fullName.trim() || "quý khách"} đã đăng ký tham gia workshop.`,
-                    "Suất tham dự của bạn đã được xác nhận.",
-                    "Thông tin xác nhận đã được gửi qua Zalo. Vui lòng kiểm tra tin nhắn để biết thêm chi tiết.",
-                  ]
-                : [
-                    `Cảm ơn ${fullName.trim() || "quý khách"} đã đăng ký tham gia workshop.`,
-                    "Thông tin đăng ký của bạn đã được tiếp nhận và đang chờ xác nhận từ ban tổ chức.",
-                    "Bạn sẽ nhận được thông báo qua Zalo ngay khi đăng ký được xác nhận.",
-                  ]}
-              details={[
-                ["Workshop", selectedWorkshop?.name || "—"],
-                ["Số khách đăng ký", String(Math.max(1, Math.floor(partySize) || 1))],
-              ]}
-            />
+            selectedZaloGroupUrl ? (
+              <div className="px-2 py-6 text-center sm:px-4 sm:py-8">
+                <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-green-100">
+                  <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="#16A34A" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                </div>
+                <h1 className="mt-4 text-2xl font-extrabold leading-tight text-[#16A34A]">Đăng ký thành công! 🎉</h1>
+                <p className="mt-2.5 text-[15px] font-semibold text-brand-teal">Vui lòng tham gia Group Zalo để nhận:</p>
+                <ul className="mx-auto mt-4 grid max-w-[300px] gap-2 text-left text-sm leading-6 text-[#3A6B74]">
+                  <li>📢 Thông báo &amp; lịch trình Workshop</li>
+                  <li>🥤 Bộ công thức sau chương trình</li>
+                  <li>📑 Slide &amp; tài liệu chia sẻ</li>
+                  <li>📸 Hình ảnh, video &amp; media sự kiện</li>
+                </ul>
+                <div className="mx-auto mt-5 hidden w-fit rounded-2xl border border-line bg-white p-3 shadow-sm sm:grid" aria-label="Mã QR tham gia Group Zalo">
+                  <QRCode value={selectedZaloGroupUrl} size={150} bgColor="#ffffff" fgColor="#0D3B42" level="M" />
+                </div>
+                <a
+                  href={selectedZaloGroupUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-[18px] flex min-h-[50px] w-full items-center justify-center rounded-full bg-brand px-5 text-[15px] font-extrabold text-brand-teal shadow-[0_10px_24px_rgba(0,183,233,.28)]"
+                >
+                  Tham gia Group Zalo Ngay
+                </a>
+                <p className="mt-3 text-xs leading-5 text-[#5A8A92]">
+                  Công thức, slide và media của chương trình sẽ được cập nhật trực tiếp trong Zalo Group.
+                </p>
+              </div>
+            ) : (
+              <StateCard
+                tone={registrationStatus === "confirmed" ? "success" : "warning"}
+                label={registrationStatus === "confirmed" ? "Đã xác nhận" : "Chờ xác nhận"}
+                title={registrationStatus === "confirmed" ? "Đăng ký thành công" : "Đăng ký đã được tiếp nhận"}
+                description={registrationStatus === "confirmed"
+                  ? [
+                      `Cảm ơn ${fullName.trim() || "quý khách"} đã đăng ký tham gia workshop.`,
+                      "Suất tham dự của bạn đã được xác nhận.",
+                      "Thông tin xác nhận đã được gửi qua Zalo. Vui lòng kiểm tra tin nhắn để biết thêm chi tiết.",
+                    ]
+                  : [
+                      `Cảm ơn ${fullName.trim() || "quý khách"} đã đăng ký tham gia workshop.`,
+                      "Thông tin đăng ký của bạn đã được tiếp nhận và đang chờ xác nhận từ ban tổ chức.",
+                      "Bạn sẽ nhận được thông báo qua Zalo ngay khi đăng ký được xác nhận.",
+                    ]}
+                details={[
+                  ["Workshop", selectedWorkshop?.name || "—"],
+                  ["Số khách đăng ký", String(Math.max(1, Math.floor(partySize) || 1))],
+                ]}
+              />
+            )
           )}
 
           {step === "closed" && (

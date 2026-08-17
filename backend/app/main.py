@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 from .config import settings
 from .db import engine
 from .ws import manager
-from .routers import workshops, guests, checkin, search, import_export, lark_sync, registration_forms, auth, admin_users, zbs, zalo_agent, zalo_messages
+from .routers import workshops, guests, checkin, search, import_export, registration_forms, auth, admin_users, zbs, zalo_agent, zalo_messages
 from .auth.bootstrap import bootstrap_super_admin
 from .services import admin_directory_sync
 from .db import async_session_maker
@@ -97,7 +97,6 @@ app.include_router(guests.router)
 app.include_router(checkin.router)
 app.include_router(search.router)
 app.include_router(import_export.router)
-app.include_router(lark_sync.router)
 app.include_router(registration_forms.router)
 app.include_router(auth.router)
 app.include_router(admin_users.router)

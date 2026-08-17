@@ -13,12 +13,12 @@ import { PERMISSIONS } from "@/lib/permissions";
 import WorkshopPicker from "@/components/WorkshopPicker";
 import { formatEventDateTime, formatTimestamp } from "@/lib/date-format";
 
-type ColumnKey = "name" | "phone" | "businessModel" | "source" | "creator" | "registered" | "checkedIn" | "checkin" | "qr" | "sync" | "zbs" | "actions" | "registeredAt";
+type ColumnKey = "name" | "phone" | "businessModel" | "source" | "creator" | "registered" | "checkedIn" | "checkin" | "qr" | "zbs" | "actions" | "registeredAt";
 const TABLE_COLUMNS = [
   { key: "name", label: "Tên khách" }, { key: "phone", label: "SĐT" }, { key: "businessModel", label: "Mô hình kinh doanh" },
   { key: "source", label: "Nguồn" }, { key: "creator", label: "Người tạo" },
   { key: "registered", label: "Số khách đăng ký" }, { key: "checkedIn", label: "Số khách check-in" },
-  { key: "checkin", label: "Check-in" }, { key: "qr", label: "QR" }, { key: "sync", label: "Đồng bộ Lark" },
+  { key: "checkin", label: "Check-in" }, { key: "qr", label: "QR" },
   { key: "zbs", label: "ZBS" },
   { key: "actions", label: "Thao tác" }, { key: "registeredAt", label: "Ngày đăng ký" },
 ] as const;
@@ -34,23 +34,6 @@ function isVip(g: Guest): boolean {
 
 function normalizePhone(p: string | null | undefined): string {
   return (p || "").replace(/\D/g, "");
-}
-
-function SyncBadge({ status, error }: { status?: string; error?: string | null }) {
-  if (status === "synced") {
-    return <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Đã gửi</span>;
-  }
-  if (status === "error") {
-    return (
-      <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700" title={error || ""}>
-        Lỗi đồng bộ
-      </span>
-    );
-  }
-  if (status === "pending_push") {
-    return <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600">Chờ gửi</span>;
-  }
-  return <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">—</span>;
 }
 
 function ZbsBadge({ label, delivery, onRetry }: { label: string; delivery?: ZbsDelivery; onRetry: (delivery: ZbsDelivery) => void }) {
@@ -110,8 +93,7 @@ function WelcomeLinkCard({ slug }: { slug: string }) {
 /**
  * Desktop view cho trang Admin Khách mời — UI gốc, không đổi hành vi.
  * State/actions lấy từ useAdminGuests (share với MobileAdmin).
- * Lark write-back + edit modal là desktop-only: giữ state cục bộ tại đây,
- * gọi reload()/refreshWorkshops()/setWid() từ hook để đồng bộ.
+ * Edit modal là desktop-only và giữ state cục bộ tại đây.
  */
 export default function DesktopAdmin() {
   const { can } = useAuth();
@@ -224,26 +206,6 @@ export default function DesktopAdmin() {
     clearDuplicateGuest();
   }, [duplicateGuest, currentWorkshop, clearDuplicateGuest]);
 
-  // ----- Lark write-back (desktop-only) -----
-  const [larkBusy, setLarkBusy] = useState(false);
-
-  const runLarkPush = async () => {
-    if (!wid) return;
-    setLarkBusy(true);
-    setMsg("Đang đẩy lên Lark...");
-    try {
-      const res = await api<any>("/lark/sync/push/" + wid, { method: "POST" });
-      let txt = "Đẩy xong: " + res.pushed + "/" + res.total + " đã đẩy";
-      if (res.errors) txt += ", lỗi " + res.errors;
-      setMsg(txt);
-      await reload();
-    } catch (e: any) {
-      setMsg("Lỗi đẩy lên Lark: " + (e?.message || "không rõ"));
-    } finally {
-      setLarkBusy(false);
-    }
-  };
-
   // ----- Edit modal (desktop-only) -----
   const [editId, setEditId] = useState<string | null>(null);
   const [ef, setEf] = useState<any>({});
@@ -295,7 +257,7 @@ export default function DesktopAdmin() {
     }
     setEditBusy(true);
     try {
-      const res = await api<any>("/guests/" + editId + "?sync_lark=true", {
+      await api("/guests/" + editId, {
         method: "PATCH",
         body: JSON.stringify({
           full_name,
@@ -305,8 +267,7 @@ export default function DesktopAdmin() {
           guest_type: ef.is_vip ? "vip" : null,
         }),
       });
-      const errStr = res.lark_error ? " (Lỗi Lark: " + res.lark_error + ")" : "";
-      setMsg("Đã lưu & đồng bộ Lark" + errStr);
+      setMsg("Đã lưu thông tin khách");
       setEditId(null);
       await reload();
       await loadGuestDetail(editId, true);
@@ -339,13 +300,6 @@ export default function DesktopAdmin() {
             </div>
             {showAdminTools && <div className="flex w-full items-center gap-2 flex-wrap border-t border-line pt-3">
               <button
-                onClick={runLarkPush}
-                disabled={larkBusy || !wid}
-                className="border border-brand text-brand px-3 py-2 rounded-sm text-sm disabled:opacity-50"
-              >
-                Đẩy lên Lark
-              </button>
-              <button
                 onClick={runExport}
                 disabled={exportBusy}
                 className="border border-line px-3 py-2 rounded-sm text-sm disabled:opacity-50"
@@ -370,11 +324,6 @@ export default function DesktopAdmin() {
               <div className="lg:col-span-7 h-full bg-surface rounded-md border border-line p-5 flex flex-col">
                 <h2 className="font-semibold text-brand-teal mb-4 flex items-center gap-1.5">
                   Thông tin Workshop
-                  {currentWorkshop.last_synced_at && (
-                    <span className="font-normal text-xs text-muted ml-1">
-                      (cập nhật lúc {formatTimestamp(currentWorkshop.last_synced_at)})
-                    </span>
-                  )}
                 </h2>
 
                 <div className="grid sm:grid-cols-2 gap-6">
@@ -595,7 +544,6 @@ export default function DesktopAdmin() {
                   {visibleColumns.checkedIn && <th className="text-center px-3 py-2 font-medium w-28">Số khách check-in</th>}
                    {visibleColumns.checkin && <th className="text-center px-3 py-2 font-medium w-32">Check-in</th>}
                    {visibleColumns.qr && <th className="text-center px-3 py-2 font-medium w-24">QR</th>}
-                   {visibleColumns.sync && <th className="text-center px-3 py-2 font-medium w-28">Đồng bộ Lark</th>}
                    {visibleColumns.zbs && <th className="text-center px-3 py-2 font-medium min-w-[130px]">ZBS</th>}
                   {visibleColumns.actions && <th className="text-right px-3 py-2 font-medium min-w-[160px]">Thao tác</th>}
                   {visibleColumns.registeredAt && <th className="px-3 py-2 font-medium">Ngày đăng ký</th>}
@@ -627,9 +575,6 @@ export default function DesktopAdmin() {
                          <div className="mt-1 flex gap-1 flex-wrap">
                            {vip && <span className="text-xs px-2 py-0.5 rounded bg-cyan-200 text-cyan-900 font-semibold">VIP</span>}
                            <span className={`text-xs px-2 py-0.5 rounded font-semibold ${g.registration_status === "confirmed" ? "bg-green-50 text-green-700" : "bg-amber-100 text-amber-800"}`}>{g.registration_status === "confirmed" ? "Đã xác nhận" : "Chờ xác nhận"}</span>
-                          {g.lark_record_id
-                            ? <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">Đã đồng bộ</span>
-                            : <span className="text-xs px-2 py-0.5 rounded bg-surface-muted text-muted">Chưa đồng bộ</span>}
                           {g.role_title && <span className="text-xs px-2 py-0.5 rounded bg-surface-muted text-muted">{g.role_title}</span>}
                         </div>
                       </td>}
@@ -704,11 +649,6 @@ export default function DesktopAdmin() {
                              compact
                            />
                          )}
-                         </div>
-                       </td>}
-                        {visibleColumns.sync && <td className="px-3 py-2 align-top">
-                         <div className="flex flex-col gap-1 items-center">
-                            <SyncBadge status={g.sync_status} error={g.sync_error} />
                          </div>
                        </td>}
                        {visibleColumns.zbs && <td className="px-3 py-2 align-top">
@@ -847,7 +787,7 @@ export default function DesktopAdmin() {
                   <option value="" disabled>
                     — Chọn mô hình phù hợp —
                   </option>
-                  {/* Giữ value cũ nếu không nằm trong list chuẩn (data Lark legacy) */}
+                  {/* Giữ value cũ nếu không nằm trong list chuẩn. */}
                   {ef.business_model &&
                     !(BUSINESS_MODEL_OPTIONS as readonly string[]).includes(ef.business_model) && (
                       <option value={ef.business_model}>{ef.business_model}</option>
@@ -886,7 +826,7 @@ export default function DesktopAdmin() {
                 }
                 className="bg-brand text-brand-teal px-3 py-1.5 rounded-sm text-sm font-semibold disabled:opacity-50"
               >
-                {editBusy ? "Đang lưu..." : "Lưu & đồng bộ Lark"}
+                {editBusy ? "Đang lưu..." : "Lưu"}
               </button>
             </div>
           </div>

@@ -21,17 +21,10 @@ class Settings(BaseSettings):
 
     PUBLIC_BASE_URL: str | None = None
 
-    # ===== Lark Base write-back =====
-    # APIs target the tables directly; browser view IDs are intentionally unused.
+    # ===== Lark OAuth / organization directory sync =====
     LARK_APP_ID: str | None = None
     LARK_APP_SECRET: str | None = None
     LARK_DOMAIN: str = "larksuite.com"
-    LARK_BASE_TOKEN: str | None = None
-    LARK_TABLE_REGISTRATIONS: str | None = None
-    LARK_TABLE_WORKSHOPS: str | None = None
-    LARK_WRITEBACK_ENABLED: bool = True
-
-    # ===== Lark OAuth / backend admin auth =====
     LARK_OAUTH_REDIRECT_URI: str | None = None
     LARK_ALLOWED_TENANT_KEYS: str = "145765cccf8c5743"
     AUTH_SESSION_COOKIE: str = "workshop_admin_session"

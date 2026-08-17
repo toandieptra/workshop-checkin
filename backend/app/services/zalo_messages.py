@@ -180,6 +180,22 @@ async def save_media(file: UploadFile, kind: str) -> dict:
     return {"url": url, "file_name": file.filename, "mime_type": mime, "file_size": len(data)}
 
 
+def album_bridge_paths(images: list[dict]) -> list[str]:
+    """Map stored album URLs to the paths the bridge container reads.
+
+    The bridge always mounts uploads at /uploads while the backend writes to
+    settings.UPLOAD_DIR, so existence is checked against the local file and only
+    the normalized bridge path is sent.
+    """
+    paths: list[str] = []
+    for image in images:
+        relative = str(image["url"]).removeprefix("/uploads/")
+        if not (Path(settings.UPLOAD_DIR) / relative).is_file():
+            raise ValueError(f"Ảnh không còn trên máy chủ: /uploads/{relative}")
+        paths.append(f"/uploads/{relative}")
+    return paths
+
+
 async def cache_remote_media(blocks: list[dict]) -> list[dict]:
     async def download(url: str, kind: str) -> str:
         if url.startswith("/uploads/"):
@@ -585,9 +601,7 @@ async def process_once(db: AsyncSession) -> None:
         if block["type"] == "text":
             payload.update({"type": "text", "text": block["text"]})
         elif block["type"] == "image_album":
-            # The bridge runs in a separate container and sees uploads at
-            # /uploads, while local development may use a host upload path.
-            paths = [f"/uploads/{str(image['url']).removeprefix('/uploads/')}" for image in block["images"]]
+            paths = album_bridge_paths(block["images"])
             payload.update({"type": "image_album", "paths": paths})
             if block.get("caption") is not None:
                 payload["caption"] = block["caption"]
@@ -619,7 +633,7 @@ async def process_once(db: AsyncSession) -> None:
             item.updated_at = datetime.now(timezone.utc)
             await db.commit()
             return
-        if item.attempt_count < settings.ZALO_MESSAGES_MAX_ATTEMPTS:
+        if item.attempt_count < settings.ZALO_MESSAGES_MAX_ATTEMPTS and not isinstance(exc, ValueError):
             item.status, item.next_attempt_at = "pending", now + timedelta(seconds=2 ** item.attempt_count)
         else:
             item.status = "failed"

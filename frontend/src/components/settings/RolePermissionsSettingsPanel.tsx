@@ -24,7 +24,6 @@ const GROUPS = [
   { key: "checkin", label: "Check-in", description: "Theo dõi và thực hiện check-in" },
   { key: "reports", label: "Thống kê", description: "Xem và xuất dữ liệu thống kê khách mời" },
   { key: "registration_forms", label: "Form đăng ký", description: "Quản lý biểu mẫu đăng ký workshop" },
-  { key: "lark", label: "Gửi sang Lark", description: "Xem trạng thái và gửi dữ liệu Web Check-in sang Lark" },
   { key: "uploads", label: "Tệp tải lên", description: "Tải tệp và tài nguyên lên hệ thống" },
   { key: "zbs", label: "Mẫu tin ZBS", description: "Xem mẫu tin, đồng bộ và cấu hình gửi tự động" },
   { key: "zalo_connections", label: "Kết nối Zalo", description: "Xem và quản lý Zalo OA, Zalo user" },
@@ -168,8 +167,8 @@ export default function RolePermissionsSettingsPanel() {
   return (
     <div className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
       <div className="mb-5 lg:shrink-0">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-accent">Quản trị người dùng</p>
-        <h1 className="font-heading mt-1 text-2xl font-bold text-ink">Vai trò & quyền hạn</h1>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-teal">Quản trị người dùng</p>
+        <h2 className="font-heading mt-1 text-2xl font-bold text-ink">Vai trò & quyền hạn</h2>
         <p className="mt-1 text-sm text-muted">Chọn một vai trò và thiết lập quyền truy cập chi tiết cho các chức năng workshop.</p>
       </div>
 
@@ -202,6 +201,7 @@ export default function RolePermissionsSettingsPanel() {
                   key={role.key}
                   type="button"
                   onClick={() => selectRole(role)}
+                  aria-pressed={selected}
                   className={`relative flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition ${selected ? "bg-white shadow-sm ring-1 ring-line" : "hover:bg-white/80"}`}
                 >
                   {selected && <span className="absolute inset-y-2 left-0 w-1 rounded-r bg-brand" />}
@@ -235,7 +235,7 @@ export default function RolePermissionsSettingsPanel() {
             </button>
           </div>
 
-          {message && <div className={`mx-5 mt-4 rounded-md border px-4 py-3 text-sm ${message.startsWith("Đã lưu") ? "border-success-border bg-success-soft text-success" : "border-red-200 bg-red-50 text-error"}`}>{message}</div>}
+          {message && <div role={message.startsWith("Đã") ? "status" : "alert"} aria-live="polite" className={`mx-5 mt-4 rounded-md border px-4 py-3 text-sm ${message.startsWith("Đã") ? "border-success-border bg-success-soft text-success" : "border-red-200 bg-red-50 text-error"}`}>{message}</div>}
 
           <div className="px-5 py-5">
             {disabled && <div className="mb-5 rounded-md border border-line bg-surface-muted px-4 py-3 text-sm text-text-secondary">Vai trò Người dùng được giữ cố định và không thể chỉnh sửa quyền.</div>}
@@ -257,7 +257,7 @@ export default function RolePermissionsSettingsPanel() {
                         return (
                           <label key={permission} className={`flex min-h-[66px] items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 sm:border-r ${locked ? "cursor-not-allowed bg-gray-50/70" : "cursor-pointer hover:bg-surface-muted/50"}`}>
                             <input type="checkbox" checked={checked} disabled={locked} onChange={() => toggle(permission)} className="peer sr-only" />
-                            <span className={`relative h-5 w-9 shrink-0 rounded-full transition ${checked ? "bg-brand" : "bg-[#cbd9db]"} ${locked ? "opacity-55" : ""}`}>
+                            <span className={`relative h-5 w-9 shrink-0 rounded-full transition peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand-teal ${checked ? "bg-brand" : "bg-[#cbd9db]"} ${locked ? "opacity-55" : ""}`}>
                               <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${checked ? "left-[18px]" : "left-0.5"}`} />
                             </span>
                             <span className="min-w-0">

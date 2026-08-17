@@ -21,6 +21,10 @@ class Workshop(Base):
     branch: Mapped[str | None] = mapped_column(Text)
     maps_url: Mapped[str | None] = mapped_column(Text)
     registration_short_url: Mapped[str | None] = mapped_column(Text)
+    zalo_group_url: Mapped[str | None] = mapped_column(Text)
+    landing_registration_form_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("registration_forms.id", ondelete="SET NULL")
+    )
     lark_workshop_name: Mapped[str | None] = mapped_column(Text)
     lark_record_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -410,16 +414,3 @@ class ZaloDeliveryItem(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
-class SyncLog(Base):
-    __tablename__ = "sync_logs"
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    direction: Mapped[str] = mapped_column(Text, nullable=False)
-    entity_type: Mapped[str] = mapped_column(Text, nullable=False)
-    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    lark_record_id: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(Text, nullable=False)
-    error_message: Mapped[str | None] = mapped_column(Text)
-    payload: Mapped[dict | None] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

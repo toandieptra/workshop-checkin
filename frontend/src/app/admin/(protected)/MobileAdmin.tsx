@@ -168,19 +168,6 @@ function normalizePhone(p: string | null | undefined): string {
   return (p || "").replace(/\D/g, "");
 }
 
-function SyncBadge({ status }: { status?: string }) {
-  if (status === "synced") {
-    return <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand">Lark ✓</span>;
-  }
-  if (status === "error") {
-    return <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700">Lỗi Lark</span>;
-  }
-  if (status === "pending_push") {
-    return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">Chờ Lark</span>;
-  }
-  return null;
-}
-
 function ZbsBadge({ label, delivery, onRetry }: { label: string; delivery?: ZbsDelivery; onRetry: (delivery: ZbsDelivery) => void }) {
   if (!delivery) return null;
   const failed = delivery.status === "failed";
@@ -229,7 +216,7 @@ function splitUrl(url: string): { host: string; rest: string } {
  * `admin-khach-moi-mobile` (dieptra-design-systems, 375px).
  *
  * Ẩn so với desktop: bảng danh sách rộng, form thêm khách, import/export,
- * Lark write-back và edit modal chi tiết.
+ * edit modal chi tiết.
  */
 export default function MobileAdmin() {
   const {
@@ -746,7 +733,6 @@ function GuestCard({
                 {g.role_title}
               </span>
             )}
-            <SyncBadge status={g.sync_status} />
             <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={onRetryZbs} />
             <ZbsBadge label="Check-in" delivery={g.zbs?.checkin_confirmation} onRetry={onRetryZbs} />
           </div>

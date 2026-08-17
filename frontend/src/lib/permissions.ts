@@ -9,7 +9,6 @@ export const PERMISSIONS = {
   guestsImport: "guests.write",
   guestsExport: "guests.export",
   guestsCheckin: "checkin.manage",
-  larkSync: "lark.sync",
   workshopsView: "workshops.read",
   workshopsCreate: "workshops.write",
   workshopsEdit: "workshops.write",

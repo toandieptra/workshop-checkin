@@ -65,6 +65,23 @@ html, body {
 }
 
 @layer components {
+  .settings-tabs {
+    background-image: linear-gradient(to right, transparent calc(100% - 2.5rem), rgba(255, 255, 255, 0.96));
+    background-attachment: local;
+  }
+
+  @media (min-width: 1024px) {
+    .settings-tabs { background-image: none; }
+  }
+
+  .settings-panel :where(button, input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    min-height: 44px;
+  }
+
+  .settings-panel button {
+    min-width: 44px;
+  }
+
   .admin-table-scroll {
     max-height: min(60vh, 42rem);
     overflow: auto;
@@ -75,6 +92,14 @@ html, body {
     min-height: 0;
     max-height: none;
     flex: 1 1 0%;
+  }
+
+  @media (min-width: 1024px) {
+    .admin-users-table-scroll {
+      min-height: 0;
+      max-height: none;
+      flex: 1 1 0%;
+    }
   }
 
   .admin-table-scroll thead th {

@@ -188,30 +188,31 @@ export default function UsersSettingsPanel() {
 
   if (!can(PERMISSIONS.usersView)) return <div className="p-8 text-center text-muted">403 — Bạn không có quyền quản lý người dùng.</div>;
 
-  return <div>
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-      <div><h1 className="text-2xl font-bold text-brand-teal">Người dùng &amp; phân quyền</h1><p className="text-sm text-muted">Chỉ tài khoản được tạo trước và đang active mới có thể đăng nhập bằng Lark.</p></div>
+  return <div className="lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 lg:shrink-0">
+      <div><h2 className="text-2xl font-bold text-brand-teal">Người dùng</h2><p className="text-sm text-muted">Chỉ tài khoản được tạo trước và đang active mới có thể đăng nhập bằng Lark.</p></div>
       <div className="flex gap-2">
-        <button disabled={syncing} onClick={() => void syncDirectory()} className="bg-brand text-brand-teal px-3 py-2 rounded-sm text-sm font-semibold disabled:opacity-60">{syncing ? "Đang đồng bộ…" : "Đồng bộ danh bạ Lark"}</button>
-        <button onClick={() => void load()} className="border border-line px-3 py-2 rounded-sm text-sm">Làm mới</button>
+        <button disabled={syncing} onClick={() => void syncDirectory()} className="min-h-11 bg-brand text-brand-teal px-3 py-2 rounded-sm text-sm font-semibold disabled:opacity-60">{syncing ? "Đang đồng bộ…" : "Đồng bộ danh bạ Lark"}</button>
+        <button onClick={() => void load()} className="min-h-11 border border-line px-3 py-2 rounded-sm text-sm">Làm mới</button>
       </div>
     </div>
-    {syncStatus && <div className="mb-4 border border-line bg-surface-muted rounded-sm p-3 text-sm text-muted">
+    {syncStatus && <div role="status" aria-live="polite" className="mb-4 border border-line bg-surface-muted rounded-sm p-3 text-sm text-muted lg:shrink-0">
       <span className="font-medium text-foreground">Danh bạ Lark: </span>
       {syncStatus.status === "never" ? "chưa đồng bộ" : syncStatus.status === "running" ? "đang đồng bộ" : syncStatus.status === "error" ? "đồng bộ lỗi" : "đã đồng bộ"}
       {syncStatus.finished_at && <> lúc {new Date(syncStatus.finished_at).toLocaleString("vi-VN")}</>}
       {syncStatus.status === "success" && <> · {syncStatus.users_seen} người · tạo {syncStatus.users_created} · cập nhật {syncStatus.users_updated} · khóa {syncStatus.users_deactivated}</>}
       {syncStatus.error && <div className="mt-1 text-red-700">{syncStatus.error}</div>}
     </div>}
-    <form onSubmit={create} className="mb-4 bg-surface border border-line rounded-md p-4 flex flex-col sm:flex-row gap-2">
-      <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@congty.com" className="flex-1 border border-line rounded-sm px-3 py-2 text-sm" />
-      <select value={role} onChange={(e) => setRole(e.target.value)} className="border border-line rounded-sm px-3 py-2 text-sm" aria-label="Vai trò cho người dùng mới">
+    <form onSubmit={create} className="mb-4 bg-surface border border-line rounded-md p-4 flex flex-col sm:flex-row gap-2 lg:shrink-0">
+      <label htmlFor="new-user-email" className="sr-only">Email người dùng mới</label>
+      <input id="new-user-email" required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@congty.com" className="min-h-11 flex-1 border border-line rounded-sm px-3 py-2 text-sm" />
+      <select value={role} onChange={(e) => setRole(e.target.value)} className="min-h-11 border border-line rounded-sm px-3 py-2 text-sm" aria-label="Vai trò cho người dùng mới">
         {roles.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
       </select>
-      <button disabled={saving === "new"} className="bg-brand text-brand-teal px-4 py-2 rounded-sm text-sm font-semibold disabled:opacity-60">{saving === "new" ? "Đang tạo…" : "Cấp tài khoản"}</button>
+      <button disabled={saving === "new"} className="min-h-11 bg-brand text-brand-teal px-4 py-2 rounded-sm text-sm font-semibold disabled:opacity-60">{saving === "new" ? "Đang tạo…" : "Cấp tài khoản"}</button>
     </form>
-    {message && <div className="mb-3 p-3 bg-red-50 text-red-700 rounded-sm text-sm">{message}</div>}
-    <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-2">
+    {message && <div role="alert" className="mb-3 p-3 bg-red-50 text-red-700 rounded-sm text-sm">{message}</div>}
+    <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-2 lg:shrink-0">
       <div className="relative flex-1">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted">
           <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
@@ -231,7 +232,7 @@ export default function UsersSettingsPanel() {
           type="button"
           onClick={() => { setShowLarkFilterMenu((current) => !current); setShowApplicationFilterMenu(false); }}
           aria-expanded={showLarkFilterMenu}
-          className="w-full sm:w-auto border border-line bg-surface px-3 py-2 rounded-sm text-sm inline-flex items-center justify-center gap-2 hover:bg-surface-muted"
+          className="min-h-11 w-full sm:w-auto border border-line bg-surface px-3 py-2 rounded-sm text-sm inline-flex items-center justify-center gap-2 hover:bg-surface-muted"
         >
           <span>Trạng thái Lark</span>
           {larkStatusFilter.length > 0 && <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-brand text-brand-teal text-xs font-semibold">{larkStatusFilter.length}</span>}
@@ -251,7 +252,7 @@ export default function UsersSettingsPanel() {
           type="button"
           onClick={() => { setShowApplicationFilterMenu((current) => !current); setShowLarkFilterMenu(false); }}
           aria-expanded={showApplicationFilterMenu}
-          className="w-full sm:w-auto border border-line bg-surface px-3 py-2 rounded-sm text-sm inline-flex items-center justify-center gap-2 hover:bg-surface-muted"
+          className="min-h-11 w-full sm:w-auto border border-line bg-surface px-3 py-2 rounded-sm text-sm inline-flex items-center justify-center gap-2 hover:bg-surface-muted"
         >
           <span>Trạng thái ứng dụng</span>
           {applicationStatusFilter.length > 0 && <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-brand text-brand-teal text-xs font-semibold">{applicationStatusFilter.length}</span>}
@@ -267,7 +268,7 @@ export default function UsersSettingsPanel() {
         </div>}
       </div>
     </div>
-    <div className="admin-table-scroll bg-surface border border-line rounded-md">
+    <div className="admin-table-scroll admin-users-table-scroll bg-surface border border-line rounded-md">
       {loading ? <div className="p-6 text-muted text-sm">Đang tải…</div> : <table className="w-full min-w-max text-sm">
         <thead className="text-muted"><tr>
           {visibleColumns.name && <th className="text-left p-3 sticky top-0 z-10 bg-surface-muted">Người dùng</th>}
@@ -283,13 +284,13 @@ export default function UsersSettingsPanel() {
           {visibleColumns.email && <td className="p-3">{user.email}</td>}
           {visibleColumns.enterpriseEmail && <td className="p-3">{user.enterprise_email || "—"}</td>}
           {visibleColumns.lark && <td className="p-3"><span className={`inline-flex px-2 py-1 rounded-full text-xs ${user.lark_account_status === "active" ? "bg-green-100 text-green-700" : user.lark_account_status && user.lark_account_status !== "unknown" ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>{larkStatusLabel(user.lark_account_status)}</span></td>}
-          {visibleColumns.role && <td className="p-3"><select disabled={saving === user.id} value={user.role} onChange={(e) => void update(user, { role: e.target.value })} className="border border-line rounded-sm px-2 py-1" aria-label={`Vai trò của ${user.name || user.email}`}>
+          {visibleColumns.role && <td className="p-3"><select disabled={saving === user.id} value={user.role} onChange={(e) => void update(user, { role: e.target.value })} className="min-h-11 border border-line rounded-sm px-2 py-1" aria-label={`Vai trò của ${user.name || user.email}`}>
             {roles.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
           </select></td>}
           {visibleColumns.application && <td className="p-3 text-center">{user.role === "super_admin" ? (
             <span className="inline-flex px-2 py-1 rounded-full text-xs bg-green-100 text-green-700" title="Tài khoản super_admin luôn hoạt động">Luôn hoạt động</span>
           ) : (
-            <button disabled={saving === user.id} onClick={() => void update(user, { is_active: !user.is_active })} className={`px-2 py-1 rounded-full text-xs ${user.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{user.is_active ? "Hoạt động" : "Đã khóa"}</button>
+            <button disabled={saving === user.id} onClick={() => void update(user, { is_active: !user.is_active })} className={`min-h-11 px-3 py-1 rounded-full text-xs ${user.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{user.is_active ? "Hoạt động" : "Đã khóa"}</button>
           )}</td>}
           {visibleColumns.lastLogin && <td className="p-3 text-muted">{user.last_login_at ? new Date(user.last_login_at).toLocaleString("vi-VN") : "—"}</td>}
         </tr>)}</tbody>

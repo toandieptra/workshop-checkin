@@ -184,13 +184,6 @@ async def export_guests(
     def _checkin_label(s: str | None) -> str:
         return "Đã check-in" if s == "checked_in" else "Chưa check-in"
 
-    def _sync_label(s: str | None) -> str:
-        return {
-            "synced": "Đã đồng bộ",
-            "pending_push": "Chờ đồng bộ",
-            "error": "Lỗi đồng bộ",
-        }.get(s or "", s or "")
-
     def _source_label(source: str | None, detail: str | None) -> str:
         if source == "Khác" and detail:
             return f"Khác: {detail}"
@@ -200,7 +193,6 @@ async def export_guests(
         "workshop", "full_name", "phone", "email", "company", "business_model", "source",
         "role_title", "guest_type", "party_size", "note",
         "checkin_status", "checked_in_at",
-        "sync_status", "lark_record_id",
         "registered_at", "created_at",
     ]
     body_rows = []
@@ -220,8 +212,6 @@ async def export_guests(
             "\n".join(notes) if notes else g.note or "",
             _checkin_label(g.checkin_status),
             _fmt(g.checked_in_at),
-            _sync_label(g.sync_status),
-            g.lark_record_id or "",
             _fmt(g.registered_at),
             _fmt(g.created_at),
         ])

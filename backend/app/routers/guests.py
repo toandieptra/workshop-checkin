@@ -1,4 +1,3 @@
-import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -8,7 +7,6 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_db
-from ..config import settings
 from ..models import AdminUser, CheckinLog, Guest, GuestNote, WelcomeEvent, Workshop, ZbsDelivery
 from ..schemas import (
     GuestOut, GuestUpdate, GuestUpdateResult, CheckinResult,
@@ -16,16 +14,13 @@ from ..schemas import (
     CheckinSelfRequest, GuestQrInfo, GuestSelfCheckinRequest, LookupByPhoneResult,
     SelfRegisterRequest, SelfRegisterResult,
 )
-from ..services import lark_client
 from ..services.registration_confirmation import confirm_registration
 from ..services.zbs import normalize_phone as normalize_zbs_phone, refresh_registration_recipient
 from ..redis_client import is_duplicate, mark_checked_in, clear_dedup
 from ..ws import manager
-from .lark_sync import _push_guest_to_lark, _source_to_lark
 from ..auth.dependencies import require_permission
 
 router = APIRouter(prefix="/api", tags=["guests"])
-logger = logging.getLogger("guests")
 
 
 def _now():
@@ -75,24 +70,6 @@ def _guest_note_out(note: GuestNote, author_name: str | None, author_email: str 
     )
 
 
-async def _lark_writeback_checkin(guest: Guest, checked: bool) -> str | None:
-    """Write Check-In field to Lark Base."""
-    if not settings.LARK_WRITEBACK_ENABLED:
-        return None
-    if not guest.lark_record_id or not settings.LARK_TABLE_REGISTRATIONS:
-        return None
-    try:
-        await lark_client.update_record(
-            settings.LARK_TABLE_REGISTRATIONS,
-            guest.lark_record_id,
-            {"Check-in": checked},
-        )
-        return None
-    except Exception as e:
-        logger.warning("lark writeback failed for guest %s: %s", guest.id, e)
-        return str(e)
-
-
 async def _broadcast_welcome(db: AsyncSession, workshop_id: uuid.UUID, guest: Guest):
     """Broadcast welcome event via WebSocket + save to welcome_events table."""
     we = WelcomeEvent(
@@ -118,10 +95,9 @@ async def _do_checkin(
     guest: Guest,
     actual_party_size: int | None,
     method: str,
-) -> tuple[Guest, str | None]:
+) -> Guest:
     """Core check-in logic, dùng chung cho admin flow và self QR flow.
 
-    Returns (guest, lark_error).
     Quy tắc cộng dồn:
       - Nếu chưa check-in: lần đầu, đặt actual_party_size, tạo log.
       - Nếu đã check-in: cộng dồn actual_party_size vào giá trị hiện tại,
@@ -141,18 +117,8 @@ async def _do_checkin(
         guest.note += f"Cộng dồn tham gia: +{added} (tổng {guest.actual_party_size}) lúc {_now().isoformat()}"
         guest.local_updated_at = _now()
         await db.commit()
-        # Lark writeback (giữ true, không đổi)
-        lark_error = await _lark_writeback_checkin(guest, True)
-        if lark_error:
-            guest.sync_status = "error"
-            guest.sync_error = lark_error
-        else:
-            guest.sync_status = "synced"
-            guest.last_synced_at = _now()
-            guest.sync_error = None
-        await db.commit()
         await db.refresh(guest)
-        return guest, lark_error
+        return guest
 
     # Lần đầu check-in
     guest.checkin_status = "checked_in"
@@ -177,20 +143,10 @@ async def _do_checkin(
     await db.commit()
     await mark_checked_in(guest.workshop_id, guest.id)
 
-    lark_error = await _lark_writeback_checkin(guest, True)
-    if lark_error:
-        guest.sync_status = "error"
-        guest.sync_error = lark_error
-    else:
-        guest.sync_status = "synced"
-        guest.last_synced_at = _now()
-        guest.sync_error = None
-    await db.commit()
-
     await _broadcast_welcome(db, guest.workshop_id, guest)
 
     await db.refresh(guest)
-    return guest, lark_error
+    return guest
 
 
 # =================================================================
@@ -246,12 +202,8 @@ async def self_checkin_guest(
     if workshop.slug != body.workshop_slug or normalize_phone(guest.phone or "") != normalize_phone(body.phone):
         raise HTTPException(403, "guest verification failed")
     actual = body.actual_party_size
-    guest, lark_error = await _do_checkin(db, guest, actual, method="self_qr")
-    return CheckinResult(
-        guest=GuestOut.model_validate(guest),
-        lark_synced=(lark_error is None),
-        lark_error=lark_error,
-    )
+    guest = await _do_checkin(db, guest, actual, method="self_qr")
+    return CheckinResult(guest=GuestOut.model_validate(guest))
 
 @router.get("/guests/lookup-by-phone", response_model=LookupByPhoneResult)
 async def lookup_by_phone(
@@ -279,11 +231,10 @@ async def lookup_by_phone(
     # Tìm khách có phone khớp (normalized) trong TẤT CẢ workshop, không phải bó hẹp.
     rows = (await db.execute(text("""
         SELECT id, workshop_id, full_name, phone, party_size,
-               checkin_status, actual_party_size, lark_record_id,
+               checkin_status, actual_party_size,
                email, company, business_model, role_title, guest_type,
                note, checked_in_at, registered_at, created_at,
-               local_updated_at, last_synced_at,
-               sync_status, sync_error
+               local_updated_at
         FROM guests
         WHERE deleted_at IS NULL
           AND phone IS NOT NULL
@@ -347,7 +298,6 @@ async def self_register_and_checkin(
         checked_in_at=_now(),
         registered_at=_now(),
         local_updated_at=_now(),
-        sync_status="pending_push",
         note="Đăng ký và xác nhận tại sự kiện qua QR",
     )
     db.add(guest)
@@ -377,7 +327,6 @@ async def self_register_and_checkin(
 
     return SelfRegisterResult(
         guest=GuestOut.model_validate(guest),
-        lark_synced=False,
         warning="Đăng ký tại sự kiện đã được xác nhận và Check-in thành công.",
     )
 
@@ -469,7 +418,6 @@ async def get_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 async def update_guest(
     guest_id: uuid.UUID,
     body: GuestUpdate,
-    sync_lark: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
     g = await _load_guest(db, guest_id)
@@ -482,41 +430,8 @@ async def update_guest(
     g.local_updated_at = _now()
     await db.commit()
 
-    lark_error: str | None = None
-    if sync_lark and settings.LARK_WRITEBACK_ENABLED:
-        try:
-            if g.lark_record_id:
-                fields = {
-                    "Họ và tên": g.full_name,
-                    "Số điện thoại": g.phone or "",
-                    "Mô hình kinh doanh": g.business_model or "",
-                    "Số vé đăng ký": max(1, int(g.party_size or 1)),
-                    "Nguồn": _source_to_lark(g.source, g.source_detail),
-                    "Người tạo Web": g.creator_name or "",
-                }
-                await lark_client.update_record(
-                    settings.LARK_TABLE_REGISTRATIONS, g.lark_record_id, fields,
-                )
-                g.sync_status = "synced"
-                g.last_synced_at = _now()
-                await db.commit()
-            else:
-                await _push_guest_to_lark(db, g)
-                g.sync_status = "synced"
-                await db.commit()
-        except Exception as e:
-            lark_error = str(e)
-            g.sync_status = "error"
-            g.sync_error = lark_error
-            await db.commit()
-            logger.warning("sync guest %s to lark failed: %s", guest_id, e)
-
     await db.refresh(g)
-    return GuestUpdateResult(
-        guest=GuestOut.model_validate(g),
-        lark_synced=(lark_error is None),
-        lark_error=lark_error,
-    )
+    return GuestUpdateResult(guest=GuestOut.model_validate(g))
 
 
 @router.delete("/guests/{guest_id}", status_code=204, dependencies=[Depends(require_permission("guests.delete"))])
@@ -562,12 +477,8 @@ async def checkin_guest(
     if not guest:
         raise HTTPException(404, "guest not found")
     actual = body.actual_party_size if body else None
-    guest, lark_error = await _do_checkin(db, guest, actual, method="admin")
-    return CheckinResult(
-        guest=GuestOut.model_validate(guest),
-        lark_synced=(lark_error is None),
-        lark_error=lark_error,
-    )
+    guest = await _do_checkin(db, guest, actual, method="admin")
+    return CheckinResult(guest=GuestOut.model_validate(guest))
 
 
 @router.post("/guests/{guest_id}/uncheckin", response_model=CheckinResult, dependencies=[Depends(require_permission("checkin.manage"))])
@@ -596,23 +507,8 @@ async def uncheckin_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db
     await db.commit()
     await clear_dedup(guest.workshop_id, guest.id)
 
-    lark_error = await _lark_writeback_checkin(guest, False)
-    if lark_error:
-        guest.sync_status = "error"
-        guest.sync_error = lark_error
-        await db.commit()
-    else:
-        guest.sync_status = "synced"
-        guest.last_synced_at = _now()
-        guest.sync_error = None
-        await db.commit()
-
     await db.refresh(guest)
-    return CheckinResult(
-        guest=GuestOut.model_validate(guest),
-        lark_synced=(lark_error is None),
-        lark_error=lark_error,
-    )
+    return CheckinResult(guest=GuestOut.model_validate(guest))
 
 
 # =================================================================
@@ -644,10 +540,8 @@ async def get_workshop_by_slug(slug: str, db: AsyncSession = Depends(get_db)):
         branch=w.branch,
         maps_url=w.maps_url,
         registration_short_url=w.registration_short_url,
-        lark_workshop_name=w.lark_workshop_name,
         created_at=w.created_at,
         updated_at=w.updated_at,
-        last_synced_at=w.last_synced_at,
         media=list(w.media or []),
         registration_forms=[],
     )

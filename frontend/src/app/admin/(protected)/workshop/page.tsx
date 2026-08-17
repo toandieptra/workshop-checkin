@@ -8,12 +8,14 @@ import {
   getWorkshop,
   getWorkshopBranches,
   getWorkshops,
+  listWorkshopRegistrationForms,
   updateWorkshop,
+  updateWorkshopLandingPage,
   updateWorkshopStatus,
   uploadWorkshopMedia,
-  pushWorkshopToLark,
   type WorkshopAdmin,
   type WorkshopMedia,
+  type WorkshopLinkedForm,
   type WorkshopStatus,
   type WorkshopWriteBody,
 } from "@/lib/api";
@@ -23,12 +25,26 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 import { PERMISSIONS } from "@/lib/permissions";
 
-type ColumnKey = "name" | "date" | "branch" | "location" | "status" | "form" | "media" | "actions";
+type ColumnKey = "name" | "date" | "branch" | "zalo" | "location" | "form" | "landing" | "media" | "actions";
 const TABLE_COLUMNS = [
   { key: "name", label: "Tên" }, { key: "date", label: "Ngày giờ" }, { key: "branch", label: "Chi nhánh" },
-  { key: "location", label: "Địa điểm" }, { key: "status", label: "Trạng thái" },
-  { key: "form", label: "Form đăng ký" }, { key: "media", label: "Media" }, { key: "actions", label: "Thao tác" },
+  { key: "location", label: "Địa điểm" }, { key: "zalo", label: "Group Zalo" },
+  { key: "form", label: "Form đăng ký" }, { key: "landing", label: "Landing page" },
+  { key: "media", label: "Media" }, { key: "actions", label: "Thao tác" },
 ] as const;
+
+const WORKSHOP_COLUMNS_STORAGE_KEY = "workshop-checkin:admin-workshop-columns";
+const DEFAULT_VISIBLE_COLUMNS: Record<ColumnKey, boolean> = {
+  name: true,
+  date: true,
+  branch: false,
+  zalo: true,
+  location: true,
+  form: true,
+  landing: true,
+  media: true,
+  actions: true,
+};
 
 const STATUS_OPTIONS: { value: WorkshopStatus; label: string }[] = [
   { value: "draft", label: "Nháp" },
@@ -87,6 +103,11 @@ function formPublicUrl(token: string): string {
   return `${origin}/register/${token}`;
 }
 
+function landingPublicUrl(slug: string): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/workshops/${slug}`;
+}
+
 function slugify(name: string): string {
   return name
     .trim()
@@ -110,7 +131,7 @@ function emptyForm(): WorkshopWriteBody {
     branch: "",
     maps_url: "",
     registration_short_url: "",
-    lark_workshop_name: "",
+    zalo_group_url: "",
   };
 }
 
@@ -126,7 +147,7 @@ function formFromWorkshop(w: WorkshopAdmin): WorkshopWriteBody {
     branch: w.branch || "",
     maps_url: w.maps_url || "",
     registration_short_url: w.registration_short_url || "",
-    lark_workshop_name: w.lark_workshop_name || "",
+    zalo_group_url: w.zalo_group_url || "",
   };
 }
 
@@ -142,7 +163,7 @@ function cleanBody(form: WorkshopWriteBody): WorkshopWriteBody {
     branch: form.branch?.trim() || null,
     maps_url: form.maps_url?.trim() || null,
     registration_short_url: form.registration_short_url?.trim() || null,
-    lark_workshop_name: form.lark_workshop_name?.trim() || null,
+    zalo_group_url: form.zalo_group_url?.trim() || null,
   };
 }
 
@@ -169,18 +190,44 @@ export default function AdminWorkshopPage() {
   const [formError, setFormError] = useState("");
   const [detail, setDetail] = useState<WorkshopAdmin | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [landingWorkshop, setLandingWorkshop] = useState<WorkshopAdmin | null>(null);
+  const [landingForms, setLandingForms] = useState<WorkshopLinkedForm[]>([]);
+  const [landingFormId, setLandingFormId] = useState("");
+  const [landingLoading, setLandingLoading] = useState(false);
+  const [landingSaving, setLandingSaving] = useState(false);
+  const [landingError, setLandingError] = useState("");
+  const [landingUrl, setLandingUrl] = useState("");
   const [preview, setPreview] = useState<{
     items: WorkshopMedia[];
     index: number;
     workshopName: string;
   } | null>(null);
-  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
-    Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, true])) as Record<ColumnKey, boolean>);
+  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() => {
+    if (typeof window === "undefined") return DEFAULT_VISIBLE_COLUMNS;
+    try {
+      const stored = window.localStorage.getItem(WORKSHOP_COLUMNS_STORAGE_KEY);
+      if (!stored) return DEFAULT_VISIBLE_COLUMNS;
+      const parsed = JSON.parse(stored) as Partial<Record<ColumnKey, boolean>>;
+      return { ...DEFAULT_VISIBLE_COLUMNS, ...parsed };
+    } catch {
+      return DEFAULT_VISIBLE_COLUMNS;
+    }
+  });
   const dialogRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const landingDialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(WORKSHOP_COLUMNS_STORAGE_KEY, JSON.stringify(visibleColumns));
+    } catch {
+      // localStorage có thể bị chặn bởi trình duyệt.
+    }
+  }, [visibleColumns]);
 
   useDialogFocus(modalOpen, dialogRef, "#workshop-name");
   useDialogFocus(Boolean(preview), previewRef, "[data-preview-close]");
+  useDialogFocus(Boolean(landingWorkshop), landingDialogRef, "[data-landing-close]");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -245,10 +292,11 @@ export default function AdminWorkshopPage() {
   }, [currentPage, pageCount]);
 
   useEffect(() => {
-    if (!modalOpen && !preview) return;
+    if (!modalOpen && !preview && !landingWorkshop) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (preview) setPreview(null);
+      else if (landingWorkshop && !landingSaving) closeLandingDialog();
       else if (!saving && !uploading) closeModal();
     };
     document.addEventListener("keydown", onKeyDown);
@@ -277,6 +325,52 @@ export default function AdminWorkshopPage() {
       setForm(formFromWorkshop(full));
     } catch (e: any) {
       setMsg("Lỗi tải chi tiết: " + (e?.message || "không rõ"));
+    }
+  };
+
+  const openLandingDialog = async (w: WorkshopAdmin) => {
+    setLandingWorkshop(w);
+    setLandingForms([]);
+    setLandingFormId(w.landing_registration_form_id || "");
+    setLandingError("");
+    setLandingUrl("");
+    setLandingLoading(true);
+    try {
+      const forms = await listWorkshopRegistrationForms(w.id);
+      setLandingForms(forms);
+      if (!forms.some((item) => item.id === w.landing_registration_form_id)) {
+        setLandingFormId("");
+      }
+    } catch (e: any) {
+      setLandingError("Không thể tải form đăng ký: " + (e?.message || "không rõ"));
+    } finally {
+      setLandingLoading(false);
+    }
+  };
+
+  const closeLandingDialog = () => {
+    if (landingSaving) return;
+    setLandingWorkshop(null);
+    setLandingForms([]);
+    setLandingFormId("");
+    setLandingError("");
+    setLandingUrl("");
+  };
+
+  const saveLandingPage = async () => {
+    if (!landingWorkshop || !landingFormId || landingSaving) return;
+    setLandingSaving(true);
+    setLandingError("");
+    try {
+      const updated = await updateWorkshopLandingPage(landingWorkshop.id, landingFormId);
+      setItems((prev) => prev.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
+      setLandingWorkshop(updated);
+      setLandingUrl(`/workshops/${updated.slug}`);
+      setMsg(`Đã tạo landing page cho "${updated.name}"`);
+    } catch (e: any) {
+      setLandingError("Không thể tạo landing page: " + (e?.message || "không rõ"));
+    } finally {
+      setLandingSaving(false);
     }
   };
 
@@ -336,21 +430,6 @@ export default function AdminWorkshopPage() {
       setMsg(`Đã đổi trạng thái → ${statusLabel(status)}`);
     } catch (e: any) {
       setMsg("Lỗi đổi status: " + (e?.message || "không rõ"));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const pushLark = async (w: WorkshopAdmin) => {
-    setBusyId(w.id);
-    try {
-      const res = await pushWorkshopToLark(w.id);
-      setItems((prev) =>
-        prev.map((x) => (x.id === w.id ? { ...x, lark_record_id: res.lark_record_id } : x)),
-      );
-      setMsg(`Đã đẩy "${w.name}" lên Lark`);
-    } catch (e: any) {
-      setMsg("Lỗi đẩy lên Lark: " + (e?.message || "không rõ"));
     } finally {
       setBusyId(null);
     }
@@ -592,6 +671,13 @@ export default function AdminWorkshopPage() {
                             {registrationForms.length} form
                           </a>
                         ) : <span className="text-brand-teal">Chưa có</span>}
+                        <span className="mx-2 text-line">|</span>
+                        <span className="text-muted">Landing page: </span>
+                        {w.landing_registration_form_id ? (
+                          <a href={landingPublicUrl(w.slug)} target="_blank" rel="noreferrer" className="font-semibold text-brand underline">
+                            Mở trang
+                          </a>
+                        ) : <span className="text-brand-teal">Chưa tạo</span>}
                       </div>
                       {media.length > 0 && (
                         <button type="button" onClick={() => openPreview(media, 0, w.name)} className="min-h-11 shrink-0 rounded-md border border-line px-3 font-semibold text-brand-teal">
@@ -603,6 +689,9 @@ export default function AdminWorkshopPage() {
                     {can(PERMISSIONS.workshopsEdit) && (
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         <button onClick={() => openEdit(w)} className="min-h-11 rounded-md border border-line text-sm font-semibold text-brand-teal">Sửa</button>
+                        <button onClick={() => openLandingDialog(w)} className="min-h-11 rounded-md border border-brand bg-brand/10 text-sm font-semibold text-brand-teal">
+                          Tạo Landing Page
+                        </button>
                         {NEXT_STATUS[w.status as WorkshopStatus] && (
                           <button
                             disabled={busyId === w.id}
@@ -615,11 +704,6 @@ export default function AdminWorkshopPage() {
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2 text-xs">
-                      <Can permission="lark.sync">
-                        <button disabled={busyId === w.id} onClick={() => pushLark(w)} className="min-h-11 font-semibold text-brand-teal disabled:opacity-50">
-                          {w.lark_record_id ? "Cập nhật Lark" : "Đẩy lên Lark"}
-                        </button>
-                      </Can>
                       {can(PERMISSIONS.workshopsDelete) && (w.status === "draft" || w.status === "published") && <button disabled={busyId === w.id} onClick={() => remove(w)} className="min-h-11 font-semibold text-red-600 disabled:opacity-50">Hủy</button>}
                       {can(PERMISSIONS.workshopsDelete) && w.status === "cancelled" && <button disabled={busyId === w.id} onClick={() => purge(w)} className="min-h-11 font-semibold text-red-700 disabled:opacity-50">Xóa vĩnh viễn</button>}
                     </div>
@@ -639,17 +723,18 @@ export default function AdminWorkshopPage() {
 
             <div className="hidden h-[calc(100dvh-17rem)] min-h-[24rem] flex-col overflow-hidden rounded-md border border-line bg-surface md:flex">
               <div className="admin-table-scroll min-h-0 max-h-none flex-1">
-                <table className="w-full min-w-[1100px] text-sm">
+                <table className="w-full min-w-[1280px] text-sm">
               <thead className="bg-surface-muted text-left text-muted">
                 <tr>
                   {visibleColumns.name && <th className="px-3 py-2 font-medium">Tên</th>}
                   {visibleColumns.date && <th className="px-3 py-2 font-medium">Ngày giờ</th>}
                   {visibleColumns.branch && <th className="px-3 py-2 font-medium">Chi nhánh</th>}
                   {visibleColumns.location && <th className="px-3 py-2 font-medium">Địa điểm</th>}
-                  {visibleColumns.status && <th className="px-3 py-2 font-medium">Trạng thái</th>}
+                  {visibleColumns.zalo && <th className="px-3 py-2 font-medium">Group Zalo</th>}
                   {visibleColumns.form && <th className="px-3 py-2 font-medium">Form đăng ký</th>}
+                  {visibleColumns.landing && <th className="px-3 py-2 font-medium">Landing page</th>}
                   {visibleColumns.media && <th className="px-3 py-2 font-medium">Media</th>}
-                  {visibleColumns.actions && <th className="px-3 py-2 font-medium text-right">Thao tác</th>}
+                  {visibleColumns.actions && <th className="w-[290px] px-3 py-2 font-medium text-right">Thao tác</th>}
                 </tr>
               </thead>
               <tbody>
@@ -658,6 +743,11 @@ export default function AdminWorkshopPage() {
                     {visibleColumns.name && <td className="px-3 py-2">
                       <div className="font-medium text-brand-teal">{w.name}</div>
                       <div className="text-xs text-muted">{w.slug}</div>
+                      <div>
+                        <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[w.status] || STATUS_CLASS.draft}`}>
+                          {statusLabel(w.status)}
+                        </span>
+                      </div>
                     </td>}
                     {visibleColumns.date && <td className="px-3 py-2 whitespace-nowrap">{formatDate(w.event_date, w.event_time)}</td>}
                     {visibleColumns.branch && <td className="px-3 py-2">{w.branch || "—"}</td>}
@@ -674,14 +764,12 @@ export default function AdminWorkshopPage() {
                         </a>
                       )}
                     </td>}
-                    {visibleColumns.status && <td className="px-3 py-2">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                          STATUS_CLASS[w.status] || STATUS_CLASS.draft
-                        }`}
-                      >
-                        {statusLabel(w.status)}
-                      </span>
+                    {visibleColumns.zalo && <td className="px-3 py-2 whitespace-nowrap">
+                      {w.zalo_group_url ? (
+                        <a href={w.zalo_group_url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand underline" title={w.zalo_group_url}>
+                          Mở nhóm
+                        </a>
+                      ) : <span className="text-xs text-muted">—</span>}
                     </td>}
                     {visibleColumns.form && <td className="px-3 py-2 max-w-[280px]">
                       {(w.registration_forms || []).length === 0 ? (
@@ -706,6 +794,21 @@ export default function AdminWorkshopPage() {
                             );
                           })}
                         </span>
+                      )}
+                    </td>}
+                    {visibleColumns.landing && <td className="px-3 py-2 whitespace-nowrap">
+                      {w.landing_registration_form_id ? (
+                        <a
+                          href={landingPublicUrl(w.slug)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-semibold text-brand underline"
+                          title={landingPublicUrl(w.slug)}
+                        >
+                          Mở landing page
+                        </a>
+                      ) : (
+                        <span className="text-xs text-muted">Chưa tạo</span>
                       )}
                     </td>}
                     {visibleColumns.media && <td className="px-3 py-2">
@@ -747,13 +850,19 @@ export default function AdminWorkshopPage() {
                         </div>
                       )}
                     </td>}
-                    {visibleColumns.actions && <td className="px-3 py-2">
-                      <div className="flex flex-wrap justify-end gap-1">
+                    {visibleColumns.actions && <td className="w-[290px] px-3 py-2">
+                      <div className="ml-auto flex w-[270px] flex-wrap justify-end gap-1 [&_button]:whitespace-nowrap">
                         {can(PERMISSIONS.workshopsEdit) && <button
                           onClick={() => openEdit(w)}
                           className="px-2 py-1 border border-line rounded-sm text-xs hover:bg-surface-muted"
                         >
                           Sửa
+                        </button>}
+                        {can(PERMISSIONS.workshopsEdit) && <button
+                          onClick={() => openLandingDialog(w)}
+                          className="px-2 py-1 border border-brand bg-brand/10 rounded-sm text-xs text-brand-teal"
+                        >
+                          Tạo Landing Page
                         </button>}
                         {can(PERMISSIONS.workshopsEdit) && w.status === "draft" && (
                           <button
@@ -782,16 +891,6 @@ export default function AdminWorkshopPage() {
                             Hoàn thành
                           </button>
                         )}
-                        <Can permission="lark.sync">
-                          <button
-                            disabled={busyId === w.id}
-                            onClick={() => pushLark(w)}
-                            title={w.lark_record_id ? "Cập nhật lên Lark" : "Đẩy lên Lark"}
-                            className="px-2 py-1 border border-line rounded-sm text-xs hover:bg-surface-muted"
-                          >
-                            {w.lark_record_id ? "Cập nhật Lark" : "Đẩy lên Lark"}
-                          </button>
-                        </Can>
                         {can(PERMISSIONS.workshopsDelete) && (w.status === "draft" || w.status === "published") && (
                           <button
                             disabled={busyId === w.id}
@@ -964,11 +1063,13 @@ export default function AdminWorkshopPage() {
                   />
                 </label>
                 <label className="block sm:col-span-2">
-                  <span className="text-xs text-muted">Tên trên Lark (giữ tương thích sync)</span>
+                  <span className="text-xs text-muted">Group Zalo URL</span>
                   <input
+                    type="url"
                     className="mt-1 w-full border border-line rounded-sm px-3 py-2 text-sm"
-                    value={form.lark_workshop_name || ""}
-                    onChange={(e) => setField("lark_workshop_name", e.target.value)}
+                    placeholder="https://zalo.me/g/..."
+                    value={form.zalo_group_url || ""}
+                    onChange={(e) => setField("zalo_group_url", e.target.value)}
                   />
                 </label>
               </div>
@@ -1052,6 +1153,71 @@ export default function AdminWorkshopPage() {
                 className="min-h-11 px-4 py-2 text-sm bg-brand text-brand-teal rounded-md font-semibold disabled:opacity-50 sm:rounded-sm"
               >
                 {saving ? "Đang lưu…" : editingId ? "Lưu thay đổi" : "Tạo workshop"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {landingWorkshop && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+          <div
+            ref={landingDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="landing-dialog-title"
+            aria-describedby="landing-dialog-description"
+            tabIndex={-1}
+            className="w-full rounded-t-lg border border-line bg-surface shadow-xl sm:max-w-lg sm:rounded-md"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-line px-4 py-3">
+              <div>
+                <h2 id="landing-dialog-title" className="font-bold text-brand-teal">Tạo Landing Page</h2>
+                <p id="landing-dialog-description" className="mt-1 text-xs leading-5 text-muted">
+                  Chọn form đăng ký cho workshop “{landingWorkshop.name}”. Tạo lại sẽ cập nhật landing page hiện có.
+                </p>
+              </div>
+              <button data-landing-close type="button" onClick={closeLandingDialog} disabled={landingSaving} aria-label="Đóng" className="min-h-11 min-w-11 text-xl leading-none text-muted disabled:opacity-50">×</button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto p-4">
+              {landingError && <div role="alert" className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{landingError}</div>}
+              {landingUrl && (
+                <div role="status" className="mb-3 rounded-md border border-success-border bg-success-soft p-3 text-sm text-brand-teal">
+                  Landing page đã sẵn sàng. <a href={landingUrl} target="_blank" rel="noreferrer" className="font-semibold underline">Mở Landing Page</a>
+                </div>
+              )}
+              {landingLoading ? (
+                <p className="py-8 text-center text-sm text-muted">Đang tải form đăng ký…</p>
+              ) : landingForms.length === 0 ? (
+                <div className="rounded-md border border-dashed border-line bg-surface-muted p-5 text-center">
+                  <p className="font-semibold text-brand-teal">Workshop chưa có form đăng ký</p>
+                  <p className="mt-1 text-xs leading-5 text-muted">Hãy tạo hoặc liên kết form với workshop này trước khi tạo landing page.</p>
+                </div>
+              ) : (
+                <fieldset className="space-y-2">
+                  <legend className="mb-2 text-sm font-semibold text-brand-teal">Form đăng ký</legend>
+                  {landingForms.map((item, index) => {
+                    const formUrl = formPublicUrl(item.token);
+                    return (
+                      <label key={item.id} className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-md border p-3 ${landingFormId === item.id ? "border-brand bg-brand/10" : "border-line"}`}>
+                        <input type="radio" name="landing-form" value={item.id} checked={landingFormId === item.id} onChange={() => { setLandingFormId(item.id); setLandingUrl(""); }} className="mt-1 h-5 w-5 accent-brand" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold text-brand-teal">Form đăng ký {index + 1}</span>
+                          <span className="mt-1 block text-xs text-muted">{item.is_active ? "Đang hoạt động" : "Đã đóng"} · {item.submission_count} lượt gửi</span>
+                          <span className="mt-1 block truncate font-mono text-[11px] text-muted" title={formUrl}>{formUrl}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </fieldset>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 border-t border-line bg-surface px-4 py-3 sm:flex sm:justify-end">
+              <button type="button" onClick={closeLandingDialog} disabled={landingSaving} className="min-h-11 rounded-md border border-line px-4 py-2 text-sm disabled:opacity-50">Đóng</button>
+              <button type="button" onClick={saveLandingPage} disabled={!landingFormId || landingLoading || landingSaving} className="min-h-11 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-teal disabled:cursor-not-allowed disabled:opacity-50">
+                {landingSaving ? "Đang tạo…" : landingWorkshop.landing_registration_form_id ? "Cập nhật Landing Page" : "Tạo Landing Page"}
               </button>
             </div>
           </div>

@@ -42,3 +42,14 @@ venv/
 # Playwright MCP snapshots
 /.playwright-mcp/
 /.playwright-cli/
+
+# === Agent / tooling artifacts (local-only) ===
+/.opencode/
+/graphify-out/
+/docker-compose.local.yml
+frontend/tsconfig.tsbuildinfo
+
+# === Review screenshots (local-only) ===
+/workshop-review-*.png
+/lermao-v2-full.jpeg
+/lermao-registration-mobile.png

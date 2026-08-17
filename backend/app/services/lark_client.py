@@ -15,15 +15,6 @@ class LarkError(Exception):
     pass
 
 
-def _ensure_config():
-    missing = [
-        k for k in ("LARK_APP_ID", "LARK_APP_SECRET", "LARK_BASE_TOKEN")
-        if not getattr(settings, k)
-    ]
-    if missing:
-        raise LarkError(f"Thiếu cấu hình Lark: {', '.join(missing)}")
-
-
 def _ensure_app_config():
     missing = [
         key for key in ("LARK_APP_ID", "LARK_APP_SECRET")
@@ -62,32 +53,6 @@ async def get_tenant_token() -> str:
 async def _auth_headers() -> dict:
     token = await get_tenant_token()
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"}
-
-
-async def list_records(table_id: str, page_size: int = 100) -> list[dict]:
-    """List toàn bộ record của một table, không giới hạn theo Lark view."""
-    _ensure_config()
-    base = settings.LARK_BASE_TOKEN
-    url = f"{settings.lark_base_url}/bitable/v1/apps/{base}/tables/{table_id}/records"
-    out: list[dict] = []
-    page_token: str | None = None
-
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        while True:
-            params: dict = {"page_size": page_size}
-            if page_token:
-                params["page_token"] = page_token
-            r = await _request_with_retry(client, "GET", url, params=params)
-            data = r.json()
-            if data.get("code") != 0:
-                raise LarkError(f"Lark list lỗi: {data.get('msg')} (code={data.get('code')})")
-            payload = data.get("data", {})
-            out.extend(payload.get("items", []) or [])
-            if payload.get("has_more") and payload.get("page_token"):
-                page_token = payload["page_token"]
-                continue
-            break
-    return out
 
 
 async def _list_contact_pages(url: str, params: dict) -> list[dict]:
@@ -154,80 +119,6 @@ async def list_contact_users() -> list[dict]:
     return list(unique.values())
 
 
-async def update_record(table_id: str, record_id: str, fields: dict) -> None:
-    """Cập nhật một record trực tiếp trong table, không qua Lark view."""
-    _ensure_config()
-    base = settings.LARK_BASE_TOKEN
-    url = f"{settings.lark_base_url}/bitable/v1/apps/{base}/tables/{table_id}/records/{record_id}"
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await _request_with_retry(client, "PUT", url, json_body={"fields": fields})
-        data = r.json()
-        if data.get("code") != 0:
-            raise LarkError(f"Lark update lỗi: {data.get('msg')} (code={data.get('code')})")
-
-
-async def create_record(table_id: str, fields: dict) -> str:
-    """Tạo một record trực tiếp trong table, trả về record_id."""
-    _ensure_config()
-    base = settings.LARK_BASE_TOKEN
-    url = f"{settings.lark_base_url}/bitable/v1/apps/{base}/tables/{table_id}/records"
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await _request_with_retry(client, "POST", url, json_body={"fields": fields})
-        data = r.json()
-        if data.get("code") != 0:
-            raise LarkError(f"Lark create lỗi: {data.get('msg')} (code={data.get('code')})")
-        record = data.get("data", {}).get("record", {})
-        record_id = record.get("record_id")
-        if not record_id:
-            raise LarkError("Lark create không trả record_id")
-        return record_id
-
-
-async def upload_bitable_media(
-    file_name: str,
-    data: bytes,
-    content_type: str | None = None,
-) -> str:
-    """Upload 1 file lên Lark Drive gắn vào Bitable, trả file_token.
-
-    Dùng cho field attachment (vd 'Ảnh WS'). Endpoint multipart nên không đi
-    qua _request_with_retry (vốn chỉ hỗ trợ json body).
-    """
-    _ensure_config()
-    if not data:
-        raise LarkError("File rỗng, không upload được")
-    base = settings.LARK_BASE_TOKEN
-    url = f"{settings.lark_base_url}/drive/v1/medias/upload_all"
-    form = {
-        "file_name": file_name or "image.jpg",
-        "parent_type": "bitable_file",
-        "parent_node": base,
-        "size": str(len(data)),
-    }
-    files = {"file": (file_name or "image.jpg", data, content_type or "application/octet-stream")}
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        for attempt in range(3):
-            token = await get_tenant_token()
-            headers = {"Authorization": f"Bearer {token}"}
-            r = await client.post(url, data=form, files=files, headers=headers)
-            if r.status_code == 401 and attempt < 2:
-                await get_redis().delete(_TOKEN_KEY)
-                continue
-            if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
-                time.sleep(0.5 * (attempt + 1))
-                continue
-            r.raise_for_status()
-            payload = r.json()
-            if payload.get("code") != 0:
-                raise LarkError(f"Lark upload media lỗi: {payload.get('msg')} (code={payload.get('code')})")
-            file_token = payload.get("data", {}).get("file_token")
-            if not file_token:
-                raise LarkError("Lark upload media không trả file_token")
-            return file_token
-    raise LarkError("Lark upload media thất bại sau nhiều lần thử")
-
-
 async def _request_with_retry(client: httpx.AsyncClient, method: str, url: str,
                               params: dict | None = None, json_body: dict | None = None,
                               max_retry: int = 2) -> httpx.Response:
@@ -255,26 +146,3 @@ async def _request_with_retry(client: httpx.AsyncClient, method: str, url: str,
     if last_exc:
         raise last_exc
     raise LarkError("Lark request thất bại")
-
-
-def field_text(fields: dict, name: str) -> str | None:
-    """Trích giá trị text từ field Lark (xử lý nhiều kiểu trả về)."""
-    v = fields.get(name)
-    if v is None:
-        return None
-    if isinstance(v, str):
-        return v.strip() or None
-    if isinstance(v, (int, float)):
-        return str(v)
-    if isinstance(v, list):
-        parts = []
-        for item in v:
-            if isinstance(item, dict):
-                parts.append(item.get("text") or item.get("name") or item.get("value") or "")
-            else:
-                parts.append(str(item))
-        joined = " ".join(p for p in parts if p).strip()
-        return joined or None
-    if isinstance(v, dict):
-        return v.get("text") or v.get("name") or v.get("value")
-    return str(v)

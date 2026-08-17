@@ -13,6 +13,7 @@
 #   - Overrides POSTGRES_HOST/REDIS_HOST to localhost + their exposed
 #     Docker ports (5547/6387), so the backend can talk to the host-
 #     mapped Postgres/Redis containers.
+#   - Starts the local Zalo bridge on loopback :18928 in Docker.
 #   - Starts backend on :8427 and frontend on :4317 in background,
 #     logs go to /tmp/backend.log and /tmp/frontend.log.
 
@@ -42,6 +43,52 @@ load_env() {
   # shellcheck disable=SC1090
   source "$envfile"
   set +a
+  if [[ -f "$ROOT/.env.local" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT/.env.local"
+    set +a
+  fi
+}
+
+compose_local() {
+  docker compose -f "$ROOT/docker-compose.yml" -f "$ROOT/docker-compose.local.yml" "$@"
+}
+
+wait_for_bridge() {
+  log "Waiting for local Zalo bridge..."
+  for i in $(seq 1 30); do
+    if curl -sf http://127.0.0.1:18928/health >/dev/null 2>&1; then
+      log "Zalo bridge ready on :18928"
+      return 0
+    fi
+    sleep 1
+  done
+  err "Zalo bridge failed to start within 30s. Container logs:"
+  compose_local logs --tail=40 zalo-agent-bridge >&2 || true
+  exit 1
+}
+
+resolve_local_zalo_owner() {
+  if [[ -n "${ZALO_AGENT_ACCOUNT_OWNER_ID:-}" ]]; then
+    return 0
+  fi
+  local status owner_id
+  status="$(curl -fsS \
+    -H "Authorization: Bearer ${ZALO_AGENT_BRIDGE_TOKEN}" \
+    http://127.0.0.1:18928/status 2>/dev/null || true)"
+  owner_id="$(STATUS_JSON="$status" node -e '
+    try {
+      const data = JSON.parse(process.env.STATUS_JSON || "{}");
+      process.stdout.write(String(data.ownId || data.activeAccount?.ownId || ""));
+    } catch {}
+  ')"
+  if [[ -n "$owner_id" ]]; then
+    export ZALO_AGENT_ACCOUNT_OWNER_ID="$owner_id"
+    log "Using local Zalo account owner: $owner_id"
+  else
+    warn "Local Zalo bridge has no active account; messaging preflight will be unavailable"
+  fi
 }
 
 ensure_docker() {
@@ -62,6 +109,9 @@ ensure_docker() {
   else
     log "Postgres + Redis already running"
   fi
+  load_env
+  compose_local up -d --build zalo-agent-bridge
+  wait_for_bridge
 }
 
 kill_port() {
@@ -78,6 +128,7 @@ kill_port() {
 start_backend() {
   ensure_docker
   load_env
+  resolve_local_zalo_owner
 
   if [[ ! -d "$ROOT/backend/.venv" ]]; then
     err "Backend venv missing at $ROOT/backend/.venv. Create it first:"

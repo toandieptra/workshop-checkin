@@ -10,8 +10,6 @@ export interface Workshop {
   event_date?: string;
   event_time?: string | null;
   location?: string;
-  lark_workshop_name?: string;
-  last_synced_at?: string | null;
   auto_confirm_registration?: boolean;
 }
 
@@ -33,17 +31,13 @@ export interface Guest {
   checkin_status: string;
   checked_in_at?: string;
   actual_party_size?: number;
-  lark_record_id?: string | null;
   registered_at?: string | null;
   created_at?: string;
-  sync_status?: string;
-  sync_error?: string | null;
   source?: string | null;
   source_detail?: string | null;
   creator_name?: string | null;
   creator_user_id?: string | null;
   local_updated_at?: string | null;
-  last_synced_at?: string | null;
   zbs?: {
     registration_confirmation?: ZbsDelivery;
     checkin_confirmation?: ZbsDelivery;
@@ -95,8 +89,8 @@ const LAST_WORKSHOP_STORAGE_KEY = "workshop-checkin:last-admin-workshop";
 /**
  * Hook tập trung state + action cho trang Admin Khách mời.
  * Cả MobileAdmin và DesktopAdmin cùng consume để tránh duplicate logic.
- * Desktop-only (Lark write-back, edit modal) tự quản state riêng trong component,
- * chỉ gọi `reload()` / `refreshWorkshops()` từ hook để đồng bộ dữ liệu.
+ * Edit modal desktop tự quản state riêng trong component và gọi `reload()`
+ * để cập nhật dữ liệu dùng chung.
  */
 export function useAdminGuests() {
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
@@ -394,12 +388,11 @@ export function useAdminGuests() {
         return;
       }
       try {
-        const res = await api<any>("/guests/" + guest.id + "/checkin", {
+        await api("/guests/" + guest.id + "/checkin", {
           method: "POST",
           body: JSON.stringify({ actual_party_size: actual }),
         });
-        const errStr = res.lark_error ? " (Lỗi Lark: " + res.lark_error + ")" : "";
-        setMsg("Đã check-in " + guest.full_name + " (" + actual + " khách)" + errStr);
+        setMsg("Đã check-in " + guest.full_name + " (" + actual + " khách)");
         await loadGuests(wid, debouncedSearch);
         await refreshCachedGuestDetail(guest.id);
       } catch (e: any) {
@@ -424,9 +417,8 @@ export function useAdminGuests() {
     async (guest: Guest) => {
       if (!confirm(`Hoàn tác check-in của "${guest.full_name}"?`)) return;
       try {
-        const res = await api<any>("/guests/" + guest.id + "/uncheckin", { method: "POST" });
-        const errStr = res.lark_error ? " (Lỗi Lark: " + res.lark_error + ")" : "";
-        setMsg("Đã hủy check-in " + guest.full_name + errStr);
+        await api("/guests/" + guest.id + "/uncheckin", { method: "POST" });
+        setMsg("Đã hủy check-in " + guest.full_name);
         await loadGuests(wid, debouncedSearch);
         await refreshCachedGuestDetail(guest.id);
       } catch (e: any) {

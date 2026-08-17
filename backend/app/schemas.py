@@ -48,7 +48,7 @@ class WorkshopCreate(BaseModel):
     branch: str | None = None
     maps_url: str | None = None
     registration_short_url: str | None = None
-    lark_workshop_name: str | None = None
+    zalo_group_url: str | None = None
 
 
 class WorkshopUpdate(BaseModel):
@@ -62,11 +62,15 @@ class WorkshopUpdate(BaseModel):
     branch: str | None = None
     maps_url: str | None = None
     registration_short_url: str | None = None
-    lark_workshop_name: str | None = None
+    zalo_group_url: str | None = None
 
 
 class WorkshopStatusUpdate(BaseModel):
     status: str
+
+
+class WorkshopLandingPageUpdate(BaseModel):
+    registration_form_id: uuid.UUID
 
 
 class WorkshopOut(BaseModel):
@@ -82,13 +86,27 @@ class WorkshopOut(BaseModel):
     branch: str | None = None
     maps_url: str | None = None
     registration_short_url: str | None = None
-    lark_workshop_name: str | None = None
-    lark_record_id: str | None = None
+    zalo_group_url: str | None = None
+    landing_registration_form_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime | None = None
-    last_synced_at: datetime | None = None
     media: list[WorkshopMediaOut] = []
     registration_forms: list[WorkshopLinkedFormOut] = []
+
+
+class WorkshopLandingPagePublic(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    event_date: date | None = None
+    event_time: time | None = None
+    location: str | None = None
+    status: str
+    branch: str | None = None
+    maps_url: str | None = None
+    zalo_group_url: str | None = None
+    media: list[WorkshopMediaOut] = []
+    registration_form: WorkshopLinkedFormOut
 
 
 # ===== Guest =====
@@ -143,20 +161,13 @@ class GuestOut(BaseModel):
     actual_party_size: int | None = None
     checkin_status: str
     checked_in_at: datetime | None
-    lark_record_id: str | None = None
     registered_at: datetime | None = None
     created_at: datetime
-    # Sync fields
     local_updated_at: datetime | None = None
-    last_synced_at: datetime | None = None
-    sync_status: str | None = None
-    sync_error: str | None = None
 
 
 class GuestUpdateResult(BaseModel):
     guest: GuestOut
-    lark_synced: bool = False
-    lark_error: str | None = None
 
 
 class GuestNoteCreate(BaseModel):
@@ -181,8 +192,6 @@ class GuestNoteOut(BaseModel):
 
 class CheckinResult(BaseModel):
     guest: GuestOut
-    lark_synced: bool = False
-    lark_error: str | None = None
 
 
 class CheckinLogOut(BaseModel):
@@ -244,40 +253,7 @@ class SelfRegisterRequest(BaseModel):
 
 class SelfRegisterResult(BaseModel):
     guest: GuestOut
-    lark_synced: bool = False
     warning: str | None = None
-
-
-# ===== Lark write-back =====
-
-class SyncPushRequest(BaseModel):
-    guest_id: uuid.UUID | None = None  # None = push all unsynced
-
-
-class SyncPushResult(BaseModel):
-    workshop_id: uuid.UUID
-    total: int
-    pushed: int
-    errors: int
-    error_details: list[str] = []
-
-
-class SyncStatus(BaseModel):
-    pending_push: int
-    errors: int
-    synced: int
-    last_sync_at: datetime | None = None
-
-
-class SyncLogOut(BaseModel):
-    id: uuid.UUID
-    direction: str
-    entity_type: str
-    entity_id: uuid.UUID | None
-    lark_record_id: str | None
-    status: str
-    error_message: str | None
-    created_at: datetime
 
 
 # ===== Registration Forms =====
@@ -287,6 +263,7 @@ class RegistrationWorkshopOption(BaseModel):
     name: str
     event_date: date | None = None
     location: str | None = None
+    zalo_group_url: str | None = None
     auto_confirm_registration: bool = True
 
 
@@ -342,7 +319,6 @@ class RegistrationSubmitResult(BaseModel):
     guest: GuestOut
     submission_id: uuid.UUID
     registration_status: str
-    lark_synced: bool = False
 
 
 # ===== Zalo personal-account messaging =====
