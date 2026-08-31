@@ -33,6 +33,7 @@ export const PERMISSIONS = {
   connectionsManage: "zalo_connections.manage",
   usersView: "users.manage",
   usersManage: "users.manage",
+  publicApiManage: "users.manage",
 } as const;
 
 export function hasPermission(permissions: readonly string[], permission: Permission): boolean {

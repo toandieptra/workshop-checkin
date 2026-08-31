@@ -5,7 +5,12 @@ from contextlib import asynccontextmanager
 
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -14,7 +19,7 @@ from sqlalchemy.exc import OperationalError
 from .config import settings
 from .db import engine
 from .ws import manager
-from .routers import workshops, guests, checkin, search, import_export, registration_forms, auth, admin_users, zbs, zalo_agent, zalo_messages
+from .routers import workshops, guests, checkin, search, import_export, registration_forms, auth, admin_users, zbs, zalo_agent, zalo_messages, admin_api_keys, public_api
 from .auth.bootstrap import bootstrap_super_admin
 from .services import admin_directory_sync
 from .db import async_session_maker
@@ -103,6 +108,73 @@ app.include_router(admin_users.router)
 app.include_router(zbs.router)
 app.include_router(zalo_agent.router)
 app.include_router(zalo_messages.router)
+app.include_router(admin_api_keys.router)
+app.include_router(public_api.router)
+
+
+@app.exception_handler(HTTPException)
+async def public_http_exception(request: Request, exc: HTTPException):
+    if not request.url.path.startswith("/api/public/v1"):
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+    codes = {
+        400: "BAD_REQUEST", 401: "UNAUTHORIZED", 403: "FORBIDDEN", 404: "NOT_FOUND",
+        409: "CONFLICT", 410: "GONE", 422: "VALIDATION_ERROR", 429: "RATE_LIMITED",
+        503: "SERVICE_UNAVAILABLE",
+    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"data": None, "meta": None, "error": {
+            "code": codes.get(exc.status_code, "HTTP_ERROR"),
+            "message": str(exc.detail),
+            "details": None,
+        }},
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def public_validation_exception(request: Request, exc: RequestValidationError):
+    if not request.url.path.startswith("/api/public/v1"):
+        return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
+    return JSONResponse(status_code=422, content={
+        "data": None, "meta": None,
+        "error": {"code": "VALIDATION_ERROR", "message": "request validation failed", "details": jsonable_encoder(exc.errors())},
+    })
+
+
+def _public_openapi() -> dict:
+    routes = [
+        route for route in app.routes
+        if getattr(route, "path", "").startswith("/api/public/v1")
+        and getattr(route, "include_in_schema", False)
+    ]
+    return get_openapi(
+        title="Workshop Check-in Public API",
+        version="1.0.0",
+        description="Versioned API for workshop, guest, registration, and check-in integrations.",
+        routes=routes,
+    )
+
+
+@app.get("/api/public/v1/openapi.json", include_in_schema=False)
+async def public_openapi():
+    return _public_openapi()
+
+
+@app.get("/api/public/v1/docs", include_in_schema=False)
+async def public_docs():
+    return get_swagger_ui_html(
+        openapi_url="/api/public/v1/openapi.json",
+        title="Workshop Check-in Public API",
+    )
+
+
+@app.get("/api/public/v1/redoc", include_in_schema=False)
+async def public_redoc():
+    return get_redoc_html(
+        openapi_url="/api/public/v1/openapi.json",
+        title="Workshop Check-in Public API",
+    )
 
 _upload_dir = Path(settings.UPLOAD_DIR)
 _upload_dir.mkdir(parents=True, exist_ok=True)

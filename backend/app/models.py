@@ -93,6 +93,24 @@ class AdminOAuthState(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    key_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    key_prefix: Mapped[str] = mapped_column(Text, nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    rate_limit: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AdminDirectorySyncState(Base):
     __tablename__ = "admin_directory_sync_state"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

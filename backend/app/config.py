@@ -21,6 +21,11 @@ class Settings(BaseSettings):
 
     PUBLIC_BASE_URL: str | None = None
 
+    # ===== Public API =====
+    PUBLIC_API_ENABLED: bool = True
+    PUBLIC_API_RATE_LIMIT_PER_MINUTE: int = 120
+    PUBLIC_API_IDEMPOTENCY_TTL_SECONDS: int = 86400
+
     # ===== Lark OAuth / organization directory sync =====
     LARK_APP_ID: str | None = None
     LARK_APP_SECRET: str | None = None
