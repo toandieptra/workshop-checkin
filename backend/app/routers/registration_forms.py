@@ -68,6 +68,7 @@ def _option(w: Workshop) -> RegistrationWorkshopOption:
         id=w.id,
         name=w.name,
         event_date=w.event_date,
+        event_time=w.event_time,
         location=w.location,
         zalo_group_url=w.zalo_group_url,
         auto_confirm_registration=w.auto_confirm_registration,
@@ -220,6 +221,7 @@ async def get_public_registration_form(token: str, db: AsyncSession = Depends(ge
         workshop_id=primary.id,
         workshop_name=primary.name,
         workshop_event_date=primary.event_date,
+        workshop_event_time=primary.event_time,
         workshop_location=primary.location,
         workshops=[_option(w) for w in workshops],
     )

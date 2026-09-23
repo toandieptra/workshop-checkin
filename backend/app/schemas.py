@@ -262,6 +262,7 @@ class RegistrationWorkshopOption(BaseModel):
     id: uuid.UUID
     name: str
     event_date: date | None = None
+    event_time: time | None = None
     location: str | None = None
     zalo_group_url: str | None = None
     auto_confirm_registration: bool = True
@@ -301,6 +302,7 @@ class RegistrationFormPublic(BaseModel):
     workshop_id: uuid.UUID
     workshop_name: str
     workshop_event_date: date | None = None
+    workshop_event_time: time | None = None
     workshop_location: str | None = None
     workshops: list[RegistrationWorkshopOption] = []
 

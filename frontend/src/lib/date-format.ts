@@ -19,9 +19,10 @@ export function formatEventDate(dateValue?: string | null): string {
 
 export function formatEventDateTime(dateValue?: string | null, timeValue?: string | null, full = false): string {
   const date = parseDate(dateValue);
+  const time = timePart(timeValue);
+  if (!dateValue) return time || "—";
   if (!date) return dateValue || "—";
   const datePart = formatEventDate(dateValue);
-  const time = timePart(timeValue);
   const day = full ? `${WEEKDAYS[date.getDay()]}, ` : "";
   return `${time ? `${time} · ` : ""}${day}${datePart}`;
 }

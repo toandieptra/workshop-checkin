@@ -434,6 +434,7 @@ export interface RegistrationWorkshopOption {
   id: string;
   name: string;
   event_date?: string | null;
+  event_time?: string | null;
   location?: string | null;
   zalo_group_url?: string | null;
   auto_confirm_registration: boolean;
@@ -459,6 +460,7 @@ export interface RegistrationFormPublic {
   workshop_id: string;
   workshop_name: string;
   workshop_event_date?: string | null;
+  workshop_event_time?: string | null;
   workshop_location?: string | null;
   zalo_group_url?: string | null;
   workshops: RegistrationWorkshopOption[];

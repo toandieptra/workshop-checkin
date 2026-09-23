@@ -86,7 +86,7 @@ export default function RegisterPage({
         const ws = f.workshops?.length
           ? f.workshops
           : f.workshop_id
-          ? [{ id: f.workshop_id, name: f.workshop_name, event_date: f.workshop_event_date, location: f.workshop_location }]
+          ? [{ id: f.workshop_id, name: f.workshop_name, event_date: f.workshop_event_date, event_time: f.workshop_event_time, location: f.workshop_location }]
           : [];
         const lockedWorkshop = ws.find((workshop) => workshop.id === lockedWorkshopId);
         setWorkshopId(lockedWorkshop?.id || (ws.length === 1 ? ws[0].id : ""));
@@ -232,6 +232,7 @@ export default function RegisterPage({
     id: form.workshop_id,
     name: form.workshop_name,
     event_date: form.workshop_event_date,
+    event_time: form.workshop_event_time,
     location: form.workshop_location,
     zalo_group_url: form.zalo_group_url,
     auto_confirm_registration: true,
@@ -265,7 +266,7 @@ export default function RegisterPage({
             <div className="mt-10 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
               <h2 className="font-heading text-2xl font-bold">{selectedWorkshop.name}</h2>
               <dl className="mt-5 grid gap-4 sm:grid-cols-2">
-                {selectedWorkshop.event_date && <div><dt className="text-xs font-bold uppercase tracking-wide text-cyan-soft">Thời gian</dt><dd className="mt-1 font-semibold">{formatEventDateTime(selectedWorkshop.event_date, undefined, true)}</dd></div>}
+                {(selectedWorkshop.event_date || selectedWorkshop.event_time) && <div><dt className="text-xs font-bold uppercase tracking-wide text-cyan-soft">Thời gian</dt><dd className="mt-1 font-semibold">{formatEventDateTime(selectedWorkshop.event_date, selectedWorkshop.event_time, true)}</dd></div>}
                 {selectedWorkshop.location && <div><dt className="text-xs font-bold uppercase tracking-wide text-cyan-soft">Địa điểm</dt><dd className="mt-1 font-semibold">{selectedWorkshop.location}</dd></div>}
               </dl>
             </div>
@@ -334,7 +335,7 @@ export default function RegisterPage({
 
               {selectedWorkshop && !embedded && <div className="mb-5 rounded-xl border border-line bg-surface-muted px-4 py-3 text-sm text-text-secondary lg:hidden">
                 <div className="font-semibold text-brand-teal">{selectedWorkshop.name}</div>
-                <div className="mt-1 text-xs">{formatEventDateTime(selectedWorkshop.event_date, undefined, true)}{selectedWorkshop.location ? ` · ${shortLocation(selectedWorkshop.location)}` : ""}</div>
+                <div className="mt-1 text-xs">{formatEventDateTime(selectedWorkshop.event_date, selectedWorkshop.event_time, true)}{selectedWorkshop.location ? ` · ${shortLocation(selectedWorkshop.location)}` : ""}</div>
               </div>}
 
               <form className={`${embedded ? "px-5 pb-6 pt-5 sm:px-6" : "mt-6"} space-y-4`} onSubmit={(event) => { event.preventDefault(); void submit(); }} noValidate>
@@ -349,7 +350,7 @@ export default function RegisterPage({
                       className="min-h-[52px] w-full rounded-[14px] border-[1.5px] border-line bg-white px-4 py-3 text-[15px] font-medium text-brand-teal transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10"
                     >
                       <option value="" disabled>— Chọn workshop —</option>
-                      {workshopOptions.map((w) => <option key={w.id} value={w.id}>{w.name}{w.event_date ? " — " + formatEventDateTime(w.event_date) : ""}</option>)}
+                      {workshopOptions.map((w) => <option key={w.id} value={w.id}>{w.name}{w.event_date || w.event_time ? " — " + formatEventDateTime(w.event_date, w.event_time) : ""}</option>)}
                     </select>
                   </> : <input type="hidden" id="registration-workshop" name="workshop" value={workshopId} ref={workshopRef as unknown as React.RefObject<HTMLInputElement>} />}
                   {errWorkshop && <div id="registration-workshop-error" role="alert" className="mt-1.5 text-xs font-semibold text-red-600">{errWorkshop}</div>}
