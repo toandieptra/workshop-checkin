@@ -39,7 +39,7 @@ import {
 import { errorMessage, formatDateTime } from "./utils";
 
 export default function ZaloMessageSettingsPanel() {
-  const { can } = useAuth();
+  const { can, canInAnyWorkshop } = useAuth();
   const hasLegacyTemplateManage = can(PERMISSIONS.zaloTemplatesManage);
   const canCreate =
     hasLegacyTemplateManage || can(PERMISSIONS.zaloTemplatesCreate);
@@ -47,9 +47,9 @@ export default function ZaloMessageSettingsPanel() {
     hasLegacyTemplateManage || can(PERMISSIONS.zaloTemplatesEdit);
   const canDelete =
     hasLegacyTemplateManage || can(PERMISSIONS.zaloTemplatesDelete);
-  const canReadDeliveries = can(PERMISSIONS.zaloMessagesView);
-  const canSend = can(PERMISSIONS.zaloMessagesSend);
-  const canBulkSend = canSend || can(PERMISSIONS.zaloMessagesBulkSend);
+  const canReadDeliveries = canInAnyWorkshop(PERMISSIONS.zaloMessagesView);
+  const canSend = canInAnyWorkshop(PERMISSIONS.zaloMessagesSend);
+  const canBulkSend = canSend || canInAnyWorkshop(PERMISSIONS.zaloMessagesBulkSend);
 
   const [templates, setTemplates] = useState<ZaloMessageTemplate[]>([]);
   const [quota, setQuota] = useState<ZaloMessageQuota>(EMPTY_QUOTA);
@@ -564,14 +564,14 @@ export default function ZaloMessageSettingsPanel() {
           onSave={(input) => void save(input)}
         />
       )}
-      {bulkOpen && (
+      {bulkOpen && canBulkSend && (
         <BulkSendModal
           templates={templates}
           onClose={() => setBulkOpen(false)}
           onSent={() => void load()}
         />
       )}
-      {historyTemplate && (
+      {historyTemplate && canReadDeliveries && (
         <TemplateDeliveryHistory
           template={historyTemplate}
           canSend={canSend}

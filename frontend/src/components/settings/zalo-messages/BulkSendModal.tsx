@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircleIcon,
   XMarkIcon,
@@ -11,6 +11,8 @@ import {
   preflightZaloBulkMessage,
   sendZaloBulkMessage,
 } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
 import type { Guest, Workshop } from "@/hooks/useAdminGuests";
 import type {
   ZaloBulkPreflight,
@@ -30,6 +32,9 @@ export default function BulkSendModal({
   onClose: () => void;
   onSent: () => void;
 }) {
+  const { user, canForWorkshop } = useAuth();
+  const accessKey = JSON.stringify([user?.role, user?.permissions, user?.workshop_access]);
+  const canBulkFor = (id: string) => canForWorkshop(PERMISSIONS.guestsView, id) && (canForWorkshop(PERMISSIONS.zaloMessagesSend, id) || canForWorkshop(PERMISSIONS.zaloMessagesBulkSend, id));
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [sendStatuses, setSendStatuses] = useState<Record<string, ZaloGuestSendStatus>>({});
@@ -58,58 +63,45 @@ export default function BulkSendModal({
   }, [onClose, result, selected.length, submitting]);
   useModalDismiss(handleClose);
 
-  useEffect(() => {
-    void api<Workshop[]>("/workshops")
-      .then((data) => {
-        setWorkshops(data);
-        setWorkshopId(data[0]?.id || "");
-      })
-      .catch((loadError) =>
-        setError("Không tải được workshop: " + errorMessage(loadError)),
-      )
-      .finally(() => setLoading(false));
-  }, []);
+  const requestScope = JSON.stringify([workshopId, templateId, accessKey, selected]);
+  const liveScope = useRef(requestScope);
+  liveScope.current = requestScope;
 
   useEffect(() => {
-    if (!workshopId) {
-      setGuests([]);
-      setSendStatuses({});
-      return;
-    }
+    let active = true;
+    void api<Workshop[]>("/workshops?permission=guests.read").then((data) => {
+      if (!active) return;
+      const allowed = data.filter((workshop) => canBulkFor(workshop.id));
+      setWorkshops(allowed);
+      setWorkshopId((id) => allowed.some((workshop) => workshop.id === id) ? id : allowed[0]?.id || "");
+    }).catch((loadError) => { if (active) setError("Không tải được workshop: " + errorMessage(loadError)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [accessKey]);
+
+  useEffect(() => {
+    let active = true;
+    setGuests([]); setSendStatuses({}); setSelected([]); setPreflight(null); setResult(null); setError("");
+    if (!workshopId || !canBulkFor(workshopId)) { setLoading(false); return; }
     setLoading(true);
-    setPreflight(null);
-    setSelected([]);
-    void api<Guest[]>(
-      `/workshops/${encodeURIComponent(workshopId)}/guests?sort_registered_at=desc`,
-    )
-      .then(setGuests)
-      .catch((loadError) =>
-        setError("Không tải được khách: " + errorMessage(loadError)),
-      )
-      .finally(() => setLoading(false));
-  }, [workshopId]);
+    void api<Guest[]>(`/workshops/${encodeURIComponent(workshopId)}/guests?sort_registered_at=desc`)
+      .then((data) => { if (active) setGuests(data.map((guest) => ({ ...guest, workshop_id: guest.workshop_id || workshopId }))); })
+      .catch((loadError) => { if (active) setError("Không tải được khách: " + errorMessage(loadError)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [workshopId, accessKey]);
 
   useEffect(() => {
-    setSendStatuses({});
-    if (!workshopId || !templateId) return;
-    let cancelled = false;
+    setSendStatuses({}); setPreflight(null);
+    if (!workshopId || !templateId || !canBulkFor(workshopId) || !canForWorkshop(PERMISSIONS.zaloMessagesView, workshopId)) return;
+    let active = true;
     void listZaloGuestSendStatuses(workshopId, templateId)
-      .then((statuses) => {
-        if (!cancelled) {
-          setSendStatuses(
-            Object.fromEntries(statuses.map((status) => [status.guest_id, status])),
-          );
-        }
-      })
-      .catch((loadError) => {
-        if (!cancelled) {
-          setError("Không tải được trạng thái gửi: " + errorMessage(loadError));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [templateId, workshopId]);
+      .then((statuses) => { if (active) setSendStatuses(Object.fromEntries(statuses.map((status) => [status.guest_id, status]))); })
+      .catch((loadError) => { if (active) setError("Không tải được trạng thái gửi: " + errorMessage(loadError)); });
+    return () => { active = false; };
+  }, [templateId, workshopId, accessKey]);
+
+  const validSelection = (ids: string[]) => !loading && canBulkFor(workshopId) && ids.length > 0 && ids.every((id) => guests.some((guest) => guest.id === id && guest.workshop_id === workshopId));
 
   const filtered = guests.filter((guest) =>
     `${guest.full_name} ${guest.phone || ""}`
@@ -121,16 +113,17 @@ export default function BulkSendModal({
   const step = result ? 3 : preflight ? 2 : 1;
 
   const runPreflight = async () => {
+    if (!validSelection(selected)) { setError("Danh sách khách hoặc quyền workshop đã thay đổi. Vui lòng chọn lại."); return; }
+    const snapshot = requestScope;
     setSubmitting(true);
     setError("");
     try {
-      setPreflight(
-        await preflightZaloBulkMessage({
+      const data = await preflightZaloBulkMessage({
           template_id: templateId,
           workshop_id: workshopId,
           guest_ids: selected,
-        }),
-      );
+        });
+      if (liveScope.current === snapshot) setPreflight(data);
     } catch (preflightError) {
       setError(
         "Kiểm tra trước khi gửi thất bại: " + errorMessage(preflightError),
@@ -141,6 +134,8 @@ export default function BulkSendModal({
   };
 
   const send = async () => {
+    if (!preflight || !validSelection(preflight.eligible_guest_ids) || !preflight.eligible_guest_ids.every((id) => selected.includes(id))) { setError("Danh sách khách hoặc quyền workshop đã thay đổi. Vui lòng kiểm tra lại."); return; }
+    const snapshot = requestScope;
     if (
       !preflight ||
       !window.confirm(
@@ -151,13 +146,11 @@ export default function BulkSendModal({
     setSubmitting(true);
     setError("");
     try {
-      setResult(
-        await sendZaloBulkMessage({
+      const data = await sendZaloBulkMessage({
           template_id: templateId,
           guest_ids: preflight.eligible_guest_ids,
-        }),
-      );
-      onSent();
+        });
+      if (liveScope.current === snapshot) { setResult(data); onSent(); }
     } catch (sendError) {
       setError("Gửi tin thất bại: " + errorMessage(sendError));
     } finally {
@@ -319,6 +312,7 @@ export default function BulkSendModal({
                 <label className="text-sm font-semibold text-text-secondary">
                   Mẫu tin
                   <select
+                    disabled={submitting}
                     value={templateId}
                     onChange={(event) => {
                       setTemplateId(event.target.value);
@@ -339,6 +333,7 @@ export default function BulkSendModal({
                 <label className="text-sm font-semibold text-text-secondary">
                   Workshop
                   <select
+                    disabled={submitting}
                     value={workshopId}
                     onChange={(event) => setWorkshopId(event.target.value)}
                     className="mt-1 min-h-10 w-full rounded-md border border-line bg-white px-3 font-normal outline-none focus:border-brand"
@@ -373,6 +368,7 @@ export default function BulkSendModal({
                         <th className="w-12 px-3 py-2">
                           <input
                             type="checkbox"
+                            disabled={submitting || loading || !canBulkFor(workshopId)}
                             checked={
                               !!filtered.length &&
                               filtered.every((guest) =>
@@ -427,6 +423,7 @@ export default function BulkSendModal({
                             <td className="px-3 py-2">
                               <input
                                 type="checkbox"
+                            disabled={submitting || loading || !canBulkFor(workshopId)}
                                 checked={selectedSet.has(guest.id)}
                                 onChange={(event) => {
                                   setPreflight(null);
@@ -553,7 +550,7 @@ export default function BulkSendModal({
             <button
               type="button"
               disabled={
-                !templateId || !workshopId || !selected.length || submitting
+                !templateId || !validSelection(selected) || submitting
               }
               onClick={() => void runPreflight()}
               className="min-h-10 rounded-md bg-brand px-5 text-sm font-semibold text-brand-teal transition hover:bg-brand-accent disabled:opacity-40"
@@ -574,6 +571,7 @@ export default function BulkSendModal({
               <button
                 type="button"
                 disabled={
+                  !validSelection(preflight.eligible_guest_ids) ||
                   !preflight.can_send ||
                   !eligibleCount ||
                   selected.length > preflight.quota_remaining ||

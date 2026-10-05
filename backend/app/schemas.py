@@ -73,6 +73,19 @@ class WorkshopLandingPageUpdate(BaseModel):
     registration_form_id: uuid.UUID
 
 
+class WorkshopLandingContentUpdate(BaseModel):
+    content: dict
+
+
+class WorkshopLandingContentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    workshop_id: uuid.UUID
+    draft_content: dict | None = None
+    published_content: dict | None = None
+    published_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class WorkshopOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -107,6 +120,7 @@ class WorkshopLandingPagePublic(BaseModel):
     zalo_group_url: str | None = None
     media: list[WorkshopMediaOut] = []
     registration_form: WorkshopLinkedFormOut
+    landing_content: dict | None = None
 
 
 # ===== Guest =====
@@ -384,6 +398,7 @@ class ZaloBatchSendRequest(ZaloRecipientSelection):
 
 
 class ZaloDeliveryItemOut(BaseModel):
+    workshop_id: uuid.UUID | None = None
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     delivery_id: uuid.UUID

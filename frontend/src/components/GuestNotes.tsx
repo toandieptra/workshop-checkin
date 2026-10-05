@@ -20,8 +20,8 @@ function formatDateTime(value: string): string {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("vi-VN");
 }
 
-export default function GuestNotes({ guestId }: { guestId: string }) {
-  const { user, can } = useAuth();
+export default function GuestNotes({ guestId, workshopId }: { guestId: string; workshopId: string }) {
+  const { user, canForWorkshop } = useAuth();
   const [notes, setNotes] = useState<GuestNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -30,11 +30,14 @@ export default function GuestNotes({ guestId }: { guestId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
-  const canWrite = can(PERMISSIONS.guestsEdit);
-  const canEditAll = user?.role === "admin" || user?.role === "super_admin";
+  const canRead = canForWorkshop(PERMISSIONS.guestsView, workshopId);
+  const canWrite = canForWorkshop(PERMISSIONS.guestsEdit, workshopId);
+  const canEditAll = user?.role === "admin" || user?.role === "super_admin" || user?.workshop_access?.some((access) => access.workshop_id === workshopId && access.role === "admin");
 
   useEffect(() => {
     let active = true;
+    setNotes([]); setContent(""); setEditingId(null);
+    if (!canRead) { setLoading(false); return; }
     setLoading(true);
     setError("");
     api<GuestNote[]>(`/guests/${guestId}/notes`)
@@ -48,12 +51,12 @@ export default function GuestNotes({ guestId }: { guestId: string }) {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [guestId]);
+  }, [guestId, workshopId, canRead, canWrite]);
 
   const createNote = async (event: FormEvent) => {
     event.preventDefault();
     const nextContent = content.trim();
-    if (!nextContent || creating) return;
+    if (!canWrite || !nextContent || creating) return;
     setCreating(true);
     setError("");
     try {
@@ -78,7 +81,7 @@ export default function GuestNotes({ guestId }: { guestId: string }) {
 
   const saveEdit = async (noteId: string) => {
     const nextContent = editContent.trim();
-    if (!nextContent || savingId) return;
+    if (!canWrite || !nextContent || savingId) return;
     setSavingId(noteId);
     setError("");
     try {
@@ -95,6 +98,8 @@ export default function GuestNotes({ guestId }: { guestId: string }) {
       setSavingId(null);
     }
   };
+
+  if (!canRead) return null;
 
   return <section className="rounded-md border border-line bg-white p-4">
     <h4 className="font-semibold text-ink">Ghi chú</h4>

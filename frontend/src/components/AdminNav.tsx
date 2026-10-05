@@ -17,9 +17,9 @@ export default function AdminNav() {
   const pathname = usePathname();
   const isMobile = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
-  const { can, logout } = useAuth();
+  const { can, canInAnyWorkshop, logout } = useAuth();
   const items = [
-    ...ITEMS.filter((item) => can(item.permission)),
+    ...ITEMS.filter((item) => canInAnyWorkshop(item.permission) || (item.permission === PERMISSIONS.workshopsView && can(PERMISSIONS.workshopsCreate))),
     ...(can(PERMISSIONS.usersView) || can(PERMISSIONS.connectionsView) || can(PERMISSIONS.zbsView) || can(PERMISSIONS.zaloTemplatesView)
       ? [{ href: "/admin/cai-dat", label: "Cài đặt", permission: PERMISSIONS.connectionsView }]
       : []),

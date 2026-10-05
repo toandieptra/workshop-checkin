@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db import get_db
-from ..models import AdminSession, AdminUser
+from ..models import AdminSession, AdminUser, Workshop
 from .permissions import effective_permissions_for_user
+from .local_accounts import guest_access_active, is_checkin_guest, utc_datetime
 from .session import token_hash
 
 
@@ -43,11 +44,7 @@ def _allowed_origins(request: Request) -> set[str]:
     return {o for o in allowed if o}
 
 
-async def current_user(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    session_token: Annotated[str | None, Cookie(alias=settings.AUTH_SESSION_COOKIE)] = None,
-) -> AdminUser:
+def enforce_same_origin(request: Request) -> None:
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         fetch_site = request.headers.get("sec-fetch-site", "")
         if fetch_site == "cross-site":
@@ -55,6 +52,14 @@ async def current_user(
         origin = (request.headers.get("origin") or "").rstrip("/")
         if origin and origin not in _allowed_origins(request):
             raise HTTPException(403, "invalid request origin")
+
+
+async def current_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    session_token: Annotated[str | None, Cookie(alias=settings.AUTH_SESSION_COOKIE)] = None,
+) -> AdminUser:
+    enforce_same_origin(request)
     if not session_token:
         raise HTTPException(401, "authentication required")
     row = (await db.execute(
@@ -66,10 +71,16 @@ async def current_user(
         raise HTTPException(401, "invalid session")
     user, session = row
     now = datetime.now(timezone.utc)
-    if session.expires_at <= now or not user.is_active:
+    if utc_datetime(session.expires_at) <= now or not user.is_active:
         await db.delete(session)
         await db.commit()
         raise HTTPException(401, "session expired or user inactive")
+    if is_checkin_guest(user) and (
+        not guest_access_active(user, now) or await db.get(Workshop, user.access_workshop_id) is None
+    ):
+        await db.delete(session)
+        await db.commit()
+        raise HTTPException(401, "Quyền check-in chưa bắt đầu hoặc đã hết hạn.")
     session.last_seen_at = now
     await db.commit()
     return user
@@ -80,6 +91,8 @@ def require_permission(permission: str):
         user: AdminUser = Depends(current_user),
         db: AsyncSession = Depends(get_db),
     ) -> AdminUser:
+        if is_checkin_guest(user):
+            raise HTTPException(403, "Tài khoản khách chỉ được check-in trong workshop đã cấp.")
         if permission not in await effective_permissions_for_user(db, user.role, user.permission_overrides):
             raise HTTPException(403, f"missing permission: {permission}")
         return user
@@ -91,6 +104,8 @@ def require_any_permission(*permissions: str):
         user: AdminUser = Depends(current_user),
         db: AsyncSession = Depends(get_db),
     ) -> AdminUser:
+        if is_checkin_guest(user):
+            raise HTTPException(403, "Tài khoản khách chỉ được check-in trong workshop đã cấp.")
         granted = await effective_permissions_for_user(db, user.role, user.permission_overrides)
         if not any(permission in granted for permission in permissions):
             raise HTTPException(403, f"missing permission: {' or '.join(permissions)}")

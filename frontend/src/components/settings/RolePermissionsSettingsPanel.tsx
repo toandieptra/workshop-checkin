@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { adminApi } from "@/lib/api";
 import { PERMISSIONS } from "@/lib/permissions";
 import { useAuth } from "@/contexts/AuthContext";
+import WorkshopPermissionsSettingsPanel from "./WorkshopPermissionsSettingsPanel";
 
 interface RoleDefinition {
   key: string;
@@ -56,7 +57,7 @@ function RoleIcon({ selected }: { selected: boolean }) {
   );
 }
 
-export default function RolePermissionsSettingsPanel() {
+function RolePermissionsPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
   const { can, refresh } = useAuth();
   const [catalog, setCatalog] = useState<PermissionCatalog | null>(null);
   const [selectedRole, setSelectedRole] = useState("admin");
@@ -90,6 +91,7 @@ export default function RolePermissionsSettingsPanel() {
   useEffect(() => { if (can(PERMISSIONS.usersManage)) void load(); }, [can, load]);
 
   const selectRole = (role: RoleDefinition) => {
+    if (dirty && !window.confirm("Bạn có thay đổi chưa lưu. Chuyển vai trò và bỏ thay đổi?")) return;
     setSelectedRole(role.key);
     setDraft(new Set(role.permissions));
     setMessage("");
@@ -105,6 +107,7 @@ export default function RolePermissionsSettingsPanel() {
   const currentRole = catalog?.roles.find((role) => role.key === selectedRole);
   const original = new Set(currentRole?.permissions || []);
   const dirty = draft.size !== original.size || [...draft].some((permission) => !original.has(permission));
+  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   const disabled = selectedRole === "user";
 
   const toggle = (permission: string) => {
@@ -277,4 +280,26 @@ export default function RolePermissionsSettingsPanel() {
       </div>
     </div>
   );
+}
+
+export default function RolePermissionsSettingsPanel() {
+  const [tab, setTab] = useState<"roles" | "workshops">("roles");
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+  const switchTab = (next: typeof tab) => {
+    if (next === tab || (dirty && !window.confirm("Bạn có thay đổi chưa lưu. Chuyển mục và bỏ thay đổi?"))) return;
+    setDirty(false);
+    setTab(next);
+  };
+  return <div className="min-h-0 lg:flex lg:flex-1 lg:flex-col">
+    <div className="mb-5 flex shrink-0 gap-2 border-b border-line" role="tablist" aria-label="Phạm vi phân quyền">
+      {([{ key: "roles", label: "Quyền theo vai trò" }, { key: "workshops", label: "Quyền theo workshop" }] as const).map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} onClick={() => switchTab(item.key)} className={`min-h-11 border-b-2 px-3 py-2 text-sm font-semibold ${tab === item.key ? "border-brand text-brand-teal" : "border-transparent text-muted"}`}>{item.label}</button>)}
+    </div>
+    {tab === "roles" ? <RolePermissionsPanel onDirtyChange={setDirty} /> : <WorkshopPermissionsSettingsPanel onDirtyChange={setDirty} />}
+  </div>;
 }

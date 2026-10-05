@@ -8,6 +8,10 @@ import {
 import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
 import { formatEventDateTime, shortLocation } from "@/lib/date-format";
 import QRCode from "react-qr-code";
+import { Kanit } from "next/font/google";
+import "./landing-form.css";
+
+const kanit = Kanit({ subsets: ["latin", "vietnamese"], weight: ["400", "500", "600", "700"], variable: "--registration-font" });
 
 // Trang phụ thuộc token ở runtime → không prerender tĩnh.
 export const dynamic = "force-dynamic";
@@ -28,11 +32,19 @@ export default function RegisterPage({
   searchParams,
 }: {
   params: { token: string };
-  searchParams?: { workshop?: string; embedded?: string };
+  searchParams?: { workshop?: string; embedded?: string; theme?: string };
 }) {
   const token = params.token;
   const embedded = searchParams?.embedded === "1";
+  const landingTheme = embedded && searchParams?.theme === "landing";
   const lockedWorkshopId = searchParams?.workshop || "";
+
+  useEffect(() => {
+    if (!landingTheme) return;
+    const previous = document.body.style.background;
+    document.body.style.background = "#14121a";
+    return () => { document.body.style.background = previous; };
+  }, [landingTheme]);
 
   const [form, setForm] = useState<RegistrationFormPublic | null>(null);
   const [step, setStep] = useState<Step>("loading");
@@ -241,7 +253,7 @@ export default function RegisterPage({
   const selectedZaloGroupUrl = selectedWorkshop?.zalo_group_url || form?.zalo_group_url || "";
 
   return (
-    <main className={embedded ? "bg-white text-brand-teal" : "min-h-screen bg-[radial-gradient(circle_at_12%_18%,rgba(0,183,204,0.14),transparent_32%),radial-gradient(circle_at_90%_10%,rgba(201,168,76,0.10),transparent_24%),linear-gradient(180deg,#FFFFFF_0%,#E8F4F5_100%)] px-4 py-5 text-brand-teal sm:px-6 lg:px-10 lg:py-7"}>
+    <main data-theme={landingTheme ? "landing" : undefined} className={landingTheme ? `landing-registration ${kanit.variable}` : embedded ? "bg-white text-brand-teal" : "min-h-screen bg-[radial-gradient(circle_at_12%_18%,rgba(0,183,204,0.14),transparent_32%),radial-gradient(circle_at_90%_10%,rgba(201,168,76,0.10),transparent_24%),linear-gradient(180deg,#FFFFFF_0%,#E8F4F5_100%)] px-4 py-5 text-brand-teal sm:px-6 lg:px-10 lg:py-7"}>
       {!embedded && <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 pb-6 sm:pb-8">
         <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-[14px] bg-[radial-gradient(circle_at_50%_30%,#1A5F6A,#0D3B42)] font-heading text-sm font-extrabold tracking-[-0.05em] text-white shadow-[0_12px_26px_rgba(13,59,66,0.22)]">
@@ -311,14 +323,14 @@ export default function RegisterPage({
 
           {step === "form" && (
             <>
-              <div className={embedded ? "border-b border-line bg-[linear-gradient(180deg,#fff,#fbfdfe)] px-5 pb-4 pt-5 sm:px-6" : ""}>
+              {!landingTheme && <div className={embedded ? "border-b border-line bg-[linear-gradient(180deg,#fff,#fbfdfe)] px-5 pb-4 pt-5 sm:px-6" : ""}>
               <h1 className={`${embedded ? "text-center font-sans text-2xl" : "font-heading text-3xl tracking-[-0.035em] sm:text-[34px]"} font-bold leading-tight text-brand-teal`}>
                 {embedded ? "Đăng ký tham gia Workshop" : "Thông tin đăng ký"}
               </h1>
               <p className={`mt-2 text-sm leading-6 text-[#3A6B74] ${embedded ? "text-center" : ""}`}>
                 Vui lòng để lại thông tin chính xác để đội ngũ Hi Sweetie Việt Nam xác nhận suất tham dự.
               </p>
-              </div>
+              </div>}
 
               {form?.greeting && (
                 <div className="mt-5 flex gap-3 rounded-2xl border border-line bg-[#E8F4F5]/80 p-4 text-sm leading-6 text-[#3A6B74]">
@@ -475,7 +487,7 @@ export default function RegisterPage({
                   disabled={busy}
                   className="mt-2 min-h-[56px] w-full rounded-2xl bg-brand px-5 py-4 text-[15px] font-extrabold tracking-[0.03em] text-brand-teal shadow-[0_16px_32px_rgba(0,183,204,0.23)] transition hover:bg-brand-accent disabled:cursor-not-allowed disabled:bg-[#7AA5A8] disabled:text-white disabled:shadow-none"
                 >
-                  {busy ? "Đang gửi đăng ký..." : embedded ? "Nhận vé Miễn phí ngay" : "Gửi đăng ký"}
+                  {busy ? "Đang gửi đăng ký..." : landingTheme ? "Giữ chỗ tham gia" : embedded ? "Nhận vé Miễn phí ngay" : "Gửi đăng ký"}
                 </button>
 
                 <p className="text-center text-xs leading-5 text-[#5A8A92]">

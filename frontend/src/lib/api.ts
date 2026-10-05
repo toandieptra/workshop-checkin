@@ -58,7 +58,9 @@ async function throwApiError(res: Response): Promise<never> {
   let message = text;
   try {
     const payload = JSON.parse(text);
-    message = typeof payload.detail === "string" ? payload.detail : text;
+    message = typeof payload.detail === "string" ? payload.detail
+      : Array.isArray(payload.detail) ? payload.detail.map((item: { msg?: string }) => item.msg || "Dữ liệu không hợp lệ.").join("; ")
+      : "Yêu cầu không thể hoàn tất.";
   } catch {
     if (text.trimStart().startsWith("<")) {
       message = "Máy chủ tạm thời không phản hồi. Vui lòng thử lại sau.";
@@ -134,6 +136,7 @@ export async function adminApi<T = any>(path: string, init?: ApiRequestInit): Pr
  */
 export async function downloadGuestsXlsx(params: {
   workshopIds?: string[];
+  context?: "guests" | "reports";
   status?: "all" | "checked_in" | "not_checked_in";
   businessModel?: string;
   source?: string;
@@ -142,6 +145,7 @@ export async function downloadGuestsXlsx(params: {
   const endPending = beginAdminPending();
   try {
   const qs = new URLSearchParams();
+  qs.set("export_context", params.context ?? "guests");
   qs.set("status", params.status ?? "all");
   if (params.workshopIds && params.workshopIds.length) {
     qs.set("workshop_ids", params.workshopIds.join(","));
@@ -407,6 +411,32 @@ export async function updateWorkshopLandingPage(
   });
 }
 
+export interface WorkshopLandingContent {
+  workshop_id: string;
+  draft_content: Record<string, unknown> | null;
+  published_content: Record<string, unknown> | null;
+  published_at?: string | null;
+  updated_at?: string | null;
+}
+
+export async function getWorkshopLandingContent(workshopId: string): Promise<WorkshopLandingContent> {
+  return await api("/workshops/" + workshopId + "/landing-page/content");
+}
+
+export async function saveWorkshopLandingContent(
+  workshopId: string,
+  content: Record<string, unknown>,
+): Promise<WorkshopLandingContent> {
+  return await api("/workshops/" + workshopId + "/landing-page/content", {
+    method: "PATCH",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function publishWorkshopLandingContent(workshopId: string): Promise<WorkshopLandingContent> {
+  return await api("/workshops/" + workshopId + "/landing-page/publish", { method: "POST" });
+}
+
 export interface WorkshopLandingPagePublic {
   id: string;
   name: string;
@@ -420,6 +450,7 @@ export interface WorkshopLandingPagePublic {
   zalo_group_url?: string | null;
   media: WorkshopMedia[];
   registration_form: WorkshopLinkedForm;
+  landing_content?: Record<string, unknown> | null;
 }
 
 export async function getWorkshopLandingPage(slug: string): Promise<WorkshopLandingPagePublic> {

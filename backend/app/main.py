@@ -20,6 +20,7 @@ from .config import settings
 from .db import engine
 from .ws import manager
 from .routers import workshops, guests, checkin, search, import_export, registration_forms, auth, admin_users, zbs, zalo_agent, zalo_messages, admin_api_keys, public_api
+from .routers import admin_workshops
 from .auth.bootstrap import bootstrap_super_admin
 from .services import admin_directory_sync
 from .db import async_session_maker
@@ -105,6 +106,7 @@ app.include_router(import_export.router)
 app.include_router(registration_forms.router)
 app.include_router(auth.router)
 app.include_router(admin_users.router)
+app.include_router(admin_workshops.router)
 app.include_router(zbs.router)
 app.include_router(zalo_agent.router)
 app.include_router(zalo_messages.router)

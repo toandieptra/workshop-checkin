@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
 import QRCode from "react-qr-code";
 
 interface GuestQrProps {
@@ -31,6 +33,8 @@ export default function GuestQr({
   workshopName = "Workshop",
   compact = false,
 }: GuestQrProps) {
+  const { canForWorkshop } = useAuth();
+  const canRead = canForWorkshop(PERMISSIONS.guestsView, workshopId);
   const [open, setOpen] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
   const payload = buildGuestQrPayload(workshopId, guestId);
@@ -44,7 +48,10 @@ export default function GuestQr({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
+  useEffect(() => { setOpen(false); }, [guestId, workshopId, canRead]);
+
   const downloadQr = () => {
+    if (!canRead) return;
     const svg = qrRef.current?.querySelector("svg");
     if (!svg) return;
 
@@ -80,6 +87,8 @@ export default function GuestQr({
     };
     image.src = objectUrl;
   };
+
+  if (!canRead) return null;
 
   return (
     <>

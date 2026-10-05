@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth.workshop_access import WORKSHOP_PERMISSIONS, allowed_workshop_ids, is_global_workshop_admin, require_workshop_permission
 from ..db import get_db
 from ..models import AdminUser, CheckinLog, Guest, GuestNote, WelcomeEvent, Workshop, ZbsDelivery
 from ..schemas import (
@@ -18,7 +19,7 @@ from ..services.registration_confirmation import confirm_registration
 from ..services.zbs import normalize_phone as normalize_zbs_phone, refresh_registration_recipient
 from ..redis_client import is_duplicate, mark_checked_in, clear_dedup
 from ..ws import manager
-from ..auth.dependencies import require_permission
+from ..auth.dependencies import current_user, require_permission
 
 router = APIRouter(prefix="/api", tags=["guests"])
 
@@ -156,10 +157,11 @@ async def _do_checkin(
 
 @router.get(
     "/guests/{guest_id}/qr-info",
-    response_model=GuestQrInfo,
-    dependencies=[Depends(require_permission("checkin.manage"))],
+    response_model=GuestQrInfo
 )
-async def get_guest_qr_info(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_guest_qr_info(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "checkin.manage")
     """Thông tin tối thiểu để nhân viên xác nhận khách từ QR."""
     row = (await db.execute(
         select(Guest, Workshop)
@@ -337,10 +339,11 @@ async def self_register_and_checkin(
 
 @router.get(
     "/guests/{guest_id}/notes",
-    response_model=list[GuestNoteOut],
-    dependencies=[Depends(require_permission("guests.read"))],
+    response_model=list[GuestNoteOut]
 )
-async def list_guest_notes(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def list_guest_notes(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "guests.read")
     guest = await db.scalar(
         select(Guest.id).where(Guest.id == guest_id, Guest.deleted_at.is_(None))
     )
@@ -364,9 +367,11 @@ async def list_guest_notes(guest_id: uuid.UUID, db: AsyncSession = Depends(get_d
 async def create_guest_note(
     guest_id: uuid.UUID,
     body: GuestNoteCreate,
-    user: AdminUser = Depends(require_permission("guests.write")),
+    user: AdminUser = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "guests.write")
     guest = await _load_guest(db, guest_id)
     if guest.deleted_at is not None:
         raise HTTPException(404, "guest not found")
@@ -387,9 +392,11 @@ async def update_guest_note(
     guest_id: uuid.UUID,
     note_id: uuid.UUID,
     body: GuestNoteUpdate,
-    user: AdminUser = Depends(require_permission("guests.write")),
+    user: AdminUser = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "guests.write")
     guest = await _load_guest(db, guest_id)
     if guest.deleted_at is not None:
         raise HTTPException(404, "guest not found")
@@ -399,7 +406,10 @@ async def update_guest_note(
     if not note:
         raise HTTPException(404, "note not found")
     if not _can_edit_guest_note(user, note):
-        raise HTTPException(403, "you cannot edit this note")
+        from ..models import WorkshopMember
+        member = await db.get(WorkshopMember, (user.id, guest.workshop_id))
+        if member is None or member.role != "admin":
+            raise HTTPException(403, "you cannot edit this note")
 
     note.content = _note_content(body.content)
     note.updated_at = _now()
@@ -409,17 +419,22 @@ async def update_guest_note(
     return _guest_note_out(note, author.name if author else None, author.email if author else None)
 
 
-@router.get("/guests/{guest_id}", response_model=GuestOut, dependencies=[Depends(require_permission("guests.read"))])
-async def get_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.get("/guests/{guest_id}", response_model=GuestOut)
+async def get_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "guests.read")
     return await _load_guest(db, guest_id)
 
 
-@router.patch("/guests/{guest_id}", response_model=GuestUpdateResult, dependencies=[Depends(require_permission("guests.write"))])
+@router.patch("/guests/{guest_id}", response_model=GuestUpdateResult)
 async def update_guest(
     guest_id: uuid.UUID,
     body: GuestUpdate,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "guests.write")
     g = await _load_guest(db, guest_id)
     changes = body.model_dump(exclude_unset=True)
     for k, v in changes.items():
@@ -434,8 +449,10 @@ async def update_guest(
     return GuestUpdateResult(guest=GuestOut.model_validate(g))
 
 
-@router.delete("/guests/{guest_id}", status_code=204, dependencies=[Depends(require_permission("guests.delete"))])
-async def delete_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.delete("/guests/{guest_id}", status_code=204)
+async def delete_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "guests.delete")
     g = await db.get(Guest, guest_id)
     if not g:
         raise HTTPException(404, "guest not found")
@@ -447,9 +464,11 @@ async def delete_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 @router.post("/guests/{guest_id}/confirm", response_model=GuestOut)
 async def confirm_guest_registration(
     guest_id: uuid.UUID,
-    user: AdminUser = Depends(require_permission("guests.write")),
+    user: AdminUser = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "guests.write")
     guest = await db.scalar(
         select(Guest).where(Guest.id == guest_id, Guest.deleted_at.is_(None)).with_for_update()
     )
@@ -465,12 +484,15 @@ async def confirm_guest_registration(
 # Admin check-in (giữ tương thích — chấp nhận optional actual_party_size)
 # =================================================================
 
-@router.post("/guests/{guest_id}/checkin", response_model=CheckinResult, dependencies=[Depends(require_permission("checkin.manage"))])
+@router.post("/guests/{guest_id}/checkin", response_model=CheckinResult)
 async def checkin_guest(
     guest_id: uuid.UUID,
     body: CheckinSelfRequest | None = None,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "checkin.manage")
     guest = await db.scalar(
         select(Guest).where(Guest.id == guest_id, Guest.deleted_at.is_(None)).with_for_update()
     )
@@ -481,8 +503,10 @@ async def checkin_guest(
     return CheckinResult(guest=GuestOut.model_validate(guest))
 
 
-@router.post("/guests/{guest_id}/uncheckin", response_model=CheckinResult, dependencies=[Depends(require_permission("checkin.manage"))])
-async def uncheckin_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.post("/guests/{guest_id}/uncheckin", response_model=CheckinResult)
+async def uncheckin_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    scoped_guest = await _load_guest(db, guest_id)
+    await require_workshop_permission(db, user, scoped_guest.workshop_id, "checkin.manage")
     guest = await _load_guest(db, guest_id)
 
     guest.checkin_status = "not_checked_in"

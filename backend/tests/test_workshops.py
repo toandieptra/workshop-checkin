@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.models import RegistrationForm, Workshop
+from app.models import AdminUser, RegistrationForm, Workshop
 from app.routers.workshops import (
     _linked_form,
     _to_out,
@@ -107,11 +107,12 @@ def test_update_landing_page_rejects_form_from_another_workshop():
     body = WorkshopLandingPageUpdate(registration_form_id=uuid.uuid4())
 
     with (
+        patch("app.routers.workshops.require_workshop_permission", AsyncMock()),
         patch("app.routers.workshops._get_workshop", AsyncMock(return_value=workshop)),
         patch("app.routers.workshops._linked_form", AsyncMock(return_value=None)),
         pytest.raises(HTTPException) as exc,
     ):
-        asyncio.run(update_workshop_landing_page(workshop.id, body, db))
+        asyncio.run(update_workshop_landing_page(workshop.id, body, db, user=AdminUser(role="super_admin", is_active=True)))
 
     assert exc.value.status_code == 400
     db.commit.assert_not_awaited()
@@ -125,11 +126,12 @@ def test_update_landing_page_persists_selected_form():
     body = WorkshopLandingPageUpdate(registration_form_id=form.id)
 
     with (
+        patch("app.routers.workshops.require_workshop_permission", AsyncMock()),
         patch("app.routers.workshops._get_workshop", AsyncMock(return_value=workshop)),
         patch("app.routers.workshops._linked_form", AsyncMock(return_value=form)),
         patch("app.routers.workshops._to_out", AsyncMock(return_value="output")),
     ):
-        output = asyncio.run(update_workshop_landing_page(workshop.id, body, db))
+        output = asyncio.run(update_workshop_landing_page(workshop.id, body, db, user=AdminUser(role="super_admin", is_active=True)))
 
     assert output == "output"
     assert workshop.landing_registration_form_id == form.id
@@ -169,6 +171,7 @@ def test_public_landing_page_returns_selected_form():
     with (
         patch("app.routers.workshops._linked_form", AsyncMock(return_value=form)),
         patch("app.routers.workshops._linked_form_out", AsyncMock(return_value=form_out)),
+        patch("app.routers.workshops._get_landing_page_row", AsyncMock(return_value=None)),
     ):
         output = asyncio.run(get_workshop_landing_page("workshop", db))
 

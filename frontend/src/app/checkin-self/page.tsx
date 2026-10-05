@@ -376,14 +376,39 @@ function CheckinSelfInner() {
               <label htmlFor="checkin-register-party" className="block text-sm font-medium text-ink mb-1">
                 Số người tham gia *
               </label>
-              <input
-                id="checkin-register-party"
-                type="number"
-                min={1}
-                value={regActual}
-                onChange={(e) => setRegActual(parseInt(e.target.value) || 1)}
-                className="w-full border border-line rounded-md px-4 py-3 text-lg font-mono focus:outline-none focus:ring-2 focus:ring-brand"
-              />
+              <div className="grid min-h-[52px] grid-cols-[52px_minmax(0,1fr)_52px] overflow-hidden rounded-[14px] border-[1.5px] border-line bg-white transition focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10">
+                <button
+                  type="button"
+                  aria-label="Giảm số người tham gia"
+                  disabled={regActual <= 1}
+                  onClick={() => setRegActual((value) => Math.max(1, value - 1))}
+                  className="grid place-items-center text-2xl font-semibold text-brand-teal transition active:bg-brand/10 disabled:opacity-30"
+                >
+                  −
+                </button>
+                <input
+                  id="checkin-register-party"
+                  name="party_size"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  step={1}
+                  value={regActual}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    setRegActual(Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1);
+                  }}
+                  className="min-w-0 border-x border-line bg-white px-2 py-3 text-center font-mono text-lg font-medium text-brand-teal focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <button
+                  type="button"
+                  aria-label="Tăng số người tham gia"
+                  onClick={() => setRegActual((value) => value + 1)}
+                  className="grid place-items-center text-2xl font-semibold text-brand-teal transition active:bg-brand/10"
+                >
+                  +
+                </button>
+              </div>
             </div>
 
             <button

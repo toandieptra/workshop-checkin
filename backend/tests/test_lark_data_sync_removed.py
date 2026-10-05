@@ -23,6 +23,18 @@ def test_lark_data_sync_routes_are_not_registered():
     assert "/api/admin/users/directory-sync/status" in paths
 
 
+def test_admin_users_support_managed_account_creation():
+    methods = {
+        method
+        for route in app.routes
+        if route.path == "/api/admin/users"
+        for method in (route.methods or set())
+    }
+
+    assert "GET" in methods
+    assert "POST" in methods
+
+
 def test_lark_data_sync_permissions_are_removed():
     assert "lark.read" not in PERMISSIONS
     assert "lark.sync" not in PERMISSIONS

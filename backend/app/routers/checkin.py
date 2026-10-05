@@ -3,15 +3,16 @@ from uuid import UUID
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth.workshop_access import WORKSHOP_PERMISSIONS, allowed_workshop_ids, is_global_workshop_admin, require_workshop_permission
 from ..db import get_db
 from ..models import CheckinLog, Guest, WelcomeEvent, ZbsDelivery
 from ..schemas import CheckinLogOut
 from ..ws import manager
-from ..auth.dependencies import require_permission
+from ..auth.dependencies import current_user, require_permission
 
 router = APIRouter(prefix="/api/checkin", tags=["checkin"])
 
@@ -43,12 +44,14 @@ async def _broadcast_welcome(db: AsyncSession, workshop_id: uuid.UUID, guest: Gu
 # -----------------------------------------------------------------
 # GET /api/checkin/logs
 # -----------------------------------------------------------------
-@router.get("/logs", response_model=list[CheckinLogOut], dependencies=[Depends(require_permission("checkin.read"))])
+@router.get("/logs", response_model=list[CheckinLogOut])
 async def get_logs(
     workshop_id: uuid.UUID,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    await require_workshop_permission(db, user, workshop_id, "checkin.read")
     rows = (
         await db.execute(
             select(CheckinLog)
@@ -75,11 +78,16 @@ async def get_logs(
 # -----------------------------------------------------------------
 # POST /api/checkin/reset  (backward-compatible alias for uncheckin)
 # -----------------------------------------------------------------
-@router.post("/reset", dependencies=[Depends(require_permission("checkin.manage"))])
+@router.post("/reset")
 async def reset_checkin(
     guest_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    guest_scope = await db.get(Guest, guest_id)
+    if guest_scope is None:
+        raise HTTPException(404, "guest not found")
+    await require_workshop_permission(db, user, guest_scope.workshop_id, "checkin.manage")
     """Reset check-in status for a guest. Alias for /api/guests/{id}/uncheckin."""
     from ..redis_client import clear_dedup
 

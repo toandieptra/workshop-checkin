@@ -36,11 +36,11 @@ function normalizePhone(p: string | null | undefined): string {
   return (p || "").replace(/\D/g, "");
 }
 
-function ZbsBadge({ label, delivery, onRetry }: { label: string; delivery?: ZbsDelivery; onRetry: (delivery: ZbsDelivery) => void }) {
+function ZbsBadge({ label, delivery, onRetry }: { label: string; delivery?: ZbsDelivery; onRetry?: (delivery: ZbsDelivery) => void }) {
   if (!delivery) return <span className="text-[10px] text-muted">{label}: chưa tạo</span>;
   const failed = delivery.status === "failed";
   const text = delivery.status === "delivered" ? "đã nhận" : delivery.status === "sent" ? "đã gửi" : delivery.status === "sending" ? "đang gửi" : delivery.status === "pending" ? "chờ gửi" : delivery.status === "expired" ? "quá hạn" : delivery.status === "cancelled" ? "đã hủy" : "lỗi";
-  return <span className={`text-[10px] ${failed ? "text-red-600" : delivery.status === "delivered" ? "text-green-700" : "text-muted"}`} title={delivery.last_error || ""}>{label}: {text}{failed && <button className="ml-1 underline" onClick={() => onRetry(delivery)}>gửi lại</button>}</span>;
+  return <span className={`text-[10px] ${failed ? "text-red-600" : delivery.status === "delivered" ? "text-green-700" : "text-muted"}`} title={delivery.last_error || ""}>{label}: {text}{failed && onRetry && <button className="ml-1 underline" onClick={() => onRetry(delivery)}>gửi lại</button>}</span>;
 }
 
 function WelcomeLinkCard({ slug }: { slug: string }) {
@@ -96,7 +96,7 @@ function WelcomeLinkCard({ slug }: { slug: string }) {
  * Edit modal là desktop-only và giữ state cục bộ tại đây.
  */
 export default function DesktopAdmin() {
-  const { can } = useAuth();
+  const { canForWorkshop, user } = useAuth();
   const {
     workshops,
     wid,
@@ -136,6 +136,8 @@ export default function DesktopAdmin() {
     duplicateGuest,
     clearDuplicateGuest,
   } = useAdminGuests();
+  const can = (permission: string) => canForWorkshop(permission, wid);
+  const accessKey = JSON.stringify(user?.workshop_access);
   const defaultVisibleColumns: ColumnKey[] = [
     "name", "phone", "businessModel", "source", "creator",
     "registered", "checkedIn", "checkin", "actions", "registeredAt",
@@ -212,12 +214,15 @@ export default function DesktopAdmin() {
   const [editBusy, setEditBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
 
+  useEffect(() => { setEditId(null); setEf({}); setShowAddGuest(false); setExpandedGuestId(null); }, [wid, accessKey]);
+
   const runExport = async () => {
+    if (!wid || !can(PERMISSIONS.guestsExport)) return;
     setExportBusy(true);
     setMsg("Đang xuất Excel...");
     try {
       await downloadGuestsXlsx({
-        workshopIds: wid ? [wid] : undefined,
+        workshopIds: [wid],
         status: statusFilter,
         filename:
           "guests_" +
@@ -235,6 +240,7 @@ export default function DesktopAdmin() {
   };
 
   const openEdit = (g: Guest) => {
+    if (!can(PERMISSIONS.guestsEdit) || (g.workshop_id && g.workshop_id !== wid)) return;
     setEditId(g.id);
     setEf({
       full_name: g.full_name || "",
@@ -246,7 +252,7 @@ export default function DesktopAdmin() {
   };
 
   const saveEdit = async () => {
-    if (!editId || editBusy) return;
+    if (!editId || editBusy || !can(PERMISSIONS.guestsEdit)) return;
     const full_name = (ef.full_name || "").trim();
     const phone = (ef.phone || "").trim();
     const business_model = (ef.business_model || "").trim();
@@ -280,8 +286,8 @@ export default function DesktopAdmin() {
 
   // ----- Render -----
   return (
-    <div className="min-h-[calc(100dvh-3.5rem)] p-6">
-      <div className="flex min-h-[calc(100dvh-6.5rem)] w-full flex-col">
+    <div className="min-h-[calc(100dvh-3.5rem)] p-6 md:pb-px">
+      <div className="flex min-h-[calc(100dvh-6.5rem)] w-full flex-col md:h-[calc(var(--admin-vh)_-_5rem_-_1px)] md:min-h-0 md:overflow-y-auto">
         <h1 className="text-2xl font-bold text-brand-teal mb-4">Khách mời</h1>
         {msg && (
           <div className="mb-3 p-2 bg-brand/10 text-brand-teal rounded-sm text-sm flex items-center justify-between">
@@ -295,18 +301,18 @@ export default function DesktopAdmin() {
           <div className="order-1 bg-surface rounded-md border border-line p-4 mb-4 flex items-center gap-3 flex-wrap justify-between">
             <div className="w-full max-w-xl"><WorkshopPicker workshops={workshops} value={wid} onChange={setWid} /></div>
             <div className="flex items-center gap-2 flex-wrap">
-              <button type="button" onClick={() => setShowAddGuest((value) => !value)} className="min-h-10 rounded-md border border-brand bg-brand px-4 text-sm font-semibold text-brand-teal">{showAddGuest ? "Đóng form thêm khách" : "Thêm khách"}</button>
+              {can(PERMISSIONS.guestsCreate) && <button type="button" onClick={() => setShowAddGuest((value) => !value)} className="min-h-10 rounded-md border border-brand bg-brand px-4 text-sm font-semibold text-brand-teal">{showAddGuest ? "Đóng form thêm khách" : "Thêm khách"}</button>}
               <button type="button" aria-expanded={showAdminTools} onClick={() => setShowAdminTools((value) => !value)} className="min-h-10 rounded-md border border-line px-4 text-sm font-semibold text-brand-teal">{showAdminTools ? "Ẩn công cụ quản trị" : "Công cụ quản trị"}</button>
             </div>
             {showAdminTools && <div className="flex w-full items-center gap-2 flex-wrap border-t border-line pt-3">
-              <button
+              {can(PERMISSIONS.guestsExport) && <button
                 onClick={runExport}
                 disabled={exportBusy}
                 className="border border-line px-3 py-2 rounded-sm text-sm disabled:opacity-50"
               >
                 {exportBusy ? "Đang xuất..." : "Xuất Excel"}
-              </button>
-              <label className={`border border-line px-3 py-2 rounded-sm text-sm ${importing ? "opacity-50" : "cursor-pointer"}`}>
+              </button>}
+              {can(PERMISSIONS.guestsImport) && <label className={`border border-line px-3 py-2 rounded-sm text-sm ${importing ? "opacity-50" : "cursor-pointer"}`}>
                 {importing ? "Đang nhập..." : "Nhập CSV/XLSX"}
                 <input
                   type="file"
@@ -315,7 +321,7 @@ export default function DesktopAdmin() {
                   disabled={importing}
                   onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])}
                 />
-              </label>
+              </label>}
             </div>}
           </div>
 
@@ -398,7 +404,7 @@ export default function DesktopAdmin() {
         </section>
 
         {/* Add guest — cùng field với form đăng ký + VIP */}
-        {showAddGuest && <section className="order-3 bg-surface rounded-md border border-line p-4 mb-4">
+        {showAddGuest && can(PERMISSIONS.guestsCreate) && <section className="order-3 bg-surface rounded-md border border-line p-4 mb-4">
           <h2 className="font-semibold text-brand-teal mb-2">Thêm khách</h2>
           <div className="flex flex-wrap items-end gap-3 text-sm">
             <label className="block min-w-[160px] flex-1">
@@ -497,7 +503,7 @@ export default function DesktopAdmin() {
         </section>}
 
         {/* Guest list */}
-        <section className={`order-4 overflow-hidden bg-surface rounded-md border border-line mb-4 flex min-h-[24rem] flex-col ${showAdminTools || showAddGuest ? "" : "flex-1"}`}>
+        <section className="order-4 overflow-hidden bg-surface rounded-md border border-line mb-4 md:mb-0 flex min-h-[24rem] flex-col flex-1">
           <div className="bg-surface border-b border-line px-4 py-3 flex shrink-0 items-center justify-between gap-3 flex-wrap">
             <h2 className="font-semibold text-brand-teal">
               Phiếu đã check-in: {checkedInRecords}/{totalRecords} · Khách đã check-in: {totalCheckedIn}/{totalRegistered}
@@ -622,7 +628,7 @@ export default function DesktopAdmin() {
                         )}
                       </td>}
                        {visibleColumns.checkin && <td className="px-3 py-2 align-top">
-                        {g.checkin_status === "checked_in" ? (
+                        {!can(PERMISSIONS.guestsCheckin) ? <span className="text-xs text-muted">{g.checkin_status === "checked_in" ? "Đã check-in" : "Chưa check-in"}</span> : g.checkin_status === "checked_in" ? (
                            <button
                              onClick={(event) => { event.stopPropagation(); void doUncheckin(g); }}
                             className="bg-green-50 text-green-700 font-semibold text-xs px-3 py-1.5 rounded-sm min-h-[32px] flex items-center justify-center w-full"
@@ -640,7 +646,7 @@ export default function DesktopAdmin() {
                        </td>}
                        {visibleColumns.qr && <td className="px-3 py-2 align-top">
                          <div onClick={(event) => event.stopPropagation()}>
-                         {currentWorkshop && (
+                         {currentWorkshop && can(PERMISSIONS.guestsView) && (
                            <GuestQr
                              guestId={g.id}
                              guestName={g.full_name}
@@ -653,38 +659,38 @@ export default function DesktopAdmin() {
                        </td>}
                        {visibleColumns.zbs && <td className="px-3 py-2 align-top">
                          <div className="flex flex-col gap-1 items-start">
-                           <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={retryZbs} />
-                           <ZbsBadge label="Check-in" delivery={g.zbs?.checkin_confirmation} onRetry={retryZbs} />
+                           <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={can(PERMISSIONS.zbsManage) ? retryZbs : undefined} />
+                           <ZbsBadge label="Check-in" delivery={g.zbs?.checkin_confirmation} onRetry={can(PERMISSIONS.zbsManage) ? retryZbs : undefined} />
                          </div>
                        </td>}
                       {visibleColumns.actions && <td className="px-3 py-2 align-top text-sm">
                         <div className="flex flex-wrap justify-end gap-1">
-                           {g.registration_status !== "confirmed" && <button
+                           {can(PERMISSIONS.guestsEdit) && g.registration_status !== "confirmed" && <button
                              onClick={(event) => { event.stopPropagation(); void confirmRegistration(g); }}
                              className="rounded-sm border border-brand/30 px-2 py-1 text-xs font-semibold text-brand-teal"
                            >
                              Xác nhận
                            </button>}
-                           <button
+                           {can(PERMISSIONS.guestsEdit) && <button
                              onClick={(event) => { event.stopPropagation(); openEdit(g); }}
                             className="rounded-sm border border-line px-2 py-1 text-xs text-brand hover:bg-surface-muted"
                           >
                             Sửa
-                          </button>
-                            <button
+                          </button>}
+                            {can(PERMISSIONS.guestsEdit) && <button
                               onClick={(event) => { event.stopPropagation(); void toggleVip(g); }}
                              disabled={busyGuestIds.has(g.id)}
                              className="rounded-sm border border-line px-2 py-1 text-xs text-muted hover:bg-surface-muted disabled:opacity-40"
                           >
                             {vip ? "Bỏ VIP" : "VIP"}
-                          </button>
-                            <button
+                          </button>}
+                            {can(PERMISSIONS.guestsDelete) && <button
                               onClick={(event) => { event.stopPropagation(); void delGuest(g.id).then((deleted) => { if (deleted) setExpandedGuestId(null); }); }}
                              disabled={busyGuestIds.has(g.id)}
                              className="rounded-sm border border-red-200 px-2 py-1 text-xs text-red-600 disabled:opacity-40"
                           >
                             Xóa
-                          </button>
+                          </button>}
                         </div>
                       </td>}
                       {visibleColumns.registeredAt && <td className="px-3 py-2 align-top text-muted text-xs whitespace-nowrap">
@@ -742,7 +748,7 @@ export default function DesktopAdmin() {
       </div>
 
       {/* Edit modal — cùng field với form đăng ký + VIP */}
-      {editId && (
+      {editId && can(PERMISSIONS.guestsEdit) && (
         <div
           className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4"
           onClick={() => !editBusy && setEditId(null)}

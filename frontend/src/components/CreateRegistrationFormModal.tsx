@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
 import QRCode from "react-qr-code";
 import {
   createRegistrationForm,
-  getWorkshops,
+  api,
   updateRegistrationForm,
   type RegistrationForm,
 } from "@/lib/api";
@@ -29,6 +31,7 @@ function selectedIds(form: RegistrationForm): string[] {
 }
 
 export default function CreateRegistrationFormModal({ open, onClose, editingForm, onCreated, onUpdated }: Props) {
+  const { canForWorkshop } = useAuth();
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [selectedWorkshopIds, setSelectedWorkshopIds] = useState<string[]>([]);
   const [greeting, setGreeting] = useState("");
@@ -44,22 +47,26 @@ export default function CreateRegistrationFormModal({ open, onClose, editingForm
   // Load workshops mỗi khi mở modal
   useEffect(() => {
     if (!open) return;
-    getWorkshops()
+    let alive = true;
+    setWorkshops([]);
+    api<Workshop[]>("/workshops?permission=registration_forms.write")
       .then((ws) => {
+        if (!alive) return;
         // Ẩn workshop Nháp / Đã hủy khỏi danh sách tạo Form đăng ký
         const list = (ws || []).filter((w) => {
           const s = w.status || "draft";
-          return s !== "draft" && s !== "cancelled";
+          return canForWorkshop(PERMISSIONS.formsCreate, w.id) && ((s !== "draft" && s !== "cancelled") || Boolean(editingForm && selectedIds(editingForm).includes(w.id)));
         });
         setWorkshops(list);
         if (editingForm) {
-          setSelectedWorkshopIds(selectedIds(editingForm));
+          setSelectedWorkshopIds(selectedIds(editingForm).filter((id) => list.some((workshop) => workshop.id === id)));
         } else if (list[0]) {
-          setSelectedWorkshopIds((prev) => (prev.length ? prev : [list[0].id]));
+          setSelectedWorkshopIds((prev) => { const valid = prev.filter((id) => list.some((workshop) => workshop.id === id)); return valid.length ? valid : [list[0].id]; });
         }
       })
-      .catch(() => setError("Không tải được danh sách workshop"));
-  }, [open, editingForm]);
+      .catch(() => { if (alive) setError("Không tải được danh sách workshop"); });
+    return () => { alive = false; };
+  }, [open, editingForm, canForWorkshop]);
 
   useEffect(() => {
     if (!open) return;
@@ -107,6 +114,11 @@ export default function CreateRegistrationFormModal({ open, onClose, editingForm
 
   const submit = async () => {
     if (!selectedWorkshopIds.length || busy) return;
+    const relatedIds = [...selectedWorkshopIds, ...(editingForm ? selectedIds(editingForm) : [])];
+    if (!relatedIds.every((id) => canForWorkshop(PERMISSIONS.formsEdit, id))) {
+      setError("Bạn cần quyền chỉnh sửa trên tất cả workshop cũ và mới của form.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {

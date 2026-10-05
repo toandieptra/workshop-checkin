@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { checkinGuestById, getGuestQrInfo, type GuestQrInfo } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
 
 interface GuestQrScannerProps {
@@ -26,6 +28,8 @@ export default function GuestQrScanner({
   onClose,
   onCheckedIn,
 }: GuestQrScannerProps) {
+  const { canForWorkshop } = useAuth();
+  const canCheckin = canForWorkshop(PERMISSIONS.guestsCheckin, workshopId);
   const rawId = useId();
   const readerId = `guest-qr-reader-${rawId.replace(/:/g, "")}`;
   const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
@@ -59,7 +63,7 @@ export default function GuestQrScanner({
   };
 
   useEffect(() => {
-    if (step !== "camera") return;
+    if (step !== "camera" || !canCheckin) return;
     let cancelled = false;
 
     const start = async () => {
@@ -88,6 +92,7 @@ export default function GuestQrScanner({
             }
             try {
               const info = await getGuestQrInfo(parsed.guestId);
+              if (cancelled) return;
               if (info.workshop_id !== workshopId || info.workshop_slug !== workshopSlug) {
                 throw new Error("QR thuộc workshop khác với workshop đang chọn.");
               }
@@ -118,7 +123,7 @@ export default function GuestQrScanner({
       cancelled = true;
       void stopScanner();
     };
-  }, [readerId, step, workshopId, workshopSlug]);
+  }, [readerId, step, workshopId, workshopSlug, canCheckin]);
 
   const scanAgain = () => {
     handlingRef.current = false;
@@ -128,7 +133,7 @@ export default function GuestQrScanner({
   };
 
   const confirmCheckin = async () => {
-    if (!guest || busy || guest.checkin_status === "checked_in") return;
+    if (!canCheckin || !guest || guest.workshop_id !== workshopId || busy || guest.checkin_status === "checked_in") return;
     const count = Math.max(1, Math.floor(actual) || 1);
     setBusy(true);
     try {
@@ -142,6 +147,8 @@ export default function GuestQrScanner({
       setBusy(false);
     }
   };
+
+  if (!canCheckin) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" role="dialog" aria-modal="true" aria-label="Quét QR check-in">

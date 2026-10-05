@@ -5,16 +5,21 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
+from pydantic import AliasChoices, BaseModel, Field, field_validator
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth.dependencies import current_user
+from ..auth.dependencies import current_user, enforce_same_origin
 from ..auth.lark_oauth import LarkOAuthError, authorization_url, exchange_code
 from ..auth.permissions import effective_permissions_for_user
+from ..auth.workshop_access import workshop_access_payload
 from ..auth.session import clear_session_cookie, create_session, revoke_session, set_session_cookie, token_hash
 from ..config import settings
 from ..db import get_db
-from ..models import AdminOAuthState, AdminUser
+from ..models import AdminOAuthState, AdminUser, Workshop
+from ..auth.local_accounts import (account_access_payload, account_type, check_login_rate_limit,
+                                   guest_access_active, is_checkin_guest, utc_datetime, verify_password)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 logger = logging.getLogger("auth")
@@ -23,14 +28,16 @@ logger = logging.getLogger("auth")
 async def _user_payload(user: AdminUser, db: AsyncSession) -> dict:
     return {
         "id": str(user.id), "email": user.email, "name": user.name,
-        "avatar_url": user.avatar_url, "role": user.role, "is_active": user.is_active,
-        "permissions": sorted(await effective_permissions_for_user(db, user.role, user.permission_overrides)),
-        "permission_overrides": user.permission_overrides or {},
+        "avatar_url": user.avatar_url, "role": "user" if is_checkin_guest(user) else user.role, "is_active": user.is_active,
+        "permissions": [] if is_checkin_guest(user) else sorted(await effective_permissions_for_user(db, user.role, user.permission_overrides)),
+        "permission_overrides": {} if is_checkin_guest(user) else user.permission_overrides or {},
+        **account_access_payload(user),
+        "workshop_access": await workshop_access_payload(db, user),
     }
 
 
 def _safe_return_to(value: str | None) -> str:
-    return value if value and value.startswith("/") and not value.startswith("//") else "/admin"
+    return value if value and value.startswith("/") and not value.startswith("//") and "\\" not in value and not any(ord(char) < 32 or ord(char) == 127 for char in value) else "/admin"
 
 
 def _role_rank(role: str | None) -> int:
@@ -60,10 +67,10 @@ async def _resolve_login_user(
                 candidates.append(row)
 
     if open_id:
-        await _add(select(AdminUser).where(AdminUser.lark_open_id == open_id))
+        await _add(select(AdminUser).where(AdminUser.account_type == "lark", AdminUser.lark_open_id == open_id))
     if union_id:
-        await _add(select(AdminUser).where(AdminUser.lark_union_id == union_id))
-    await _add(select(AdminUser).where(func.lower(AdminUser.email) == email))
+        await _add(select(AdminUser).where(AdminUser.account_type == "lark", AdminUser.lark_union_id == union_id))
+    await _add(select(AdminUser).where(AdminUser.account_type == "lark", func.lower(AdminUser.email) == email))
 
     if not candidates:
         return None
@@ -81,12 +88,15 @@ async def _claim_lark_identity(
     union_id: str | None,
 ) -> None:
     """Move unique Lark ids onto the chosen user; clear duplicates on others."""
+    if account_type(user) != "lark":
+        raise HTTPException(403, "Tài khoản này không dùng đăng nhập Lark.")
     if open_id:
         others = (
             await db.execute(
                 select(AdminUser).where(
                     AdminUser.lark_open_id == open_id,
                     AdminUser.id != user.id,
+                    AdminUser.account_type == "lark",
                 )
             )
         ).scalars().all()
@@ -101,6 +111,7 @@ async def _claim_lark_identity(
                 select(AdminUser).where(
                     AdminUser.lark_union_id == union_id,
                     AdminUser.id != user.id,
+                    AdminUser.account_type == "lark",
                 )
             )
         ).scalars().all()
@@ -109,6 +120,45 @@ async def _claim_lark_identity(
             other.updated_at = datetime.now(timezone.utc)
             logger.info("Cleared duplicate lark_union_id from admin_users.id=%s", other.id)
         user.lark_union_id = union_id
+
+
+class PasswordLogin(BaseModel):
+    identifier: str = Field(min_length=3, max_length=254, validation_alias=AliasChoices("identifier", "email", "username"))
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("identifier")
+    @classmethod
+    def normalize_identifier(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+@router.post("/login")
+async def password_login(body: PasswordLogin, request: Request, response: Response,
+                         db: AsyncSession = Depends(get_db)):
+    enforce_same_origin(request)
+    await check_login_rate_limit(request, body.identifier)
+    if "@" in body.identifier:
+        condition = (AdminUser.account_type == "local") & (func.lower(AdminUser.email) == body.identifier)
+    else:
+        condition = (AdminUser.account_type == "checkin_guest") & (func.lower(AdminUser.username) == body.identifier)
+    user = (await db.execute(select(AdminUser).where(condition).with_for_update())).scalar_one_or_none()
+    encoded = user.password_hash if user and account_type(user) in {"local", "checkin_guest"} else None
+    verified = await run_in_threadpool(verify_password, body.password, encoded)
+    valid_account = bool(user and user.is_active and account_type(user) in {"local", "checkin_guest"})
+    if valid_account and is_checkin_guest(user):
+        valid_account = guest_access_active(user) and await db.get(Workshop, user.access_workshop_id) is not None
+    if not verified or not valid_account:
+        raise HTTPException(401, "Thông tin đăng nhập hoặc thời gian truy cập không hợp lệ.")
+    user.last_login_at = datetime.now(timezone.utc)
+    user.updated_at = user.last_login_at
+    session_token = await create_session(db, user, request)
+    max_age = None
+    if is_checkin_guest(user):
+        max_age = max(0, min(settings.AUTH_SESSION_TTL_SECONDS,
+                            int((utc_datetime(user.access_expires_at) - datetime.now(timezone.utc)).total_seconds())))
+    set_session_cookie(response, session_token, max_age=max_age)
+    response.headers["Cache-Control"] = "no-store"
+    return await _user_payload(user, db)
 
 
 @router.get("/lark/login")
@@ -160,7 +210,25 @@ async def lark_callback(code: str, state: str, request: Request, db: AsyncSessio
     user = await _resolve_login_user(db, email=email, open_id=open_id, union_id=union_id)
     if not user or not user.is_active:
         raise HTTPException(403, "account is not pre-provisioned or is inactive")
-    user.email = email
+    # A Lark identity can outlive an old pre-provisioned email row. Keep the
+    # matched user's existing unique email instead of failing the login with a
+    # unique-constraint violation while trying to overwrite that old row.
+    email_owner = (
+        await db.execute(
+            select(AdminUser).where(
+                func.lower(AdminUser.email) == email,
+                AdminUser.id != user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if email_owner is None:
+        user.email = email
+    else:
+        logger.warning(
+            "Keeping admin user email for id=%s; Lark email is already assigned to id=%s",
+            user.id,
+            email_owner.id,
+        )
     user.name = profile.get("name") or profile.get("en_name") or user.name
     user.avatar_url = profile.get("avatar_url") or profile.get("avatar_big") or user.avatar_url
     await _claim_lark_identity(db, user, open_id=open_id, union_id=union_id)

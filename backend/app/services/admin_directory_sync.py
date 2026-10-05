@@ -6,6 +6,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import AdminDirectorySyncState, AdminSession, AdminUser
+from ..auth.local_accounts import account_type
 from . import lark_client
 
 logger = logging.getLogger("lark.directory")
@@ -65,6 +66,11 @@ async def _find_user(db: AsyncSession, item: dict, email: str | None) -> tuple[A
     union_id = str(item.get("union_id") or "").strip() or None
     open_id = str(item.get("open_id") or "").strip() or None
     user_id = str(item.get("user_id") or "").strip() or None
+    if email:
+        email_owner = (await db.execute(select(AdminUser).where(func.lower(AdminUser.email) == email))).scalar_one_or_none()
+        if email_owner and account_type(email_owner) != "lark":
+            logger.warning("Skipping Lark directory identity with an email owned by a local account")
+            return None, True
     identity_conditions = []
     if union_id:
         identity_conditions.append(AdminUser.lark_union_id == union_id)
@@ -78,7 +84,7 @@ async def _find_user(db: AsyncSession, item: dict, email: str | None) -> tuple[A
             logger.warning("Conflicting Lark identities for directory user %s", user_id or open_id or union_id)
             return None, True
         if matches:
-            return matches[0], False
+            return (matches[0], False) if account_type(matches[0]) == "lark" else (None, True)
     if email:
         email_user = (await db.execute(
             select(AdminUser).where(func.lower(AdminUser.email) == email)
@@ -120,7 +126,7 @@ async def sync_directory(db: AsyncSession) -> DirectorySyncResult:
                 result.users_skipped += 1
                 continue
             if not user:
-                user = AdminUser(email=email, role="user", is_active=False, permission_overrides={})
+                user = AdminUser(email=email, account_type="lark", role="user", is_active=False, permission_overrides={})
                 db.add(user)
                 result.users_created += 1
             else:

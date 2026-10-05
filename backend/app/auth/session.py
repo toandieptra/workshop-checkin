@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import AdminSession, AdminUser
+from .local_accounts import is_checkin_guest, utc_datetime
 
 
 def token_hash(token: str) -> str:
@@ -17,10 +18,15 @@ def token_hash(token: str) -> str:
 async def create_session(db: AsyncSession, user: AdminUser, request: Request) -> str:
     token = secrets.token_urlsafe(48)
     forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=settings.AUTH_SESSION_TTL_SECONDS)
+    if is_checkin_guest(user):
+        if not user.access_expires_at:
+            raise ValueError("Guest session requires an access expiry")
+        expires_at = min(expires_at, utc_datetime(user.access_expires_at))
     db.add(AdminSession(
         user_id=user.id,
         token_hash=token_hash(token),
-        expires_at=datetime.now(timezone.utc) + timedelta(seconds=settings.AUTH_SESSION_TTL_SECONDS),
+        expires_at=expires_at,
         user_agent=request.headers.get("user-agent"),
         ip_address=forwarded or (request.client.host if request.client else None),
     ))
@@ -28,11 +34,11 @@ async def create_session(db: AsyncSession, user: AdminUser, request: Request) ->
     return token
 
 
-def set_session_cookie(response: Response, token: str) -> None:
+def set_session_cookie(response: Response, token: str, max_age: int | None = None) -> None:
     response.set_cookie(
         settings.AUTH_SESSION_COOKIE,
         token,
-        max_age=settings.AUTH_SESSION_TTL_SECONDS,
+        max_age=settings.AUTH_SESSION_TTL_SECONDS if max_age is None else max_age,
         httponly=True,
         secure=settings.AUTH_COOKIE_SECURE,
         samesite="lax",

@@ -3,6 +3,7 @@ import io
 import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -12,9 +13,10 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth.workshop_access import WORKSHOP_PERMISSIONS, allowed_workshop_ids, is_global_workshop_admin, require_workshop_permission
 from ..db import get_db
 from ..models import AdminUser, Guest, GuestNote, Workshop
-from ..auth.dependencies import require_permission
+from ..auth.dependencies import current_user, require_permission
 from ..services.guest_provenance import GUEST_SOURCE_OPTIONS
 
 router = APIRouter(prefix="/api", tags=["import-export"])
@@ -39,8 +41,9 @@ def _parse_int(v, default: int = 1) -> int:
         return default
 
 
-@router.post("/workshops/{workshop_id}/import", dependencies=[Depends(require_permission("guests.write"))])
-async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+@router.post("/workshops/{workshop_id}/import")
+async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    await require_workshop_permission(db, user, workshop_id, "guests.write")
     from ..services.registration_confirmation import apply_registration_policy
     from ..services.zbs import normalize_phone
     w = await db.get(Workshop, workshop_id)
@@ -98,7 +101,7 @@ async def import_guests(workshop_id: uuid.UUID, file: UploadFile = File(...), db
     }
 
 
-@router.get("/export/guests", dependencies=[Depends(require_permission("guests.export"))])
+@router.get("/export/guests")
 async def export_guests(
     db: AsyncSession = Depends(get_db),
     workshop_id: str | None = Query(default=None, description="uuid hoặc 'all'"),
@@ -106,6 +109,8 @@ async def export_guests(
     status: str = Query(default="all", pattern="^(all|checked_in|not_checked_in)$"),
     business_model: str | None = Query(default=None),
     source: str | None = Query(default=None),
+    user=Depends(current_user),
+    export_context: Literal["guests", "reports"] = "guests",
 ):
     """Xuất khách ra file .xlsx.
 
@@ -119,6 +124,7 @@ async def export_guests(
     if source and source not in GUEST_SOURCE_OPTIONS:
         raise HTTPException(400, "Nguồn khách không hợp lệ")
 
+    export_permissions = ("reports.read", "reports.export") if export_context == "reports" else ("guests.export",)
     stmt = (
         select(Guest, Workshop.name)
         .join(Workshop, Guest.workshop_id == Workshop.id)
@@ -131,13 +137,19 @@ async def export_guests(
             raise HTTPException(400, "workshop_ids không hợp lệ")
         if not workshop_uuid_list:
             raise HTTPException(400, "workshop_ids không hợp lệ")
+        for wid in set(workshop_uuid_list):
+            await require_workshop_permission(db, user, wid, *export_permissions)
         stmt = stmt.where(Guest.workshop_id.in_(workshop_uuid_list))
     elif workshop_id and workshop_id != "all":
         try:
             wid_uuid = uuid.UUID(workshop_id)
         except ValueError:
             raise HTTPException(400, "workshop_id không hợp lệ")
+        await require_workshop_permission(db, user, wid_uuid, *export_permissions)
         stmt = stmt.where(Guest.workshop_id == wid_uuid)
+    accessible = await allowed_workshop_ids(db, user, *export_permissions)
+    if accessible is not None:
+        stmt = stmt.where(Guest.workshop_id.in_(accessible))
     if status == "checked_in":
         stmt = stmt.where(Guest.checkin_status == "checked_in")
     elif status == "not_checked_in":

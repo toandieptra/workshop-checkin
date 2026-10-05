@@ -1,0 +1,89 @@
+.landing-registration {
+  color-scheme: dark;
+  background: #14121a;
+  color: #d7e2ea;
+  font-family: var(--registration-font), sans-serif;
+}
+
+.landing-registration > div > .relative {
+  background: transparent;
+}
+
+.landing-registration form {
+  padding: 1.5rem;
+}
+
+.landing-registration label,
+.landing-registration .text-brand-teal {
+  color: #d7e2ea;
+}
+
+.landing-registration label {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.landing-registration label span {
+  color: #ddb5f1;
+}
+
+.landing-registration input,
+.landing-registration select,
+.landing-registration form .bg-white {
+  background: #201d27;
+  color: #f1edf5;
+  border-color: #48404f;
+  font-family: inherit;
+}
+
+.landing-registration input,
+.landing-registration select {
+  min-width: 0;
+  font-size: 16px;
+}
+
+.landing-registration input::placeholder {
+  color: #9e97a8;
+}
+
+.landing-registration input:focus-visible,
+.landing-registration select:focus-visible,
+.landing-registration button:focus-visible,
+.landing-registration a:focus-visible {
+  outline: 2px solid #d1b0ee;
+  outline-offset: 3px;
+}
+
+.landing-registration .text-text-secondary,
+.landing-registration p,
+.landing-registration .text-\[\#3A6B74\] {
+  color: #b2aabb;
+}
+
+.landing-registration .text-red-600 {
+  color: #ffabb4;
+}
+
+.landing-registration button[type="submit"],
+.landing-registration a.bg-brand {
+  color: #fff;
+  border: 1px solid #f2dff9;
+  border-radius: 999px;
+  background: linear-gradient(123deg, #18011f 7%, #b600a8 37%, #7621b0 72%, #be4c00 100%);
+  box-shadow: 0 4px 16px #b501a740;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.landing-registration button[type="submit"]:disabled {
+  opacity: 0.55;
+}
+
+@media (max-width: 420px) {
+  .landing-registration form {
+    padding: 1.25rem;
+  }
+  .landing-registration form > .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

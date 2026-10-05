@@ -30,7 +30,7 @@ export default function SettingsPage() {
   if (!activeTab) return <div className="p-8 text-center text-muted">403 — Bạn không có quyền xem cài đặt.</div>;
 
   return (
-    <div className="w-full px-4 py-6 sm:px-6 lg:flex lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:flex-col lg:overflow-hidden lg:py-5">
+    <div className="w-full px-4 py-6 sm:px-6 lg:flex lg:h-[calc(var(--admin-vh)_-_3.5rem)] lg:min-h-0 lg:flex-col lg:overflow-hidden lg:pt-5 lg:pb-px">
       <div className="mb-5 shrink-0">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-teal">Quản trị hệ thống</p>
         <h1 className="font-heading mt-1 text-2xl font-bold text-ink">Cài đặt</h1>

@@ -57,7 +57,8 @@ function matchesBusinessModelFilter(value: string | undefined | null, filter: Bu
 }
 
 export default function ThongKePage() {
-  const { can } = useAuth();
+  const { canForWorkshop, canInAnyWorkshop } = useAuth();
+  const [loadError, setLoadError] = useState("");
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [selectedWorkshopIds, setSelectedWorkshopIds] = useState<string[]>([]);
   const [workshopMenuOpen, setWorkshopMenuOpen] = useState(false);
@@ -87,37 +88,44 @@ export default function ThongKePage() {
   }, [selectableColumns, visibleColumns]);
 
   useEffect(() => {
-    api("/workshops").then((ws: Workshop[]) => {
-      setWorkshops(ws);
-      ws.forEach((w) => (WS_NAME[w.id] = w.name));
-    }).catch(() => {});
-  }, []);
+    let alive = true;
+    setWorkshops([]);
+    setGuests([]);
+    if (!canInAnyWorkshop(PERMISSIONS.reportsView)) return;
+    api<Workshop[]>("/workshops?permission=reports.read").then((ws) => {
+      if (!alive) return;
+      const accessible = ws.filter((workshop) => canForWorkshop(PERMISSIONS.reportsView, workshop.id));
+      setWorkshops(accessible);
+      setSelectedWorkshopIds((current) => {
+        const next = current.filter((id) => accessible.some((workshop) => workshop.id === id));
+        return next.length === current.length ? current : next;
+      });
+      accessible.forEach((workshop) => (WS_NAME[workshop.id] = workshop.name));
+    }).catch((error) => { if (alive) setLoadError(error instanceof Error ? error.message : "Không tải được danh sách workshop."); });
+    return () => { alive = false; };
+  }, [canForWorkshop, canInAnyWorkshop]);
 
   useOutsidePointerDown(workshopMenuRef, useCallback(() => setWorkshopMenuOpen(false), []), workshopMenuOpen);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    setGuests([]);
+    setLoadError("");
     const run = async () => {
       try {
-        let list: Workshop[] = [];
-        if (selectedWorkshopIds.length === 0) {
-          list = await api<Workshop[]>("/workshops");
-          list.forEach((w) => (WS_NAME[w.id] = w.name));
-        } else {
-          list = selectedWorkshopIds.map((id) => ({ id } as Workshop));
-        }
-        const batches = await Promise.all(
-          list.map((w) => api<Guest[]>("/workshops/" + w.id + "/guests").catch(() => []))
-        );
+        const list = workshops.filter((workshop) => (!selectedWorkshopIds.length || selectedWorkshopIds.includes(workshop.id)) && canForWorkshop(PERMISSIONS.reportsView, workshop.id));
+        const batches = await Promise.all(list.map((workshop) => api<Guest[]>("/workshops/" + workshop.id + "/guests?permission=reports.read")));
         if (alive) setGuests(batches.flat());
+      } catch (error) {
+        if (alive) setLoadError(error instanceof Error ? error.message : "Không tải được thống kê.");
       } finally {
         if (alive) setLoading(false);
       }
     };
-    run();
+    void run();
     return () => { alive = false; };
-  }, [selectedWorkshopIds]);
+  }, [selectedWorkshopIds, workshops, canForWorkshop]);
 
   const filtered = useMemo(() => {
     return guests.filter((g) => {
@@ -174,11 +182,16 @@ export default function ThongKePage() {
     );
   };
 
+  const exportWorkshopIds = workshops.filter((workshop) => !selectedWorkshopIds.length || selectedWorkshopIds.includes(workshop.id)).map((workshop) => workshop.id);
+  const canExport = exportWorkshopIds.length > 0 && exportWorkshopIds.every((id) => canForWorkshop(PERMISSIONS.reportsExport, id));
+
   const exportXlsx = async () => {
+    if (!canExport) return;
     setExporting(true);
     try {
       await downloadGuestsXlsx({
-        workshopIds: selectedWorkshopIds.length ? selectedWorkshopIds : undefined,
+        context: "reports",
+        workshopIds: exportWorkshopIds,
         status: checkin,
         businessModel: businessModel || undefined,
         source: source || undefined,
@@ -192,16 +205,20 @@ export default function ThongKePage() {
     }
   };
 
+  if (!canInAnyWorkshop(PERMISSIONS.reportsView)) return <div className="p-8 text-center text-muted">Bạn không có quyền xem thống kê.</div>;
+
   return (
-    <div className="p-4 sm:p-6 md:h-[calc(100dvh-3.5rem)] md:overflow-hidden">
+    <div className="p-4 sm:p-6 md:h-[calc(var(--admin-vh)_-_3.5rem)] md:overflow-hidden md:pb-px">
       <div className="w-full md:flex md:h-full md:min-h-0 md:flex-col">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4 md:shrink-0">
           <h1 className="text-2xl font-bold text-brand-teal">Thống kê khách mời</h1>
-          <button onClick={exportXlsx} disabled={!filtered.length || exporting || !can(PERMISSIONS.reportsExport)}
+          <button onClick={exportXlsx} disabled={!filtered.length || exporting || !canExport}
             className="bg-brand-teal text-white px-3 py-2 rounded-sm text-sm disabled:opacity-40">
             {exporting ? "Đang xuất..." : `Xuất Excel (${filtered.length})`}
           </button>
         </div>
+
+        {loadError && <p role="alert" className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-error">{loadError}</p>}
 
         <div className="space-y-4 md:flex md:min-h-0 md:flex-1 md:flex-col">
           {/* Filter bar */}

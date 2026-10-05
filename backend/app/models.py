@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date, time
 
-from sqlalchemy import String, Text, Boolean, ForeignKey, Date, DateTime, Time, Float, Integer, BigInteger, Identity, func
+from sqlalchemy import String, Text, Boolean, CheckConstraint, Index, ForeignKey, Date, DateTime, Time, Float, Integer, BigInteger, Identity, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,8 +40,22 @@ class Workshop(Base):
 
 class AdminUser(Base):
     __tablename__ = "admin_users"
+    __table_args__ = (
+        CheckConstraint("(account_type = 'checkin_guest' AND username IS NOT NULL) OR (account_type <> 'checkin_guest' AND username IS NULL AND email IS NOT NULL)", name="admin_users_login_identity_check"),
+        CheckConstraint("username IS NULL OR (length(username) BETWEEN 3 AND 64 AND username = lower(username))", name="admin_users_username_check"),
+        CheckConstraint("account_type IN ('lark', 'local', 'checkin_guest')", name="admin_users_account_type_check"),
+        CheckConstraint("account_type = 'lark' OR password_hash IS NOT NULL", name="admin_users_password_required"),
+        CheckConstraint("account_type <> 'checkin_guest' OR (role = 'user' AND permission_overrides = '{}' AND access_starts_at IS NOT NULL AND access_expires_at IS NOT NULL AND access_starts_at < access_expires_at)", name="admin_users_guest_access_check"),
+        CheckConstraint("account_type = 'checkin_guest' OR (access_workshop_id IS NULL AND access_starts_at IS NULL AND access_expires_at IS NULL)", name="admin_users_non_guest_access_check"),
+    )
+    username: Mapped[str | None] = mapped_column(Text)
+    account_type: Mapped[str] = mapped_column(Text, default="lark", server_default="lark", nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    access_workshop_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="SET NULL"), index=True)
+    access_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    access_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    email: Mapped[str] = mapped_column(Text, nullable=False)
+    email: Mapped[str | None] = mapped_column(Text, nullable=True)
     name: Mapped[str | None] = mapped_column(Text)
     avatar_url: Mapped[str | None] = mapped_column(Text)
     enterprise_email: Mapped[str | None] = mapped_column(Text)
@@ -63,6 +77,9 @@ class AdminUser(Base):
     sessions: Mapped[list["AdminSession"]] = relationship("AdminSession", cascade="all, delete-orphan")
 
 
+Index("uq_admin_users_username_ci", func.lower(AdminUser.username), unique=True)
+
+
 class RolePermission(Base):
     __tablename__ = "role_permissions"
     role: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -70,6 +87,21 @@ class RolePermission(Base):
     description: Mapped[str | None] = mapped_column(Text)
     permissions: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class WorkshopMember(Base):
+    __tablename__ = "workshop_members"
+    __table_args__ = (CheckConstraint("role <> 'super_admin'", name="workshop_members_no_super_admin"),)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="CASCADE"), primary_key=True,
+    )
+    workshop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"), primary_key=True, index=True,
+    )
+    role: Mapped[str] = mapped_column(
+        Text, ForeignKey("role_permissions.role", onupdate="CASCADE", ondelete="RESTRICT"), nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class AdminSession(Base):
@@ -138,6 +170,19 @@ class WorkshopMedia(Base):
     lark_file_token: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     workshop: Mapped["Workshop"] = relationship("Workshop", back_populates="media")
+
+
+class WorkshopLandingPage(Base):
+    __tablename__ = "workshop_landing_pages"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    workshop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    draft_content: Mapped[dict | None] = mapped_column(JSONB)
+    published_content: Mapped[dict | None] = mapped_column(JSONB)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Guest(Base):

@@ -1,4 +1,5 @@
 import AdminGate from "@/components/AdminGate";
+import GuestAccessNotice from "@/components/GuestAccessNotice";
 
 /**
  * Layout cho segment /admin (UI cần auth).
@@ -6,5 +7,5 @@ import AdminGate from "@/components/AdminGate";
  * - /admin/login → render theo layout cha (`admin/layout.tsx`) vì đứng ngoài group (protected).
  */
 export default function ProtectedAdminLayout({ children }: { children: React.ReactNode }) {
-  return <AdminGate>{children}</AdminGate>;
+  return <AdminGate><GuestAccessNotice />{children}</AdminGate>;
 }

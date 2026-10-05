@@ -4,11 +4,17 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from unittest.mock import AsyncMock
 from fastapi import HTTPException
 from openpyxl import load_workbook
 
-from app.models import Guest
+from app.models import AdminUser, Guest
 from app.routers.import_export import export_guests
+
+
+@pytest.fixture(autouse=True)
+def allow_export_in_content_tests(monkeypatch):
+    monkeypatch.setattr("app.routers.import_export.allowed_workshop_ids", AsyncMock(return_value=None))
 
 
 class Result:
@@ -64,6 +70,7 @@ def test_export_guests_includes_structured_notes_and_legacy_fallback():
 
     response = asyncio.run(export_guests(
         db=db,
+        user=AdminUser(role="super_admin", is_active=True),
         workshop_id=None,
         workshop_ids=None,
         status="all",
@@ -91,6 +98,7 @@ def test_export_guests_applies_business_model_and_source_filters():
 
     asyncio.run(export_guests(
         db=db,
+        user=AdminUser(role="super_admin", is_active=True),
         workshop_id=None,
         workshop_ids=None,
         status="all",
@@ -119,6 +127,7 @@ def test_export_guests_rejects_invalid_filters(business_model, source, message):
     with pytest.raises(HTTPException) as exc:
         asyncio.run(export_guests(
             db=db,
+        user=AdminUser(role="super_admin", is_active=True),
             workshop_id=None,
             workshop_ids=None,
             status="all",

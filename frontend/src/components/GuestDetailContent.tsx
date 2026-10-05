@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
 import GuestQr from "@/components/GuestQr";
 import GuestNotes from "@/components/GuestNotes";
 import type { Guest, ZbsDelivery } from "@/hooks/useAdminGuests";
@@ -93,6 +95,8 @@ export default function GuestDetailContent({
   canReadZalo: boolean;
   canSendZalo: boolean;
 }) {
+  const { canForWorkshop } = useAuth();
+  const can = (permission: string) => canForWorkshop(permission, workshopId);
   const registered = guest.party_size || 1;
   const actual = guest.checkin_status === "checked_in" ? guest.actual_party_size ?? registered : null;
   const difference = actual === null ? null : actual - registered;
@@ -111,12 +115,12 @@ export default function GuestDetailContent({
         <p className="mt-1 text-sm text-muted">{workshopName}</p>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2" data-row-action>
-        {guest.registration_status !== "confirmed" && <button type="button" onClick={() => onConfirmRegistration(guest)} className="min-h-9 rounded-md bg-brand px-3 text-xs font-semibold text-brand-teal">Xác nhận đăng ký</button>}
-        <button type="button" onClick={() => onEdit(guest)} className="min-h-9 rounded-md border border-brand px-3 text-xs font-semibold text-brand">Sửa</button>
-        {guest.registration_status === "confirmed" && <button type="button" onClick={() => guest.checkin_status === "checked_in" ? onUncheckin(guest) : onCheckin(guest)} className={`min-h-9 rounded-md px-3 text-xs font-semibold ${guest.checkin_status === "checked_in" ? "bg-green-50 text-green-700" : "bg-green-700 text-white"}`}>{guest.checkin_status === "checked_in" ? "Hoàn tác Check-in" : "Check-in"}</button>}
-        <button type="button" onClick={() => onToggleVip(guest)} className="min-h-9 rounded-md border border-line px-3 text-xs font-semibold text-text-secondary">{vip ? "Bỏ VIP" : "Đặt VIP"}</button>
+        {can(PERMISSIONS.guestsEdit) && guest.registration_status !== "confirmed" && <button type="button" onClick={() => onConfirmRegistration(guest)} className="min-h-9 rounded-md bg-brand px-3 text-xs font-semibold text-brand-teal">Xác nhận đăng ký</button>}
+        {can(PERMISSIONS.guestsEdit) && <button type="button" onClick={() => onEdit(guest)} className="min-h-9 rounded-md border border-brand px-3 text-xs font-semibold text-brand">Sửa</button>}
+        {can(PERMISSIONS.guestsCheckin) && guest.registration_status === "confirmed" && <button type="button" onClick={() => guest.checkin_status === "checked_in" ? onUncheckin(guest) : onCheckin(guest)} className={`min-h-9 rounded-md px-3 text-xs font-semibold ${guest.checkin_status === "checked_in" ? "bg-green-50 text-green-700" : "bg-green-700 text-white"}`}>{guest.checkin_status === "checked_in" ? "Hoàn tác Check-in" : "Check-in"}</button>}
+        {can(PERMISSIONS.guestsEdit) && <button type="button" onClick={() => onToggleVip(guest)} className="min-h-9 rounded-md border border-line px-3 text-xs font-semibold text-text-secondary">{vip ? "Bỏ VIP" : "Đặt VIP"}</button>}
         <div onClick={(event) => event.stopPropagation()}><GuestQr guestId={guest.id} guestName={guest.full_name} workshopId={workshopId} workshopName={workshopName} /></div>
-        <button type="button" onClick={() => onDelete(guest)} className="min-h-9 rounded-md border border-red-200 px-3 text-xs font-semibold text-red-600">Xóa</button>
+        {can(PERMISSIONS.guestsDelete) && <button type="button" onClick={() => onDelete(guest)} className="min-h-9 rounded-md border border-red-200 px-3 text-xs font-semibold text-red-600">Xóa</button>}
       </div>
     </div>
 
@@ -143,15 +147,15 @@ export default function GuestDetailContent({
       </section>
     </div>
 
-    <section>
+    {can(PERMISSIONS.zbsView) && <section>
       <h4 className="mb-3 font-semibold text-ink">Trạng thái gửi ZBS</h4>
       <div className="grid gap-3 lg:grid-cols-2">
         <ZbsDeliveryCard label="Xác nhận đăng ký Workshop" delivery={guest.zbs?.registration_confirmation} onSendManual={canSendManualZbs ? () => onSendManualZbs(guest, "registration_confirmation") : undefined} />
         <ZbsDeliveryCard label="Xác nhận Check-in Workshop" delivery={guest.zbs?.checkin_confirmation} onSendManual={canSendManualZbs && guest.checkin_status === "checked_in" ? () => onSendManualZbs(guest, "checkin_confirmation") : undefined} />
       </div>
-    </section>
+    </section>}
 
-    <GuestNotes guestId={guest.id} />
-    <GuestZaloMessageBlock guestId={guest.id} canRead={canReadZalo} canSend={canSendZalo} />
+    <GuestNotes key={guest.id} guestId={guest.id} workshopId={workshopId} />
+    <GuestZaloMessageBlock key={guest.id} guestId={guest.id} canRead={canReadZalo} canSend={canSendZalo} />
   </div>;
 }

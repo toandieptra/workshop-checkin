@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth.workshop_access import WORKSHOP_PERMISSIONS, allowed_workshop_ids, is_global_workshop_admin, require_workshop_permission
 from ..db import get_db
 from ..models import Guest, RegistrationForm, RegistrationFormWorkshop, RegistrationSubmission, Workshop
 from ..schemas import (
@@ -19,7 +20,7 @@ from ..schemas import (
     RegistrationSubmitResult,
     RegistrationWorkshopOption,
 )
-from ..auth.dependencies import require_permission
+from ..auth.dependencies import current_user, require_permission
 from ..services.guest_provenance import normalize_guest_source, resolve_public_creator
 from ..services.registration_confirmation import apply_registration_policy
 
@@ -61,6 +62,26 @@ async def _form_workshops(db: AsyncSession, form: RegistrationForm) -> list[Work
         return workshops
     fallback = await db.get(Workshop, form.workshop_id)
     return [fallback] if fallback else []
+
+
+async def _form_workshop_ids(db: AsyncSession, form: RegistrationForm) -> set[uuid.UUID]:
+    linked = set((await db.execute(
+        select(RegistrationFormWorkshop.workshop_id).where(RegistrationFormWorkshop.form_id == form.id)
+    )).scalars().all())
+    return linked or ({form.workshop_id} if form.workshop_id else set())
+
+
+async def _require_form_permission(db, user, form, permission):
+    workshop_ids = await _form_workshop_ids(db, form)
+    if not workshop_ids:
+        raise HTTPException(403, "Không xác định được workshop của form")
+    for workshop_id in workshop_ids:
+        await require_workshop_permission(db, user, workshop_id, permission)
+
+
+async def _can_read_form(db, user, form, accessible):
+    workshop_ids = await _form_workshop_ids(db, form)
+    return bool(workshop_ids) and (accessible is None or workshop_ids <= accessible)
 
 
 def _option(w: Workshop) -> RegistrationWorkshopOption:
@@ -134,20 +155,24 @@ async def _replace_form_workshops(db: AsyncSession, form: RegistrationForm, work
 # Admin CRUD
 # -----------------------------------------------------------------
 
-@router.get("/registration-forms", response_model=list[RegistrationFormOut], dependencies=[Depends(require_permission("registration_forms.read"))])
-async def list_registration_forms(db: AsyncSession = Depends(get_db)):
+@router.get("/registration-forms", response_model=list[RegistrationFormOut])
+async def list_registration_forms(db: AsyncSession = Depends(get_db), user=Depends(current_user)):
     forms = (await db.execute(
         select(RegistrationForm).order_by(RegistrationForm.created_at.desc())
     )).scalars().all()
-    return [await _to_out(db, f) for f in forms]
+    accessible = await allowed_workshop_ids(db, user, "registration_forms.read")
+    return [await _to_out(db, f) for f in forms if await _can_read_form(db, user, f, accessible)]
 
 
-@router.post("/registration-forms", response_model=RegistrationFormOut, status_code=201, dependencies=[Depends(require_permission("registration_forms.write"))])
+@router.post("/registration-forms", response_model=RegistrationFormOut, status_code=201)
 async def create_registration_form(
     body: RegistrationFormCreate,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
     workshop_ids = body.workshop_ids or ([body.workshop_id] if body.workshop_id else [])
+    for workshop_id in set(workshop_ids):
+        await require_workshop_permission(db, user, workshop_id, "registration_forms.write")
     workshops = await _validate_workshop_ids(db, workshop_ids)
     primary = workshops[0]
 
@@ -166,16 +191,20 @@ async def create_registration_form(
     return await _to_out(db, form)
 
 
-@router.patch("/registration-forms/{form_id}", response_model=RegistrationFormOut, dependencies=[Depends(require_permission("registration_forms.write"))])
+@router.patch("/registration-forms/{form_id}", response_model=RegistrationFormOut)
 async def update_registration_form(
     form_id: uuid.UUID,
     body: RegistrationFormUpdate,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
     form = await db.get(RegistrationForm, form_id)
     if not form:
         raise HTTPException(404, "form not found")
+    await _require_form_permission(db, user, form, "registration_forms.write")
     changes = body.model_dump(exclude_unset=True)
+    for workshop_id in set(changes.get("workshop_ids") or []):
+        await require_workshop_permission(db, user, workshop_id, "registration_forms.write")
     if "greeting" in changes:
         form.greeting = changes["greeting"] or None
     if "is_active" in changes and changes["is_active"] is not None:
@@ -190,11 +219,12 @@ async def update_registration_form(
     return await _to_out(db, form)
 
 
-@router.delete("/registration-forms/{form_id}", status_code=204, dependencies=[Depends(require_permission("registration_forms.write"))])
-async def delete_registration_form(form_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.delete("/registration-forms/{form_id}", status_code=204)
+async def delete_registration_form(form_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
     form = await db.get(RegistrationForm, form_id)
     if not form:
         raise HTTPException(404, "form not found")
+    await _require_form_permission(db, user, form, "registration_forms.write")
     await db.delete(form)
     await db.commit()
 

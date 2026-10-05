@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
 import QrDisplay from "@/components/QrDisplay";
 import { useAdminGuests, type Guest, type NewGuestInput, type ZbsDelivery, type DuplicatedGuestInfo } from "@/hooks/useAdminGuests";
 import { api } from "@/lib/api";
@@ -168,11 +170,11 @@ function normalizePhone(p: string | null | undefined): string {
   return (p || "").replace(/\D/g, "");
 }
 
-function ZbsBadge({ label, delivery, onRetry }: { label: string; delivery?: ZbsDelivery; onRetry: (delivery: ZbsDelivery) => void }) {
+function ZbsBadge({ label, delivery, onRetry }: { label: string; delivery?: ZbsDelivery; onRetry?: (delivery: ZbsDelivery) => void }) {
   if (!delivery) return null;
   const failed = delivery.status === "failed";
   const text = delivery.status === "delivered" ? "✓" : delivery.status === "sent" ? "đã gửi" : delivery.status === "pending" ? "chờ" : delivery.status === "sending" ? "đang" : delivery.status === "expired" ? "quá hạn" : delivery.status === "cancelled" ? "đã hủy" : "lỗi";
-  return <span className={`text-[10px] ${failed ? "text-red-600" : "text-muted"}`} title={delivery.last_error || ""}>{label}:{text}{failed && <button className="ml-1 underline" onClick={() => onRetry(delivery)}>lại</button>}</span>;
+  return <span className={`text-[10px] ${failed ? "text-red-600" : "text-muted"}`} title={delivery.last_error || ""}>{label}:{text}{failed && onRetry && <button className="ml-1 underline" onClick={() => onRetry(delivery)}>lại</button>}</span>;
 }
 
 /** Format ISO date → "HH:MM". Trả "—" nếu không parse được. */
@@ -219,6 +221,7 @@ function splitUrl(url: string): { host: string; rest: string } {
  * edit modal chi tiết.
  */
 export default function MobileAdmin() {
+  const { user, canForWorkshop } = useAuth();
   const {
     workshops,
     wid,
@@ -253,6 +256,8 @@ export default function MobileAdmin() {
     clearDuplicateGuest,
   } = useAdminGuests();
 
+  const can = (permission: string) => canForWorkshop(permission, wid);
+  const accessKey = JSON.stringify([user?.permissions, user?.workshop_access]);
   const [linkCopied, setLinkCopied] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
@@ -260,6 +265,10 @@ export default function MobileAdmin() {
   const [showEventTools, setShowEventTools] = useState(false);
   const [origin, setOrigin] = useState(getPublicOrigin);
   const [editGuest, setEditGuest] = useState<DuplicatedGuestInfo | null>(null);
+
+  useEffect(() => {
+    setShowAddForm(false); setShowScanner(false); setCheckinGuest(null); setEditGuest(null);
+  }, [wid, accessKey]);
 
   useEffect(() => {
     if (!origin) setOrigin(getClientOrigin());
@@ -270,7 +279,7 @@ export default function MobileAdmin() {
     const ok = window.confirm(
       `Số điện thoại này đã đăng ký tham gia ${currentWorkshop?.name || "workshop này"}, bạn có muốn sửa thông tin không?`
     );
-    if (ok) {
+    if (ok && can(PERMISSIONS.guestsEdit)) {
       setEditGuest(duplicateGuest);
     }
     clearDuplicateGuest();
@@ -297,6 +306,7 @@ export default function MobileAdmin() {
   const filterActive = statusFilter !== "all" || search.trim().length > 0;
 
   const openAddForm = (prefillPhone?: string) => {
+    if (!can(PERMISSIONS.guestsCreate)) return;
     setNewGuest({
       full_name: "",
       phone: (prefillPhone ?? search).trim(),
@@ -404,21 +414,21 @@ export default function MobileAdmin() {
               </button>
             ))}
           </div>
-          <button
+          {can(PERMISSIONS.guestsCheckin) && <button
             onClick={() => setShowScanner(true)}
             disabled={!currentWorkshop}
             className="inline-flex items-center justify-center gap-1 h-11 px-3 rounded-md text-[13px] font-bold border border-brand text-brand-teal bg-surface active:bg-cyan-pale shrink-0 disabled:opacity-40"
           >
             <IconQrCode className="w-3.5 h-3.5" />
             Quét QR
-          </button>
-          <button
+          </button>}
+          {can(PERMISSIONS.guestsCreate) && <button
             onClick={() => openAddForm()}
             className="inline-flex items-center justify-center gap-1 h-11 px-3 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 shrink-0"
           >
             <IconPlus className="w-3.5 h-3.5" />
             Thêm
-          </button>
+          </button>}
         </div>
 
         {filterActive && (
@@ -432,7 +442,7 @@ export default function MobileAdmin() {
       {/* ======= 5. Guest card list ======= */}
       <section className="px-3 mt-3 flex flex-col gap-2.5">
         {visibleGuests.length === 0 ? (
-          filterActive ? (
+          filterActive && can(PERMISSIONS.guestsCreate) ? (
             <EmptyStateAddCustomer
               query={search.trim()}
               onAdd={() => openAddForm(search.trim())}
@@ -489,7 +499,7 @@ export default function MobileAdmin() {
       )}
 
       {/* ======= 6. Add-customer bottom sheet ======= */}
-      {showAddForm && (
+      {showAddForm && can(PERMISSIONS.guestsCreate) && (
         <AddCustomerSheet
           newGuest={newGuest}
           setNewGuest={setNewGuest}
@@ -504,7 +514,7 @@ export default function MobileAdmin() {
         />
       )}
 
-      {showScanner && currentWorkshop && (
+      {showScanner && currentWorkshop && can(PERMISSIONS.guestsCheckin) && (
         <GuestQrScanner
           workshopId={currentWorkshop.id}
           workshopSlug={currentWorkshop.slug}
@@ -516,7 +526,7 @@ export default function MobileAdmin() {
         />
       )}
 
-      {checkinGuest && (
+      {checkinGuest && can(PERMISSIONS.guestsCheckin) && (
         <CheckinSheet
           guest={checkinGuest}
           onClose={() => setCheckinGuest(null)}
@@ -527,8 +537,9 @@ export default function MobileAdmin() {
         />
       )}
 
-      {editGuest && (
+      {editGuest && can(PERMISSIONS.guestsEdit) && (
         <EditCustomerSheet
+          workshopId={wid}
           guest={editGuest}
           onClose={() => setEditGuest(null)}
           onSaved={async () => {
@@ -622,6 +633,8 @@ function GuestCard({
   busy: boolean;
   duplicatePhone?: boolean;
 }) {
+  const { canForWorkshop } = useAuth();
+  const can = (permission: string) => canForWorkshop(permission, workshopId);
   const vip = isVip(g);
   const checked = g.checkin_status === "checked_in";
   const delta = partyDelta(g);
@@ -637,6 +650,7 @@ function GuestCard({
   const open = offset > 0;
 
   const onTouchStart = (e: React.TouchEvent) => {
+    if (!can(PERMISSIONS.guestsDelete)) return;
     const t = e.touches[0];
     startX.current = t.clientX;
     startY.current = t.clientY;
@@ -646,6 +660,7 @@ function GuestCard({
   };
 
   const onTouchMove = (e: React.TouchEvent) => {
+    if (!can(PERMISSIONS.guestsDelete)) return;
     const t = e.touches[0];
     const dx = t.clientX - startX.current;
     const dy = t.clientY - startY.current;
@@ -679,7 +694,7 @@ function GuestCard({
     <div className="relative overflow-hidden rounded-md">
       {/* Lớp dưới: nút Xoá lộ ra khi vuốt trái */}
       <div className="absolute inset-y-0 right-0 flex" style={{ width: SWIPE_REVEAL_WIDTH }} aria-hidden={!open}>
-        <button
+        {can(PERMISSIONS.guestsDelete) && <button
           type="button"
           disabled={!open || busy}
           tabIndex={open ? 0 : -1}
@@ -692,7 +707,7 @@ function GuestCard({
         >
           <IconTrash className="w-4 h-4" />
           Xoá
-        </button>
+        </button>}
       </div>
 
       {/* Lớp trên: nội dung card, trượt theo offset */}
@@ -733,8 +748,8 @@ function GuestCard({
                 {g.role_title}
               </span>
             )}
-            <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={onRetryZbs} />
-            <ZbsBadge label="Check-in" delivery={g.zbs?.checkin_confirmation} onRetry={onRetryZbs} />
+            <ZbsBadge label="ĐK" delivery={g.zbs?.registration_confirmation} onRetry={can(PERMISSIONS.zbsManage) ? onRetryZbs : undefined} />
+            <ZbsBadge label="Check-in" delivery={g.zbs?.checkin_confirmation} onRetry={can(PERMISSIONS.zbsManage) ? onRetryZbs : undefined} />
           </div>
         </div>
         <span
@@ -783,7 +798,7 @@ function GuestCard({
 
       {/* Row 3: CTA + VIP toggle */}
       <div className="mt-3 grid grid-cols-[1fr_44px_80px] gap-2 [@media(pointer:fine)]:grid-cols-[1fr_44px_80px_44px]">
-        {g.registration_status !== "confirmed" ? (
+        {g.registration_status !== "confirmed" ? (can(PERMISSIONS.guestsEdit) ? (
           <button
             onClick={guardAction(onConfirmRegistration)}
             disabled={busy}
@@ -791,8 +806,8 @@ function GuestCard({
           >
             <IconCheck className="h-3.5 w-3.5" />
             Xác nhận đăng ký
-          </button>
-        ) : checked ? (
+          </button>) : <span className="self-center text-xs text-muted">Chờ xác nhận</span>
+        ) : !can(PERMISSIONS.guestsCheckin) ? <span className="self-center text-xs text-muted">{checked ? "Đã check-in" : "Chưa check-in"}</span> : checked ? (
           <button
             onClick={guardAction(onUncheckin)}
             disabled={busy}
@@ -811,7 +826,7 @@ function GuestCard({
             Check-in · {registered} khách
           </button>
         )}
-        <button
+        {can(PERMISSIONS.guestsEdit) && <button
           onClick={guardAction(onToggleVip)}
           disabled={busy}
           aria-label={vip ? "Bỏ đánh dấu VIP" : "Đánh dấu VIP"}
@@ -823,14 +838,14 @@ function GuestCard({
           }`}
         >
           <IconStar filled={vip} className="w-4 h-4" />
-        </button>
+        </button>}
         <GuestQr
           guestId={g.id}
           guestName={g.full_name}
           workshopId={workshopId}
           workshopName={workshopName}
         />
-        <button
+        {can(PERMISSIONS.guestsDelete) && <button
           type="button"
           onClick={guardAction(onDelete)}
           disabled={busy}
@@ -838,7 +853,7 @@ function GuestCard({
           className="hidden h-11 items-center justify-center rounded-md border border-red-200 text-red-600 disabled:opacity-50 [@media(pointer:fine)]:inline-flex"
         >
           <IconTrash className="h-4 w-4" />
-        </button>
+        </button>}
       </div>
       </div>
     </div>
@@ -1150,14 +1165,17 @@ function AddCustomerSheet({
 }
 
 function EditCustomerSheet({
+  workshopId,
   guest,
   onClose,
   onSaved,
 }: {
+  workshopId: string;
   guest: DuplicatedGuestInfo;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { canForWorkshop } = useAuth();
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
     full_name: guest.full_name || "",
@@ -1168,6 +1186,7 @@ function EditCustomerSheet({
   });
 
   const save = async () => {
+    if (!canForWorkshop(PERMISSIONS.guestsEdit, workshopId)) return;
     const full_name = form.full_name.trim();
     const phone = form.phone.trim();
     const business_model = form.business_model.trim();

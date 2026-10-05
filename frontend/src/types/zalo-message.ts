@@ -105,6 +105,7 @@ export interface ZaloMediaUploadResult {
 export interface ZaloDeliveryItem {
   id: string;
   delivery_id: string;
+  workshop_id?: string | null;
   guest_id?: string | null;
   recipient_id?: string | null;
   recipient_name?: string | null;

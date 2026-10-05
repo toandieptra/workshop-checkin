@@ -6,8 +6,9 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth.dependencies import require_permission
+from ..auth.dependencies import current_user, require_permission
 from ..config import settings
+from ..auth.workshop_access import WORKSHOP_PERMISSIONS, allowed_workshop_ids, is_global_workshop_admin, require_workshop_permission
 from ..db import get_db
 from ..models import Guest, ZbsDelivery, ZbsTaskConfig, ZbsTemplate
 from ..services.zbs import (
@@ -97,8 +98,9 @@ def _out(delivery: ZbsDelivery) -> dict:
     }
 
 
-@router.get("/workshops/{workshop_id}/zbs-status", dependencies=[Depends(require_permission("guests.read"))])
-async def workshop_zbs_status(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.get("/workshops/{workshop_id}/zbs-status")
+async def workshop_zbs_status(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    await require_workshop_permission(db, user, workshop_id, "guests.read")
     deliveries = (await db.execute(
         select(ZbsDelivery)
         .where(
@@ -115,11 +117,12 @@ async def workshop_zbs_status(workshop_id: uuid.UUID, db: AsyncSession = Depends
     return result
 
 
-@router.post("/zbs/deliveries/{delivery_id}/retry", dependencies=[Depends(require_permission("guests.write"))])
-async def retry_delivery(delivery_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.post("/zbs/deliveries/{delivery_id}/retry")
+async def retry_delivery(delivery_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
     delivery = await db.get(ZbsDelivery, delivery_id)
     if not delivery:
         raise HTTPException(404, "ZBS delivery not found")
+    await require_workshop_permission(db, user, delivery.workshop_id, "guests.write")
     if delivery.event_type not in {REGISTRATION_TASK_KEY, CHECKIN_TASK_KEY}:
         raise HTTPException(409, "Tác vụ ZBS không hỗ trợ gửi lại")
     task_config = await db.get(ZbsTaskConfig, delivery.event_type)
@@ -155,15 +158,17 @@ async def retry_delivery(delivery_id: uuid.UUID, db: AsyncSession = Depends(get_
     return _out(delivery)
 
 
-@router.post("/zbs/guests/{guest_id}/send/{task_key}", dependencies=[Depends(require_permission("zbs.manage"))])
+@router.post("/zbs/guests/{guest_id}/send/{task_key}")
 async def send_guest_zbs_manually(
     guest_id: uuid.UUID,
     task_key: str,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
     guest = await db.get(Guest, guest_id)
     if not guest or guest.deleted_at is not None:
         raise HTTPException(404, "Không tìm thấy khách")
+    await require_workshop_permission(db, user, guest.workshop_id, "zbs.manage")
     from ..services.zbs import enqueue_manual
     try:
         delivery = await enqueue_manual(db, guest, task_key)

@@ -1,5 +1,7 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
 import QRCode from "react-qr-code";
 import CreateRegistrationFormModal from "@/components/CreateRegistrationFormModal";
 import ColumnVisibilityMenu from "@/components/ColumnVisibilityMenu";
@@ -91,6 +93,12 @@ function FormQr({ token, compact = false }: { token: string; compact?: boolean }
 }
 
 export default function AdminFormsPage() {
+  const { canForWorkshop, canInAnyWorkshop } = useAuth();
+  const formAllowed = useCallback((form: RegistrationForm, permission: string) => {
+    const ids = form.workshops?.length ? form.workshops.map((workshop) => workshop.id) : [form.workshop_id];
+    return ids.length > 0 && ids.every((id) => canForWorkshop(permission, id));
+  }, [canForWorkshop]);
+  const requestId = useRef(0);
   const [forms, setForms] = useState<RegistrationForm[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -98,29 +106,41 @@ export default function AdminFormsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingForm, setEditingForm] = useState<RegistrationForm | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, key !== "qr"])) as Record<ColumnKey, boolean>);
   const visibleColumnCount = TABLE_COLUMNS.filter(({ key }) => visibleColumns[key]).length;
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    const sequence = ++requestId.current;
+    setForms([]);
     setLoading(true);
+    if (!canInAnyWorkshop(PERMISSIONS.formsView)) { setLoading(false); return; }
     try {
-      setForms(await listRegistrationForms());
+      const data = await listRegistrationForms();
+      if (sequence === requestId.current) setForms(data.filter((form) => formAllowed(form, PERMISSIONS.formsView)));
     } catch (e: any) {
-      setMsg("Lỗi tải form: " + (e?.message || "không rõ"));
+      if (sequence === requestId.current) setMsg("Lỗi tải form: " + (e?.message || "không rõ"));
     } finally {
-      setLoading(false);
+      if (sequence === requestId.current) setLoading(false);
     }
-  };
+  }, [canInAnyWorkshop, formAllowed]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); return () => { ++requestId.current; }; }, [load]);
+  useEffect(() => {
+    if (editingForm && !formAllowed(editingForm, PERMISSIONS.formsEdit)) { setModalOpen(false); setEditingForm(null); }
+    if (!canInAnyWorkshop(PERMISSIONS.formsCreate)) setModalOpen(false);
+  }, [canInAnyWorkshop, formAllowed, editingForm]);
 
   const openCreateModal = () => {
+    if (!canInAnyWorkshop(PERMISSIONS.formsCreate)) return;
     setEditingForm(null);
     setModalOpen(true);
   };
 
   const openEditModal = (form: RegistrationForm) => {
+    if (!formAllowed(form, PERMISSIONS.formsEdit)) return;
     setEditingForm(form);
     setModalOpen(true);
   };
@@ -141,6 +161,7 @@ export default function AdminFormsPage() {
   };
 
   const toggleActive = async (form: RegistrationForm) => {
+    if (!formAllowed(form, PERMISSIONS.formsEdit)) return;
     setBusyId(form.id);
     try {
       const next = await updateRegistrationForm(form.id, { is_active: !form.is_active });
@@ -154,6 +175,7 @@ export default function AdminFormsPage() {
   };
 
   const remove = async (form: RegistrationForm) => {
+    if (!formAllowed(form, PERMISSIONS.formsDelete)) return;
     if (!confirm("Xóa form này? Lịch sử submit của form cũng sẽ bị xóa. Khách đã tạo trong danh sách vẫn được giữ.")) return;
     setBusyId(form.id);
     try {
@@ -170,8 +192,23 @@ export default function AdminFormsPage() {
   const activeCount = forms.filter((f) => f.is_active).length;
   const submissionCount = forms.reduce((sum, f) => sum + (f.submission_count || 0), 0);
 
+  const pageCount = Math.max(1, Math.ceil(forms.length / pageSize));
+  const page = Math.min(currentPage, pageCount);
+  const pagedForms = useMemo(
+    () => forms.slice((page - 1) * pageSize, page * pageSize),
+    [forms, page, pageSize],
+  );
+  const firstRow = forms.length ? (page - 1) * pageSize + 1 : 0;
+  const lastRow = Math.min(page * pageSize, forms.length);
+
+  useEffect(() => {
+    if (currentPage > pageCount) setCurrentPage(pageCount);
+  }, [currentPage, pageCount]);
+
+  if (!canInAnyWorkshop(PERMISSIONS.formsView)) return <div className="p-8 text-center text-muted">Bạn không có quyền xem form đăng ký.</div>;
+
   return (
-    <div className="px-3 py-3 pb-20 sm:p-6 md:h-[calc(100dvh-3.5rem)] md:pb-6">
+    <div className="px-3 py-3 pb-20 sm:p-6 md:h-[calc(var(--admin-vh)_-_3.5rem)] md:pb-px">
       <div className="w-full md:flex md:h-full md:min-h-0 md:flex-col">
         <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4 md:shrink-0">
           <div>
@@ -180,12 +217,12 @@ export default function AdminFormsPage() {
               Quản lý link/QR form đăng ký workshop, bật/tắt form và theo dõi số lượt submit.
             </p>
           </div>
-          <button
+          {canInAnyWorkshop(PERMISSIONS.formsCreate) && <button
             onClick={openCreateModal}
             className="min-h-11 w-full bg-brand text-brand-teal px-4 py-2 rounded-md text-sm font-semibold whitespace-nowrap sm:w-auto sm:rounded-sm"
           >
             + Tạo Form Đăng Ký
-          </button>
+          </button>}
         </div>
 
         {msg && (
@@ -252,11 +289,11 @@ export default function AdminFormsPage() {
                     <button onClick={() => copyLink(f.token)} className="min-h-11 rounded-md border border-line px-2 text-xs font-semibold text-brand-teal">{copiedToken === f.token ? "Đã copy" : "Sao chép"}</button>
                     <FormQr token={f.token} compact />
                   </div>
-                  <div className="mt-2 grid grid-cols-3 gap-2 border-t border-line pt-2">
+                  {formAllowed(f, PERMISSIONS.formsEdit) && <div className="mt-2 grid grid-cols-3 gap-2 border-t border-line pt-2">
                     <button onClick={() => openEditModal(f)} disabled={busyId === f.id} className="min-h-11 rounded-md border border-line text-xs font-semibold text-brand-teal disabled:opacity-50">Sửa</button>
                     <button onClick={() => toggleActive(f)} disabled={busyId === f.id} className="min-h-11 rounded-md border border-line text-xs font-semibold text-brand-teal disabled:opacity-50">{f.is_active ? "Tắt form" : "Bật form"}</button>
                     <button onClick={() => remove(f)} disabled={busyId === f.id} className="min-h-11 rounded-md border border-red-200 text-xs font-semibold text-red-600 disabled:opacity-50">Xóa form</button>
-                  </div>
+                  </div>}
                 </article>
               );
             })}
@@ -276,7 +313,7 @@ export default function AdminFormsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {forms.map((f) => {
+                {pagedForms.map((f) => {
                   const url = publicUrl(f.token);
                   return (
                     <tr key={f.id} className="hover:bg-brand/5">
@@ -324,7 +361,7 @@ export default function AdminFormsPage() {
                         {formatDateTime(f.created_at)}
                       </td>}
                       {visibleColumns.actions && <td className="px-3 py-3 align-top">
-                        <div className="flex items-center gap-3 flex-wrap">
+                        {formAllowed(f, PERMISSIONS.formsEdit) && <div className="flex items-center gap-3 flex-wrap">
                           <button
                             onClick={() => openEditModal(f)}
                             disabled={busyId === f.id}
@@ -346,7 +383,7 @@ export default function AdminFormsPage() {
                           >
                             Xóa
                           </button>
-                        </div>
+                        </div>}
                       </td>}
                     </tr>
                   );
@@ -366,6 +403,28 @@ export default function AdminFormsPage() {
               </tbody>
             </table>
           </div>
+
+          {!loading && forms.length > 0 && (
+            <div className="admin-table-pagination hidden flex-wrap items-center justify-between gap-3 border-t border-line px-3 py-3 text-sm md:flex">
+              <div className="text-muted">Hiển thị {firstRow}–{lastRow} trong tổng số {forms.length} form</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1.5 text-muted">
+                  Dòng/trang
+                  <select
+                    aria-label="Số form mỗi trang"
+                    value={pageSize}
+                    onChange={(event) => setPageSize(Number(event.target.value))}
+                    className="rounded-sm border border-line bg-surface px-2 py-1 text-ink"
+                  >
+                    {[10, 25, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+                  </select>
+                </label>
+                <button type="button" disabled={page <= 1} onClick={() => setCurrentPage(page - 1)} className="rounded-sm border border-line px-2 py-1 disabled:opacity-40">Trước</button>
+                <span>Trang {page}/{pageCount}</span>
+                <button type="button" disabled={page >= pageCount} onClick={() => setCurrentPage(page + 1)} className="rounded-sm border border-line px-2 py-1 disabled:opacity-40">Sau</button>
+              </div>
+            </div>
+          )}
         </section>
       </div>
 

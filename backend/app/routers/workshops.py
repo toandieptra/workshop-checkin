@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import re
 import uuid
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..config import settings
+from ..auth.workshop_access import WORKSHOP_PERMISSIONS, allowed_workshop_ids, is_global_workshop_admin, require_workshop_permission
 from ..db import get_db
 from ..models import (
     AdminUser,
@@ -23,12 +25,16 @@ from ..models import (
     RegistrationFormWorkshop,
     RegistrationSubmission,
     Workshop,
+    WorkshopLandingPage,
     WorkshopMedia,
+    WorkshopMember,
 )
 from ..schemas import (
     GuestCreate,
     GuestOut,
     WorkshopCreate,
+    WorkshopLandingContentOut,
+    WorkshopLandingContentUpdate,
     WorkshopLandingPagePublic,
     WorkshopLandingPageUpdate,
     WorkshopLinkedFormOut,
@@ -40,7 +46,7 @@ from ..schemas import (
     WORKSHOP_STATUS_TRANSITIONS,
     WORKSHOP_STATUSES,
 )
-from ..auth.dependencies import require_permission
+from ..auth.dependencies import current_user, require_permission
 from ..services.guest_provenance import normalize_guest_source
 
 logger = logging.getLogger("workshops")
@@ -108,6 +114,68 @@ def _validate_media_type(media_type: str) -> None:
         raise HTTPException(400, f"media_type phải là một trong: {', '.join(WORKSHOP_MEDIA_TYPES)}")
 
 
+# ===== Landing page content helpers =====
+
+LANDING_CONTENT_MAX_BYTES = 200_000
+_LANDING_PLACEHOLDER_RE = re.compile(r"^\s*\[.*\]\s*$", re.S)
+
+
+def _is_blank_or_placeholder(value: object) -> bool:
+    if not isinstance(value, str):
+        return True
+    v = value.strip()
+    return not v or bool(_LANDING_PLACEHOLDER_RE.match(v))
+
+
+def _valid_landing_href(href: object) -> bool:
+    if href is None or href == "":
+        return True
+    if not isinstance(href, str):
+        return False
+    h = href.strip()
+    return h.startswith(("http://", "https://", "/", "#"))
+
+
+def _validate_landing_content(content: dict) -> list[str]:
+    """Trả về danh sách vấn đề chặn xuất bản (rỗng = hợp lệ)."""
+    issues: list[str] = []
+    hero = content.get("hero") or {}
+    if _is_blank_or_placeholder(hero.get("displayTitle")):
+        issues.append("Thiếu tiêu đề hiển thị (Hero)")
+    if _is_blank_or_placeholder(hero.get("tagline")):
+        issues.append("Thiếu tagline (Hero)")
+    about = content.get("about") or {}
+    if _is_blank_or_placeholder(about.get("description")):
+        issues.append("Thiếu mô tả giới thiệu")
+    program = content.get("program") or {}
+    items = program.get("items") or []
+    if not any(
+        isinstance(it, dict) and not _is_blank_or_placeholder(it.get("title"))
+        for it in items
+    ):
+        issues.append("Chương trình cần ít nhất 1 mục có tiêu đề")
+    highlights = content.get("highlights") or {}
+    cards = highlights.get("cards") or []
+    if not any(
+        isinstance(c, dict) and not _is_blank_or_placeholder(c.get("title"))
+        for c in cards
+    ):
+        issues.append("Điểm nổi bật cần ít nhất 1 thẻ có tiêu đề")
+    for label, href in (
+        ("CTA Hero", hero.get("ctaHref")),
+        ("CTA Điểm nổi bật", highlights.get("ctaHref")),
+    ):
+        if not _valid_landing_href(href):
+            issues.append(f"{label} không hợp lệ (chỉ nhận http(s):// hoặc đường dẫn nội bộ)")
+    return issues
+
+
+async def _get_landing_page_row(db: AsyncSession, workshop_id: uuid.UUID) -> WorkshopLandingPage | None:
+    return (await db.execute(
+        select(WorkshopLandingPage).where(WorkshopLandingPage.workshop_id == workshop_id)
+    )).scalar_one_or_none()
+
+
 async def _search_guest_ids(db: AsyncSession, workshop_id: uuid.UUID, search: str, limit: int = 5000) -> list[uuid.UUID]:
     tokens = _search_tokens(search)
     if not tokens:
@@ -139,7 +207,7 @@ async def _search_guest_ids(db: AsyncSession, workshop_id: uuid.UUID, search: st
     return rows
 
 
-async def _linked_forms(db: AsyncSession, workshop_id: uuid.UUID) -> list[WorkshopLinkedFormOut]:
+async def _linked_forms(db: AsyncSession, workshop_id: uuid.UUID, user=None) -> list[WorkshopLinkedFormOut]:
     rows = (await db.execute(
         select(RegistrationForm)
         .join(RegistrationFormWorkshop, RegistrationFormWorkshop.form_id == RegistrationForm.id)
@@ -155,7 +223,12 @@ async def _linked_forms(db: AsyncSession, workshop_id: uuid.UUID) -> list[Worksh
         )).scalars().all()
 
     out: list[WorkshopLinkedFormOut] = []
+    if user is not None:
+        from .registration_forms import _can_read_form
+        accessible = await allowed_workshop_ids(db, user, "registration_forms.read")
     for form in rows:
+        if user is not None and not await _can_read_form(db, user, form, accessible):
+            continue
         count = (await db.execute(
             select(func.count(RegistrationSubmission.id)).where(
                 RegistrationSubmission.form_id == form.id
@@ -206,9 +279,9 @@ async def _linked_form_out(db: AsyncSession, form: RegistrationForm) -> Workshop
     )
 
 
-async def _to_out(db: AsyncSession, w: Workshop, include_forms: bool = True) -> WorkshopOut:
+async def _to_out(db: AsyncSession, w: Workshop, include_forms: bool = True, user=None) -> WorkshopOut:
     media = list(w.media) if w.media is not None else []
-    forms = await _linked_forms(db, w.id) if include_forms else []
+    forms = await _linked_forms(db, w.id, user=user) if include_forms else []
     return WorkshopOut(
         id=w.id,
         name=w.name,
@@ -242,7 +315,7 @@ async def _get_workshop(db: AsyncSession, workshop_id: uuid.UUID) -> Workshop:
 
 
 @router.get("/workshops/meta/branches")
-async def list_branches():
+async def list_branches(user=Depends(current_user)):
     return {"branches": _branch_list()}
 
 
@@ -250,7 +323,11 @@ async def list_branches():
 async def list_workshops(
     status: str | None = None,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
+    permission: str = "workshops.read",
 ):
+    if permission not in WORKSHOP_PERMISSIONS:
+        raise HTTPException(422, "Quyền bộ chọn workshop không hợp lệ")
     stmt = (
         select(Workshop)
         .options(selectinload(Workshop.media))
@@ -259,15 +336,18 @@ async def list_workshops(
             Workshop.created_at.desc(),
         )
     )
+    accessible = await allowed_workshop_ids(db, user, permission)
+    if accessible is not None:
+        stmt = stmt.where(Workshop.id.in_(accessible))
     if status:
         _validate_status(status)
         stmt = stmt.where(Workshop.status == status)
     rows = (await db.execute(stmt)).scalars().all()
-    return [await _to_out(db, w, include_forms=True) for w in rows]
+    return [await _to_out(db, w, include_forms=permission == "workshops.read", user=user) for w in rows]
 
 
 @router.post("/workshops", response_model=WorkshopOut, status_code=201, dependencies=[Depends(require_permission("workshops.write"))])
-async def create_workshop(body: WorkshopCreate, db: AsyncSession = Depends(get_db)):
+async def create_workshop(body: WorkshopCreate, db: AsyncSession = Depends(get_db), user=Depends(require_permission("workshops.write"))):
     slug = body.slug.strip() if body.slug else _slugify(body.name)
     if not slug:
         raise HTTPException(400, "slug không hợp lệ")
@@ -282,23 +362,29 @@ async def create_workshop(body: WorkshopCreate, db: AsyncSession = Depends(get_d
     data["slug"] = slug
     w = Workshop(**data)
     db.add(w)
+    await db.flush()
+    if not is_global_workshop_admin(user):
+        db.add(WorkshopMember(user_id=user.id, workshop_id=w.id, role=user.role))
     await db.commit()
     w = await _get_workshop(db, w.id)
-    return await _to_out(db, w)
+    return await _to_out(db, w, user=user)
 
 
 @router.get("/workshops/{workshop_id}", response_model=WorkshopOut)
-async def get_workshop(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_workshop(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    await require_workshop_permission(db, user, workshop_id, "workshops.read")
     w = await _get_workshop(db, workshop_id)
-    return await _to_out(db, w)
+    return await _to_out(db, w, user=user)
 
 
-@router.patch("/workshops/{workshop_id}", response_model=WorkshopOut, dependencies=[Depends(require_permission("workshops.write"))])
+@router.patch("/workshops/{workshop_id}", response_model=WorkshopOut)
 async def update_workshop(
     workshop_id: uuid.UUID,
     body: WorkshopUpdate,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    await require_workshop_permission(db, user, workshop_id, "workshops.write")
     w = await _get_workshop(db, workshop_id)
     data = body.model_dump(exclude_unset=True)
     if "status" in data and data["status"] is not None:
@@ -320,34 +406,37 @@ async def update_workshop(
     w.updated_at = datetime.now(timezone.utc)
     await db.commit()
     w = await _get_workshop(db, workshop_id)
-    return await _to_out(db, w)
+    return await _to_out(db, w, user=user)
 
 
-@router.patch("/workshops/{workshop_id}/status", response_model=WorkshopOut, dependencies=[Depends(require_permission("workshops.write"))])
+@router.patch("/workshops/{workshop_id}/status", response_model=WorkshopOut)
 async def update_workshop_status(
     workshop_id: uuid.UUID,
     body: WorkshopStatusUpdate,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    await require_workshop_permission(db, user, workshop_id, "workshops.write")
     w = await _get_workshop(db, workshop_id)
     _validate_status_transition(w.status, body.status)
     w.status = body.status
     w.updated_at = datetime.now(timezone.utc)
     await db.commit()
     w = await _get_workshop(db, workshop_id)
-    return await _to_out(db, w)
+    return await _to_out(db, w, user=user)
 
 
 @router.patch(
     "/workshops/{workshop_id}/landing-page",
-    response_model=WorkshopOut,
-    dependencies=[Depends(require_permission("workshops.write"))],
+    response_model=WorkshopOut
 )
 async def update_workshop_landing_page(
     workshop_id: uuid.UUID,
     body: WorkshopLandingPageUpdate,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    await require_workshop_permission(db, user, workshop_id, "workshops.write")
     w = await _get_workshop(db, workshop_id)
     form = await _linked_form(db, workshop_id, body.registration_form_id)
     if not form:
@@ -360,15 +449,90 @@ async def update_workshop_landing_page(
         await db.rollback()
         raise HTTPException(409, "Form đăng ký không còn tồn tại")
     w = await _get_workshop(db, workshop_id)
-    return await _to_out(db, w)
+    return await _to_out(db, w, user=user)
 
 
-@router.delete("/workshops/{workshop_id}", dependencies=[Depends(require_permission("workshops.delete"))])
+@router.get(
+    "/workshops/{workshop_id}/landing-page/content",
+    response_model=WorkshopLandingContentOut
+)
+async def get_workshop_landing_content(
+    workshop_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
+):
+    await require_workshop_permission(db, user, workshop_id, "workshops.read")
+    await _get_workshop(db, workshop_id)
+    row = await _get_landing_page_row(db, workshop_id)
+    if not row:
+        return WorkshopLandingContentOut(workshop_id=workshop_id)
+    return WorkshopLandingContentOut.model_validate(row)
+
+
+@router.patch(
+    "/workshops/{workshop_id}/landing-page/content",
+    response_model=WorkshopLandingContentOut
+)
+async def save_workshop_landing_content(
+    workshop_id: uuid.UUID,
+    body: WorkshopLandingContentUpdate,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
+):
+    await require_workshop_permission(db, user, workshop_id, "workshops.write")
+    """Lưu bản nháp nội dung landing page. Không ảnh hưởng bản đã xuất bản."""
+    await _get_workshop(db, workshop_id)
+    if not isinstance(body.content, dict):
+        raise HTTPException(400, "content phải là JSON object")
+    if len(json.dumps(body.content, ensure_ascii=False)) > LANDING_CONTENT_MAX_BYTES:
+        raise HTTPException(400, "Nội dung vượt quá dung lượng cho phép")
+    row = await _get_landing_page_row(db, workshop_id)
+    now = datetime.now(timezone.utc)
+    if not row:
+        row = WorkshopLandingPage(workshop_id=workshop_id, draft_content=body.content)
+        db.add(row)
+    else:
+        row.draft_content = body.content
+        row.updated_at = now
+    await db.commit()
+    await db.refresh(row)
+    return WorkshopLandingContentOut.model_validate(row)
+
+
+@router.post(
+    "/workshops/{workshop_id}/landing-page/publish",
+    response_model=WorkshopLandingContentOut
+)
+async def publish_workshop_landing_content(
+    workshop_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
+):
+    await require_workshop_permission(db, user, workshop_id, "workshops.write")
+    """Xuất bản bản nháp hiện tại thành nội dung công khai."""
+    await _get_workshop(db, workshop_id)
+    row = await _get_landing_page_row(db, workshop_id)
+    if not row or not row.draft_content:
+        raise HTTPException(400, "Chưa có nội dung nháp để xuất bản")
+    issues = _validate_landing_content(row.draft_content)
+    if issues:
+        raise HTTPException(400, "Không thể xuất bản: " + "; ".join(issues))
+    row.published_content = row.draft_content
+    row.published_at = datetime.now(timezone.utc)
+    row.updated_at = row.published_at
+    await db.commit()
+    await db.refresh(row)
+    return WorkshopLandingContentOut.model_validate(row)
+
+
+@router.delete("/workshops/{workshop_id}")
 async def delete_workshop(
     workshop_id: uuid.UUID,
     hard: bool = Query(False),
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    await require_workshop_permission(db, user, workshop_id, "workshops.delete")
     """hard=false (mặc định): soft-delete → cancelled.
     hard=true: xóa hẳn workshop + media files (cascade guests/forms links).
     """
@@ -376,6 +540,12 @@ async def delete_workshop(
     if hard:
         if w.status != "cancelled":
             raise HTTPException(409, "Chỉ có thể xóa vĩnh viễn workshop đã hủy")
+        from .registration_forms import _require_form_permission
+        primary_forms = (await db.execute(select(RegistrationForm).where(
+            RegistrationForm.workshop_id == workshop_id
+        ))).scalars().all()
+        for form in primary_forms:
+            await _require_form_permission(db, user, form, "workshops.delete")
         for m in w.media or []:
             _delete_media_file(m.file_url)
         await db.delete(w)
@@ -386,13 +556,14 @@ async def delete_workshop(
     w.updated_at = datetime.now(timezone.utc)
     await db.commit()
     w = await _get_workshop(db, workshop_id)
-    return await _to_out(db, w)
+    return await _to_out(db, w, user=user)
 
 
-@router.get("/workshops/{workshop_id}/registration-forms", response_model=list[WorkshopLinkedFormOut], dependencies=[Depends(require_permission("registration_forms.read"))])
-async def list_workshop_forms(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.get("/workshops/{workshop_id}/registration-forms", response_model=list[WorkshopLinkedFormOut])
+async def list_workshop_forms(workshop_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    await require_workshop_permission(db, user, workshop_id, "registration_forms.read")
     await _get_workshop(db, workshop_id)
-    return await _linked_forms(db, workshop_id)
+    return await _linked_forms(db, workshop_id, user=user)
 
 
 @router.get(
@@ -410,6 +581,7 @@ async def get_workshop_landing_page(slug: str, db: AsyncSession = Depends(get_db
     form = await _linked_form(db, w.id, w.landing_registration_form_id)
     if not form:
         raise HTTPException(404, "Form đăng ký của landing page không còn hợp lệ")
+    landing_row = await _get_landing_page_row(db, w.id)
     return WorkshopLandingPagePublic(
         id=w.id,
         name=w.name,
@@ -423,16 +595,19 @@ async def get_workshop_landing_page(slug: str, db: AsyncSession = Depends(get_db
         zalo_group_url=w.zalo_group_url,
         media=[WorkshopMediaOut.model_validate(m) for m in list(w.media or [])],
         registration_form=await _linked_form_out(db, form),
+        landing_content=(landing_row.published_content if landing_row else None),
     )
 
 
-@router.post("/workshops/{workshop_id}/media", response_model=list[WorkshopMediaOut], status_code=201, dependencies=[Depends(require_permission("workshops.write"))])
+@router.post("/workshops/{workshop_id}/media", response_model=list[WorkshopMediaOut], status_code=201)
 async def upload_workshop_media(
     workshop_id: uuid.UUID,
     media_type: str = Form("banner"),
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    await require_workshop_permission(db, user, workshop_id, "workshops.write")
     _validate_media_type(media_type)
     w = await _get_workshop(db, workshop_id)
     max_order = (await db.execute(
@@ -478,12 +653,14 @@ async def upload_workshop_media(
     return result
 
 
-@router.delete("/workshops/{workshop_id}/media/{media_id}", status_code=204, dependencies=[Depends(require_permission("workshops.write"))])
+@router.delete("/workshops/{workshop_id}/media/{media_id}", status_code=204)
 async def delete_workshop_media(
     workshop_id: uuid.UUID,
     media_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    await require_workshop_permission(db, user, workshop_id, "workshops.write")
     m = (await db.execute(
         select(WorkshopMedia).where(
             WorkshopMedia.id == media_id,
@@ -501,12 +678,14 @@ async def delete_workshop_media(
     return None
 
 
-@router.patch("/workshops/{workshop_id}/media/reorder", response_model=list[WorkshopMediaOut], dependencies=[Depends(require_permission("workshops.write"))])
+@router.patch("/workshops/{workshop_id}/media/reorder", response_model=list[WorkshopMediaOut])
 async def reorder_workshop_media(
     workshop_id: uuid.UUID,
     body: list[uuid.UUID],
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
 ):
+    await require_workshop_permission(db, user, workshop_id, "workshops.write")
     await _get_workshop(db, workshop_id)
     rows = (await db.execute(
         select(WorkshopMedia).where(WorkshopMedia.workshop_id == workshop_id)
@@ -533,13 +712,18 @@ def _delete_media_file(file_url: str | None) -> None:
         logger.warning("cannot delete media file %s: %s", path, e)
 
 
-@router.get("/workshops/{workshop_id}/guests", response_model=list[GuestOut], dependencies=[Depends(require_permission("guests.read"))])
+@router.get("/workshops/{workshop_id}/guests", response_model=list[GuestOut])
 async def list_guests(
     workshop_id: uuid.UUID,
     search: str | None = None,
     sort_registered_at: str = Query("desc", pattern="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
+    user=Depends(current_user),
+    permission: str = "guests.read",
 ):
+    if permission not in {"guests.read", "reports.read"}:
+        raise HTTPException(422, "Quyền đọc dữ liệu khách không hợp lệ")
+    await require_workshop_permission(db, user, workshop_id, permission)
     order_col = func.coalesce(Guest.registered_at, Guest.created_at)
     stmt = (
         select(Guest)
@@ -590,9 +774,10 @@ async def list_guests(
 async def create_guest(
     workshop_id: uuid.UUID,
     body: GuestCreate,
-    user: AdminUser = Depends(require_permission("guests.write")),
+    user: AdminUser = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await require_workshop_permission(db, user, workshop_id, "guests.write")
     w = await db.get(Workshop, workshop_id)
     if not w:
         raise HTTPException(404, "workshop not found")

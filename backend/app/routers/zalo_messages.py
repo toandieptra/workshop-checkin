@@ -8,7 +8,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..auth.dependencies import require_any_permission, require_permission
+from ..auth.dependencies import current_user, require_any_permission, require_permission
+from ..auth.workshop_access import allowed_workshop_ids, require_workshop_permission
 from ..db import get_db
 from ..models import Guest, Workshop, ZaloDelivery, ZaloDeliveryBatch, ZaloDeliveryItem, ZaloTemplate
 from ..schemas import (ZaloBatchSendRequest, ZaloDeliveryItemOut, ZaloDeliveryOut,
@@ -48,6 +49,63 @@ async def _delivery(db: AsyncSession, delivery_id: uuid.UUID) -> ZaloDelivery:
         selectinload(ZaloDelivery.items)
     ).where(ZaloDelivery.id == delivery_id))).scalar_one()
 
+
+
+async def _authorize_recipients(db, user, guests, *, bulk=False, workshop_id=None):
+    scope_ids = {guest.workshop_id for guest in guests}
+    if workshop_id is not None:
+        scope_ids.add(workshop_id)
+    for scope_id in scope_ids:
+        if bulk:
+            await require_workshop_permission(db, user, scope_id, "guests.read")
+            await require_workshop_permission(db, user, scope_id,
+                "zalo_messages.send", "zalo_messages.bulk_send", any_of=True)
+        else:
+            await require_workshop_permission(db, user, scope_id, "zalo_messages.send")
+
+
+async def _selected_for_user(db, user, body):
+    guests = await selected_guests(db, body.guest_ids, body.workshop_id)
+    if body.guest_ids and set(body.guest_ids) != {guest.id for guest in guests}:
+        raise HTTPException(404, "Không tìm thấy đủ khách đã chọn")
+    await _authorize_recipients(db, user, guests, bulk=True, workshop_id=body.workshop_id)
+    return guests
+
+
+async def _authorize_delivery(db, user, delivery_id, *, bulk=False, permission="zalo_messages.read"):
+    scope_ids = set((await db.execute(
+        select(Guest.workshop_id).select_from(ZaloDeliveryItem)
+        .outerjoin(Guest, Guest.id == ZaloDeliveryItem.guest_id)
+        .where(ZaloDeliveryItem.delivery_id == delivery_id)
+    )).scalars().all())
+    if not scope_ids or None in scope_ids:
+        raise HTTPException(403, "Không xác định được workshop của lượt gửi")
+    for scope_id in scope_ids:
+        if bulk:
+            await require_workshop_permission(db, user, scope_id, "guests.read")
+            await require_workshop_permission(db, user, scope_id,
+                "zalo_messages.send", "zalo_messages.bulk_send", any_of=True)
+        else:
+            await require_workshop_permission(db, user, scope_id, permission)
+
+
+async def _visible_deliveries(db, user):
+    accessible = await allowed_workshop_ids(db, user, "zalo_messages.read")
+    items = select(ZaloDeliveryItem.id).where(ZaloDeliveryItem.delivery_id == ZaloDelivery.id).correlate(ZaloDelivery)
+    unresolved = Guest.id.is_(None)
+    if accessible is not None:
+        unresolved = or_(unresolved, Guest.workshop_id.not_in(accessible))
+    forbidden = (select(ZaloDeliveryItem.id).outerjoin(Guest, Guest.id == ZaloDeliveryItem.guest_id)
+                 .where(ZaloDeliveryItem.delivery_id == ZaloDelivery.id, unresolved).correlate(ZaloDelivery))
+    return items.exists() & ~forbidden.exists()
+
+
+async def _with_item_scopes(db, delivery):
+    guest_ids = {item.guest_id for item in delivery.items if item.guest_id}
+    scopes = dict((await db.execute(select(Guest.id, Guest.workshop_id).where(Guest.id.in_(guest_ids)))).all()) if guest_ids else {}
+    for item in delivery.items:
+        item.workshop_id = scopes.get(item.guest_id)
+    return delivery
 
 @router.get("/templates", response_model=list[ZaloTemplateOut], dependencies=[Depends(require_permission("zalo_templates.read"))])
 async def list_templates(response: Response, search: str | None = None, status: str | None = None,
@@ -161,10 +219,10 @@ async def upload_media(kind: str, file: UploadFile = File(...)):
     return await save_media(file, "image" if kind in {"image", "thumbnail"} else "video")
 
 
-async def _preflight(body, db):
+async def _preflight(body, db, user):
     template = await db.get(ZaloTemplate, body.template_id)
     if not template: raise HTTPException(404, "Không tìm thấy template")
-    guests = await selected_guests(db, body.guest_ids, body.workshop_id)
+    guests = await _selected_for_user(db, user, body)
     blocks = validate_blocks(template.content_blocks)
     eligible = []
     ineligible = []
@@ -193,9 +251,9 @@ async def _preflight(body, db):
             "eligible": eligible, "ineligible": ineligible}
 
 
-@router.post("/preflight", dependencies=[Depends(require_any_permission("zalo_messages.bulk_send", "zalo_messages.send")), Depends(require_permission("guests.read"))])
-async def preflight(body: ZaloPreflightRequest, db: AsyncSession = Depends(get_db)):
-    return await _preflight(body, db)
+@router.post("/preflight")
+async def preflight(body: ZaloPreflightRequest, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    return await _preflight(body, db, user)
 
 
 @router.get("/quota", dependencies=[Depends(require_permission("zalo_messages.read"))])
@@ -211,42 +269,49 @@ async def quota(db: AsyncSession = Depends(get_db)):
             "reserved_count": reserved, "available_count": max(0, limit - used - reserved)}
 
 
-@router.post("/send", response_model=ZaloDeliveryOut, status_code=201, dependencies=[Depends(require_permission("zalo_messages.send"))])
-async def send_one(body: ZaloSendRequest, user=Depends(require_permission("zalo_messages.send")), db: AsyncSession = Depends(get_db)):
+@router.post("/send", response_model=ZaloDeliveryOut, status_code=201)
+async def send_one(body: ZaloSendRequest, user=Depends(current_user), db: AsyncSession = Depends(get_db)):
     template = await db.get(ZaloTemplate, body.template_id); guest = await db.get(Guest, body.guest_id)
     if not template or not guest: raise HTTPException(404, "Template hoặc guest không tồn tại")
+    if guest.deleted_at is not None: raise HTTPException(404, "Không tìm thấy khách")
+    await _authorize_recipients(db, user, [guest])
     if template.status != "active": raise HTTPException(409, "Chỉ gửi được template đang active")
     existing = await db.scalar(select(ZaloDelivery).where(ZaloDelivery.idempotency_key == str(body.idempotency_key)))
     if existing:
-        return await _delivery(db, existing.id)
+        await _authorize_delivery(db, user, existing.id, permission="zalo_messages.send")
+        return await _with_item_scopes(db, await _delivery(db, existing.id))
     try: delivery = await create_delivery(db, template, [guest], user.id, idempotency_key=body.idempotency_key)
     except ValueError as exc: await db.rollback(); raise HTTPException(409, str(exc)) from exc
+    await _authorize_delivery(db, user, delivery.id, permission="zalo_messages.send")
     await db.commit()
-    return await _delivery(db, delivery.id)
+    return await _with_item_scopes(db, await _delivery(db, delivery.id))
 
 
-@router.post("/batches", response_model=ZaloDeliveryOut, status_code=201, dependencies=[Depends(require_any_permission("zalo_messages.bulk_send", "zalo_messages.send")), Depends(require_permission("guests.read"))])
-async def send_batch(body: ZaloBatchSendRequest, user=Depends(require_any_permission("zalo_messages.bulk_send", "zalo_messages.send")), db: AsyncSession = Depends(get_db)):
+@router.post("/batches", response_model=ZaloDeliveryOut, status_code=201)
+async def send_batch(body: ZaloBatchSendRequest, user=Depends(current_user), db: AsyncSession = Depends(get_db)):
     template = await db.get(ZaloTemplate, body.template_id)
     if not template: raise HTTPException(404, "Không tìm thấy template")
     if template.status != "active": raise HTTPException(409, "Chỉ gửi được template đang active")
-    guests = await selected_guests(db, body.guest_ids, body.workshop_id)
+    guests = await _selected_for_user(db, user, body)
     existing = await db.scalar(select(ZaloDelivery).where(ZaloDelivery.idempotency_key == str(body.idempotency_key)))
     if existing:
-        return await _delivery(db, existing.id)
+        await _authorize_delivery(db, user, existing.id, bulk=True)
+        return await _with_item_scopes(db, await _delivery(db, existing.id))
     batch = ZaloDeliveryBatch(name=body.name, template_id=template.id,
                               selection={"guest_ids": [str(x) for x in body.guest_ids], "workshop_id": str(body.workshop_id) if body.workshop_id else None},
                               created_by=user.id)
     db.add(batch); await db.flush()
     try: delivery = await create_delivery(db, template, guests, user.id, batch.id, idempotency_key=body.idempotency_key)
     except ValueError as exc: await db.rollback(); raise HTTPException(409, str(exc)) from exc
+    await _authorize_delivery(db, user, delivery.id, bulk=True)
     await db.commit()
-    return await _delivery(db, delivery.id)
+    return await _with_item_scopes(db, await _delivery(db, delivery.id))
 
 
-@router.get("/guest-send-statuses", response_model=list[ZaloGuestSendStatusOut], dependencies=[Depends(require_permission("zalo_messages.read")), Depends(require_permission("guests.read"))])
+@router.get("/guest-send-statuses", response_model=list[ZaloGuestSendStatusOut])
 async def guest_send_statuses(workshop_id: uuid.UUID, template_id: uuid.UUID,
-                              db: AsyncSession = Depends(get_db)):
+                              db: AsyncSession = Depends(get_db), user=Depends(current_user)):
+    await require_workshop_permission(db, user, workshop_id, "zalo_messages.read", "guests.read")
     if not await db.get(Workshop, workshop_id):
         raise HTTPException(404, "Không tìm thấy workshop")
     if not await db.get(ZaloTemplate, template_id):
@@ -264,6 +329,7 @@ async def guest_send_statuses(workshop_id: uuid.UUID, template_id: uuid.UUID,
         Guest.workshop_id == workshop_id,
         Guest.deleted_at.is_(None),
         ZaloDelivery.template_id == template_id,
+        await _visible_deliveries(db, user),
     ).distinct().subquery()
     ranked = select(
         delivery_guests.c.guest_id,
@@ -306,35 +372,37 @@ async def guest_send_statuses(workshop_id: uuid.UUID, template_id: uuid.UUID,
     } for item in grouped.values()]
 
 
-@router.get("/deliveries", response_model=list[ZaloDeliveryOut], dependencies=[Depends(require_permission("zalo_messages.read"))])
+@router.get("/deliveries", response_model=list[ZaloDeliveryOut])
 async def history(guest_id: uuid.UUID | None = None, template_id: uuid.UUID | None = None,
                   offset: int = Query(0, ge=0),
-                  limit: int = Query(20, ge=1, le=100), db: AsyncSession = Depends(get_db)):
+                  limit: int = Query(20, ge=1, le=100), db: AsyncSession = Depends(get_db), user=Depends(current_user)):
     stmt = select(ZaloDelivery).options(selectinload(ZaloDelivery.items))
-    count_stmt = select(func.count(ZaloDelivery.id))
+    stmt = stmt.where(await _visible_deliveries(db, user))
     if guest_id:
+        guest = await db.get(Guest, guest_id)
+        if not guest: raise HTTPException(404, "Không tìm thấy khách")
+        await require_workshop_permission(db, user, guest.workshop_id, "zalo_messages.read")
         item_filter = ZaloDelivery.id.in_(select(ZaloDeliveryItem.delivery_id).where(ZaloDeliveryItem.guest_id == guest_id))
         stmt = stmt.where(item_filter)
-        count_stmt = count_stmt.where(item_filter)
     if template_id:
         stmt = stmt.where(ZaloDelivery.template_id == template_id)
-        count_stmt = count_stmt.where(ZaloDelivery.template_id == template_id)
-    total = int(await db.scalar(count_stmt) or 0)
     rows = list((await db.execute(stmt.order_by(ZaloDelivery.created_at.desc()).offset(offset).limit(limit))).scalars())
-    return [ZaloDeliveryOut.model_validate(row) for row in rows]
+    return [ZaloDeliveryOut.model_validate(await _with_item_scopes(db, row)) for row in rows]
 
 
-@router.get("/deliveries/{delivery_id}", response_model=ZaloDeliveryOut, dependencies=[Depends(require_permission("zalo_messages.read"))])
-async def detail(delivery_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.get("/deliveries/{delivery_id}", response_model=ZaloDeliveryOut)
+async def detail(delivery_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
     row = (await db.execute(select(ZaloDelivery).options(selectinload(ZaloDelivery.items)).where(ZaloDelivery.id == delivery_id))).scalar_one_or_none()
     if not row: raise HTTPException(404, "Không tìm thấy delivery")
-    return row
+    await _authorize_delivery(db, user, row.id)
+    return await _with_item_scopes(db, row)
 
 
-@router.post("/delivery-items/{item_id}/retry", response_model=ZaloDeliveryItemOut, dependencies=[Depends(require_permission("zalo_messages.send"))])
-async def retry(item_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.post("/delivery-items/{item_id}/retry", response_model=ZaloDeliveryItemOut)
+async def retry(item_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
     item = await db.get(ZaloDeliveryItem, item_id)
     if not item: raise HTTPException(404, "Không tìm thấy item")
+    await _authorize_delivery(db, user, item.delivery_id, permission="zalo_messages.send")
     if item.status != "failed": raise HTTPException(409, "Chỉ retry item lỗi")
     if not item.recipient_id: raise HTTPException(409, "Cần refresh recipient trước khi retry")
     try: await reopen_quota(db, item.delivery_id, item.quota_cost)
@@ -345,14 +413,23 @@ async def retry(item_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         delivery.status = "queued"
         delivery.completed_at = None
     item.status, item.last_error, item.next_attempt_at = "pending", None, __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
-    await db.commit(); await db.refresh(item); return item
+    await db.commit(); await db.refresh(item)
+    scoped_guest = await db.get(Guest, item.guest_id) if item.guest_id else None
+    item.workshop_id = scoped_guest.workshop_id if scoped_guest else None
+    return item
 
 
-@router.post("/delivery-items/{item_id}/refresh", response_model=ZaloDeliveryItemOut, dependencies=[Depends(require_permission("zalo_messages.send"))])
-async def refresh(item_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+@router.post("/delivery-items/{item_id}/refresh", response_model=ZaloDeliveryItemOut)
+async def refresh(item_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=Depends(current_user)):
     item = await db.get(ZaloDeliveryItem, item_id)
     if not item or not item.guest_id: raise HTTPException(404, "Không tìm thấy item")
-    guest = await db.get(Guest, item.guest_id); mapping = await resolve_recipient(db, guest, refresh=True)
+    await _authorize_delivery(db, user, item.delivery_id, permission="zalo_messages.send")
+    guest = await db.get(Guest, item.guest_id)
+    if not guest: raise HTTPException(404, "Không tìm thấy khách")
+    mapping = await resolve_recipient(db, guest, refresh=True)
     if not mapping: raise HTTPException(404, "Không resolve được recipient")
     item.recipient_id, item.recipient_name = mapping.recipient_id, mapping.recipient_name
-    await db.commit(); await db.refresh(item); return item
+    await db.commit(); await db.refresh(item)
+    scoped_guest = await db.get(Guest, item.guest_id) if item.guest_id else None
+    item.workshop_id = scoped_guest.workshop_id if scoped_guest else None
+    return item

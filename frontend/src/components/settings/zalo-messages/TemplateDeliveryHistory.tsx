@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowPathIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
+import { useAuth } from "@/contexts/AuthContext";
+import { PERMISSIONS } from "@/lib/permissions";
 import { getZaloDelivery, listZaloDeliveries } from "@/lib/api";
 import ZaloDeliveryModal from "@/components/ZaloDeliveryModal";
 import type { ZaloDelivery, ZaloMessageTemplate } from "@/types/zalo-message";
@@ -30,6 +32,11 @@ export default function TemplateDeliveryHistory({
   canSend: boolean;
   onClose: () => void;
 }) {
+  const { user, can, canForWorkshop, canInAnyWorkshop } = useAuth();
+  const scope = JSON.stringify([template.id, user?.permissions, user?.workshop_access]);
+  const live = useRef({ scope, revision: 0 });
+  if (live.current.scope !== scope) live.current = { scope, revision: live.current.revision + 1 };
+  const canReadDelivery = (delivery: ZaloDelivery) => delivery.items.every((item) => item.guest_id ? !!item.workshop_id && canForWorkshop(PERMISSIONS.zaloMessagesView, item.workshop_id) : can(PERMISSIONS.zaloMessagesView));
   const [deliveries, setDeliveries] = useState<ZaloDelivery[]>([]);
   const [detail, setDetail] = useState<ZaloDelivery | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,32 +52,36 @@ export default function TemplateDeliveryHistory({
   useModalDismiss(handleClose);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+    const revision = ++live.current.revision;
+    setLoading(true); setError("");
     try {
-      setDeliveries(await listZaloDeliveries(undefined, 0, 100, template.id));
+      const result = await listZaloDeliveries(undefined, 0, 100, template.id);
+      if (scope === live.current.scope && revision === live.current.revision) setDeliveries(result);
     } catch (loadError) {
-      setError("Không tải được lịch sử gửi: " + errorMessage(loadError));
-    } finally {
-      setLoading(false);
-    }
-  }, [template.id]);
+      if (scope === live.current.scope && revision === live.current.revision) { setDeliveries([]); setDetail(null); setError("Không tải được lịch sử gửi: " + errorMessage(loadError)); }
+    } finally { if (scope === live.current.scope && revision === live.current.revision) setLoading(false); }
+  }, [template.id, scope]);
 
   useEffect(() => {
+    setDeliveries([]); setDetail(null);
     void load();
+    return () => { live.current.revision++; };
   }, [load]);
 
+  const openDetail = async (id: string) => {
+    const revision = live.current.revision;
+    try {
+      const result = await getZaloDelivery(id);
+      if (scope === live.current.scope && revision === live.current.revision) setDetail(result);
+    } catch (cause) { if (scope === live.current.scope && revision === live.current.revision) { setDetail(null); setError("Không tải được chi tiết delivery: " + errorMessage(cause)); } }
+  };
   const refreshDetail = async () => {
     if (!detail) return;
-    try {
-      setDetail(await getZaloDelivery(detail.id));
-      await load();
-    } catch (refreshError) {
-      setError(
-        "Không tải được chi tiết delivery: " + errorMessage(refreshError),
-      );
-    }
+    await load();
+    await openDetail(detail.id);
   };
+  const visibleDeliveries = deliveries.filter(canReadDelivery);
+  if (!canInAnyWorkshop(PERMISSIONS.zaloMessagesView)) return null;
 
   return (
     <>
@@ -102,7 +113,7 @@ export default function TemplateDeliveryHistory({
           </div>
           <div className="mt-4 flex items-center justify-between gap-3">
             <div className="text-sm text-muted">
-              {deliveries.length} delivery gần nhất
+              {visibleDeliveries.length} delivery gần nhất
             </div>
             <button
               type="button"
@@ -125,26 +136,17 @@ export default function TemplateDeliveryHistory({
               {error}
             </div>
           )}
-          {!loading && !deliveries.length && (
+          {!loading && !visibleDeliveries.length && (
             <div className="mt-4 rounded border border-dashed border-line p-8 text-center text-sm text-muted">
               Mẫu tin này chưa có delivery.
             </div>
           )}
           <div className="mt-4 space-y-2">
-            {deliveries.map((delivery) => (
+            {visibleDeliveries.map((delivery) => (
               <button
                 type="button"
                 key={delivery.id}
-                onClick={() =>
-                  void getZaloDelivery(delivery.id)
-                    .then(setDetail)
-                    .catch((detailError) =>
-                      setError(
-                        "Không tải được chi tiết delivery: " +
-                          errorMessage(detailError),
-                      ),
-                    )
-                }
+                onClick={() => void openDetail(delivery.id)}
                 className="block w-full rounded border border-line p-3 text-left transition hover:bg-brand/5"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -166,7 +168,7 @@ export default function TemplateDeliveryHistory({
           </div>
         </div>
       </div>
-      {detail && (
+      {detail && canReadDelivery(detail) && (
         <ZaloDeliveryModal
           delivery={detail}
           canSend={canSend}

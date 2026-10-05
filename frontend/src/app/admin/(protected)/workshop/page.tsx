@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createWorkshop,
@@ -168,10 +169,14 @@ function cleanBody(form: WorkshopWriteBody): WorkshopWriteBody {
 }
 
 export default function AdminWorkshopPage() {
-  const { can } = useAuth();
+  const { can, canForWorkshop, canInAnyWorkshop, refresh } = useAuth();
+  const listRequestId = useRef(0);
+  const detailRequestId = useRef(0);
+  const landingRequestId = useRef(0);
   const [items, setItems] = useState<WorkshopAdmin[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const [msg, setMsg] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [search, setSearch] = useState("");
@@ -230,24 +235,36 @@ export default function AdminWorkshopPage() {
   useDialogFocus(Boolean(landingWorkshop), landingDialogRef, "[data-landing-close]");
 
   const load = useCallback(async () => {
+    const sequence = ++listRequestId.current;
+    setItems([]);
     setLoading(true);
     try {
       const [ws, br] = await Promise.all([
         getWorkshops(),
         getWorkshopBranches(),
       ]);
-      setItems(ws);
+      if (sequence !== listRequestId.current) return;
+      setItems(ws.filter((workshop) => canForWorkshop(PERMISSIONS.workshopsView, workshop.id)));
       setBranches(br);
     } catch (e: any) {
-      setMsg("Lỗi tải workshop: " + (e?.message || "không rõ"));
+      if (sequence === listRequestId.current) setMsg("Lỗi tải workshop: " + (e?.message || "không rõ"));
     } finally {
-      setLoading(false);
+      if (sequence === listRequestId.current) setLoading(false);
     }
-  }, []);
+  }, [canForWorkshop]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    void load();
+    return () => { ++listRequestId.current; };
+  }, [load, reloadVersion]);
+
+  useEffect(() => {
+    ++detailRequestId.current;
+    ++landingRequestId.current;
+    setPreview(null);
+    if (editingId && !canForWorkshop(PERMISSIONS.workshopsEdit, editingId)) { setModalOpen(false); setEditingId(null); setDetail(null); }
+    if (landingWorkshop && !canForWorkshop(PERMISSIONS.workshopsEdit, landingWorkshop.id)) { setLandingWorkshop(null); setLandingForms([]); }
+  }, [canForWorkshop]);
 
   const counts = useMemo(() => {
     const all = items.length;
@@ -313,6 +330,8 @@ export default function AdminWorkshopPage() {
   };
 
   const openEdit = async (w: WorkshopAdmin) => {
+    if (!canForWorkshop(PERMISSIONS.workshopsEdit, w.id)) return;
+    const sequence = ++detailRequestId.current;
     setEditingId(w.id);
     setFormError("");
     setForm(formFromWorkshop(w));
@@ -321,14 +340,17 @@ export default function AdminWorkshopPage() {
     setDetail(w);
     try {
       const full = await getWorkshop(w.id);
+      if (sequence !== detailRequestId.current) return;
       setDetail(full);
       setForm(formFromWorkshop(full));
     } catch (e: any) {
-      setMsg("Lỗi tải chi tiết: " + (e?.message || "không rõ"));
+      if (sequence === detailRequestId.current) setMsg("Lỗi tải chi tiết: " + (e?.message || "không rõ"));
     }
   };
 
   const openLandingDialog = async (w: WorkshopAdmin) => {
+    if (!canForWorkshop(PERMISSIONS.workshopsEdit, w.id)) return;
+    const sequence = ++landingRequestId.current;
     setLandingWorkshop(w);
     setLandingForms([]);
     setLandingFormId(w.landing_registration_form_id || "");
@@ -337,19 +359,21 @@ export default function AdminWorkshopPage() {
     setLandingLoading(true);
     try {
       const forms = await listWorkshopRegistrationForms(w.id);
+      if (sequence !== landingRequestId.current) return;
       setLandingForms(forms);
       if (!forms.some((item) => item.id === w.landing_registration_form_id)) {
         setLandingFormId("");
       }
     } catch (e: any) {
-      setLandingError("Không thể tải form đăng ký: " + (e?.message || "không rõ"));
+      if (sequence === landingRequestId.current) setLandingError("Không thể tải form đăng ký: " + (e?.message || "không rõ"));
     } finally {
-      setLandingLoading(false);
+      if (sequence === landingRequestId.current) setLandingLoading(false);
     }
   };
 
   const closeLandingDialog = () => {
     if (landingSaving) return;
+    ++landingRequestId.current;
     setLandingWorkshop(null);
     setLandingForms([]);
     setLandingFormId("");
@@ -358,7 +382,7 @@ export default function AdminWorkshopPage() {
   };
 
   const saveLandingPage = async () => {
-    if (!landingWorkshop || !landingFormId || landingSaving) return;
+    if (!landingWorkshop || !landingFormId || landingSaving || !canForWorkshop(PERMISSIONS.workshopsEdit, landingWorkshop.id)) return;
     setLandingSaving(true);
     setLandingError("");
     try {
@@ -376,6 +400,7 @@ export default function AdminWorkshopPage() {
 
   const closeModal = () => {
     if (saving || uploading) return;
+    ++detailRequestId.current;
     setModalOpen(false);
     setEditingId(null);
     setDetail(null);
@@ -394,6 +419,7 @@ export default function AdminWorkshopPage() {
   };
 
   const save = async () => {
+    if (editingId ? !canForWorkshop(PERMISSIONS.workshopsEdit, editingId) : !can(PERMISSIONS.workshopsCreate)) return;
     const body = cleanBody(form);
     if (!body.name || !body.slug) {
       setFormError("Vui lòng nhập tên và slug.");
@@ -407,9 +433,10 @@ export default function AdminWorkshopPage() {
         setMsg("Đã cập nhật workshop");
       } else {
         await createWorkshop(body);
+        await refresh();
         setMsg("Đã tạo workshop");
       }
-      await load();
+      setReloadVersion((version) => version + 1);
       setModalOpen(false);
       setEditingId(null);
       setDetail(null);
@@ -422,6 +449,7 @@ export default function AdminWorkshopPage() {
   };
 
   const changeStatus = async (w: WorkshopAdmin, status: WorkshopStatus) => {
+    if (!canForWorkshop(PERMISSIONS.workshopsEdit, w.id)) return;
     setBusyId(w.id);
     try {
       const next = await updateWorkshopStatus(w.id, status);
@@ -436,6 +464,7 @@ export default function AdminWorkshopPage() {
   };
 
   const remove = async (w: WorkshopAdmin) => {
+    if (!canForWorkshop(PERMISSIONS.workshopsDelete, w.id)) return;
     if (w.status === "cancelled") return;
     if (!confirm(`Hủy workshop "${w.name}"? Workshop sẽ chuyển sang trạng thái Đã hủy (soft-delete).`)) return;
     setBusyId(w.id);
@@ -452,6 +481,7 @@ export default function AdminWorkshopPage() {
   };
 
   const purge = async (w: WorkshopAdmin) => {
+    if (!canForWorkshop(PERMISSIONS.workshopsDelete, w.id)) return;
     if (
       !confirm(
         `XÓA HẲN workshop "${w.name}"?\nKhách mời, media và liên kết form sẽ bị xóa vĩnh viễn. Không hoàn tác được.`,
@@ -477,7 +507,7 @@ export default function AdminWorkshopPage() {
   };
 
   const onUpload = async (files: FileList | null) => {
-    if (!editingId || !files?.length) return;
+    if (!editingId || !files?.length || !canForWorkshop(PERMISSIONS.workshopsEdit, editingId)) return;
     setUploading(true);
     try {
       const list = await uploadWorkshopMedia(editingId, Array.from(files));
@@ -495,7 +525,7 @@ export default function AdminWorkshopPage() {
   };
 
   const removeMedia = async (m: WorkshopMedia) => {
-    if (!editingId || busyMediaId === m.id) return;
+    if (!editingId || busyMediaId === m.id || !canForWorkshop(PERMISSIONS.workshopsEdit, editingId)) return;
     if (!confirm(`Xóa file "${m.file_name || m.file_url}"?`)) return;
     setBusyMediaId(m.id);
     try {
@@ -522,10 +552,12 @@ export default function AdminWorkshopPage() {
 
   const previewItem = preview ? preview.items[preview.index] : null;
 
+  if (!canInAnyWorkshop(PERMISSIONS.workshopsView) && !can(PERMISSIONS.workshopsCreate)) return <div className="p-8 text-center text-muted">Bạn không có quyền xem workshop.</div>;
+
   return (
-    <div className="px-3 py-3 pb-20 sm:p-6">
-      <div className="w-full">
-        <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+    <div className="px-3 py-3 pb-20 sm:p-6 md:flex md:h-[calc(var(--admin-vh)_-_3.5rem)] md:min-h-0 md:flex-col md:overflow-hidden md:pb-px">
+      <div className="w-full md:flex md:min-h-0 md:flex-1 md:flex-col">
+        <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4 md:shrink-0">
           <div>
             <h1 className="text-2xl font-bold text-brand-teal">Workshop</h1>
             <p className="text-sm text-muted mt-1">
@@ -546,7 +578,7 @@ export default function AdminWorkshopPage() {
           <div
             role={/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "alert" : "status"}
             aria-live={/^Lỗi|^Không thể|^Vui lòng/.test(msg) ? "assertive" : "polite"}
-            className={`mb-3 flex items-center gap-2 rounded-md border p-2.5 text-sm animate-toast-in ${
+            className={`mb-3 flex items-center gap-2 rounded-md border p-2.5 text-sm animate-toast-in md:shrink-0 ${
               /^Lỗi|^Không thể|^Vui lòng/.test(msg)
                 ? "border-red-200 bg-red-50 text-red-700"
                 : "border-success-border bg-success-soft text-brand-teal"
@@ -563,7 +595,7 @@ export default function AdminWorkshopPage() {
           </div>
         )}
 
-        <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(240px,1fr)_190px]">
+        <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(240px,1fr)_190px] md:shrink-0">
           <label className="relative block">
             <span className="sr-only">Tìm workshop</span>
             <input
@@ -589,7 +621,7 @@ export default function AdminWorkshopPage() {
           </label>
         </div>
 
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-4 flex items-center justify-between gap-3 md:shrink-0">
           <div className="-mx-3 flex flex-1 gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
             <button
               onClick={() => setStatusFilter("")}
@@ -686,12 +718,20 @@ export default function AdminWorkshopPage() {
                       )}
                     </div>
 
-                    {can(PERMISSIONS.workshopsEdit) && (
+                    {canForWorkshop(PERMISSIONS.workshopsEdit, w.id) && (
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         <button onClick={() => openEdit(w)} className="min-h-11 rounded-md border border-line text-sm font-semibold text-brand-teal">Sửa</button>
                         <button onClick={() => openLandingDialog(w)} className="min-h-11 rounded-md border border-brand bg-brand/10 text-sm font-semibold text-brand-teal">
                           Tạo Landing Page
                         </button>
+                        {w.landing_registration_form_id && (
+                          <Link
+                            href={`/admin/workshop/${w.id}/landing-page`}
+                            className="grid min-h-11 place-items-center rounded-md border border-line text-sm font-semibold text-brand-teal"
+                          >
+                            Mở Builder
+                          </Link>
+                        )}
                         {NEXT_STATUS[w.status as WorkshopStatus] && (
                           <button
                             disabled={busyId === w.id}
@@ -704,8 +744,8 @@ export default function AdminWorkshopPage() {
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2 text-xs">
-                      {can(PERMISSIONS.workshopsDelete) && (w.status === "draft" || w.status === "published") && <button disabled={busyId === w.id} onClick={() => remove(w)} className="min-h-11 font-semibold text-red-600 disabled:opacity-50">Hủy</button>}
-                      {can(PERMISSIONS.workshopsDelete) && w.status === "cancelled" && <button disabled={busyId === w.id} onClick={() => purge(w)} className="min-h-11 font-semibold text-red-700 disabled:opacity-50">Xóa vĩnh viễn</button>}
+                      {canForWorkshop(PERMISSIONS.workshopsDelete, w.id) && (w.status === "draft" || w.status === "published") && <button disabled={busyId === w.id} onClick={() => remove(w)} className="min-h-11 font-semibold text-red-600 disabled:opacity-50">Hủy</button>}
+                      {canForWorkshop(PERMISSIONS.workshopsDelete, w.id) && w.status === "cancelled" && <button disabled={busyId === w.id} onClick={() => purge(w)} className="min-h-11 font-semibold text-red-700 disabled:opacity-50">Xóa vĩnh viễn</button>}
                     </div>
                   </article>
                 );
@@ -721,7 +761,7 @@ export default function AdminWorkshopPage() {
               )}
             </div>
 
-            <div className="hidden h-[calc(100dvh-17rem)] min-h-[24rem] flex-col overflow-hidden rounded-md border border-line bg-surface md:flex">
+            <div className="hidden min-h-[24rem] flex-col overflow-hidden rounded-md border border-line bg-surface md:flex md:min-h-0 md:flex-1">
               <div className="admin-table-scroll min-h-0 max-h-none flex-1">
                 <table className="w-full min-w-[1280px] text-sm">
               <thead className="bg-surface-muted text-left text-muted">
@@ -798,15 +838,23 @@ export default function AdminWorkshopPage() {
                     </td>}
                     {visibleColumns.landing && <td className="px-3 py-2 whitespace-nowrap">
                       {w.landing_registration_form_id ? (
-                        <a
-                          href={landingPublicUrl(w.slug)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-semibold text-brand underline"
-                          title={landingPublicUrl(w.slug)}
-                        >
-                          Mở landing page
-                        </a>
+                        <span className="flex flex-col items-start gap-1">
+                          <a
+                            href={landingPublicUrl(w.slug)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-semibold text-brand underline"
+                            title={landingPublicUrl(w.slug)}
+                          >
+                            Mở landing page
+                          </a>
+                          {canForWorkshop(PERMISSIONS.workshopsEdit, w.id) && <Link
+                            href={`/admin/workshop/${w.id}/landing-page`}
+                            className="text-xs font-semibold text-brand-teal underline"
+                          >
+                            Builder
+                          </Link>}
+                        </span>
                       ) : (
                         <span className="text-xs text-muted">Chưa tạo</span>
                       )}
@@ -852,19 +900,19 @@ export default function AdminWorkshopPage() {
                     </td>}
                     {visibleColumns.actions && <td className="w-[290px] px-3 py-2">
                       <div className="ml-auto flex w-[270px] flex-wrap justify-end gap-1 [&_button]:whitespace-nowrap">
-                        {can(PERMISSIONS.workshopsEdit) && <button
+                        {canForWorkshop(PERMISSIONS.workshopsEdit, w.id) && <button
                           onClick={() => openEdit(w)}
                           className="px-2 py-1 border border-line rounded-sm text-xs hover:bg-surface-muted"
                         >
                           Sửa
                         </button>}
-                        {can(PERMISSIONS.workshopsEdit) && <button
+                        {canForWorkshop(PERMISSIONS.workshopsEdit, w.id) && <button
                           onClick={() => openLandingDialog(w)}
                           className="px-2 py-1 border border-brand bg-brand/10 rounded-sm text-xs text-brand-teal"
                         >
                           Tạo Landing Page
                         </button>}
-                        {can(PERMISSIONS.workshopsEdit) && w.status === "draft" && (
+                        {canForWorkshop(PERMISSIONS.workshopsEdit, w.id) && w.status === "draft" && (
                           <button
                             disabled={busyId === w.id}
                             onClick={() => changeStatus(w, "published")}
@@ -873,7 +921,7 @@ export default function AdminWorkshopPage() {
                             Xuất bản
                           </button>
                         )}
-                        {can(PERMISSIONS.workshopsEdit) && w.status === "cancelled" && (
+                        {canForWorkshop(PERMISSIONS.workshopsEdit, w.id) && w.status === "cancelled" && (
                           <button
                             disabled={busyId === w.id}
                             onClick={() => changeStatus(w, "draft")}
@@ -882,7 +930,7 @@ export default function AdminWorkshopPage() {
                             Khôi phục về nháp
                           </button>
                         )}
-                        {can(PERMISSIONS.workshopsEdit) && w.status === "published" && (
+                        {canForWorkshop(PERMISSIONS.workshopsEdit, w.id) && w.status === "published" && (
                           <button
                             disabled={busyId === w.id}
                             onClick={() => changeStatus(w, "completed")}
@@ -891,7 +939,7 @@ export default function AdminWorkshopPage() {
                             Hoàn thành
                           </button>
                         )}
-                        {can(PERMISSIONS.workshopsDelete) && (w.status === "draft" || w.status === "published") && (
+                        {canForWorkshop(PERMISSIONS.workshopsDelete, w.id) && (w.status === "draft" || w.status === "published") && (
                           <button
                             disabled={busyId === w.id}
                             onClick={() => remove(w)}
@@ -900,7 +948,7 @@ export default function AdminWorkshopPage() {
                             Hủy
                           </button>
                         )}
-                        {can(PERMISSIONS.workshopsDelete) && w.status === "cancelled" && <button
+                        {canForWorkshop(PERMISSIONS.workshopsDelete, w.id) && w.status === "cancelled" && <button
                           disabled={busyId === w.id}
                           onClick={() => purge(w)}
                           className="px-2 py-1 border border-red-500 bg-red-50 text-red-700 rounded-sm text-xs font-medium"
@@ -1216,6 +1264,14 @@ export default function AdminWorkshopPage() {
 
             <div className="grid grid-cols-2 gap-2 border-t border-line bg-surface px-4 py-3 sm:flex sm:justify-end">
               <button type="button" onClick={closeLandingDialog} disabled={landingSaving} className="min-h-11 rounded-md border border-line px-4 py-2 text-sm disabled:opacity-50">Đóng</button>
+              {landingWorkshop.landing_registration_form_id && (
+                <Link
+                  href={`/admin/workshop/${landingWorkshop.id}/landing-page`}
+                  className="grid min-h-11 place-items-center rounded-md border border-brand px-4 py-2 text-sm font-semibold text-brand-teal"
+                >
+                  Mở Builder
+                </Link>
+              )}
               <button type="button" onClick={saveLandingPage} disabled={!landingFormId || landingLoading || landingSaving} className="min-h-11 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-teal disabled:cursor-not-allowed disabled:opacity-50">
                 {landingSaving ? "Đang tạo…" : landingWorkshop.landing_registration_form_id ? "Cập nhật Landing Page" : "Tạo Landing Page"}
               </button>
