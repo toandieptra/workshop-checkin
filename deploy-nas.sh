@@ -94,6 +94,9 @@ echo "[4/5] Recreate containers"
   < migrations/036_public_api_keys.sql
 "$DOCKER_BIN" compose -p "$COMPOSE_PROJECT" exec -T postgres \
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/037_workshop_landing_page_content.sql
+"$DOCKER_BIN" compose -p "$COMPOSE_PROJECT" exec -T postgres \
+  sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/038_reports_permissions_viewer_editor.sql
 "$DOCKER_BIN" compose -p "$COMPOSE_PROJECT" exec -T postgres \
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
