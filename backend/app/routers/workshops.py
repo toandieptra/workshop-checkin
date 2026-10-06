@@ -777,7 +777,9 @@ async def create_guest(
     user: AdminUser = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await require_workshop_permission(db, user, workshop_id, "guests.write")
+    # Check-in guest accounts hold the narrow guests.create grant: they may add
+    # walk-in attendees but never edit, confirm or import.
+    await require_workshop_permission(db, user, workshop_id, "guests.write", "guests.create", any_of=True)
     w = await db.get(Workshop, workshop_id)
     if not w:
         raise HTTPException(404, "workshop not found")
@@ -786,7 +788,7 @@ async def create_guest(
         values.get("source"), values.get("source_detail")
     )
     values["creator_user_id"] = user.id
-    values["creator_name"] = user.name or user.email
+    values["creator_name"] = user.name or user.username or user.email
     from ..services.registration_confirmation import apply_registration_policy
     from ..services.zbs import normalize_phone
     values["phone"] = normalize_phone(values.get("phone")) or None

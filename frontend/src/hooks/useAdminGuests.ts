@@ -298,7 +298,8 @@ export function useAdminGuests() {
 
   // ----- guest actions -----
   const createGuest = useCallback(async (): Promise<boolean> => {
-    if (!allowed(PERMISSIONS.guestsCreate)) return false;
+    const createPermission = current(scope, wid, PERMISSIONS.guestsCreate) ? PERMISSIONS.guestsCreate : PERMISSIONS.guestsCreateOnly;
+    if (!allowed(createPermission)) return false;
     const full_name = newGuest.full_name.trim();
     const phone = newGuest.phone.trim();
     const business_model = newGuest.business_model.trim();

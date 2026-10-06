@@ -192,10 +192,10 @@ export default function DesktopAdmin() {
 
   useEffect(() => {
     if (!duplicateGuest) return;
-    const ok = window.confirm(
-      `Số điện thoại này đã đăng ký tham gia ${currentWorkshop?.name || "workshop này"}, bạn có muốn sửa thông tin không?`
-    );
-    if (ok) {
+    const message = `Số điện thoại này đã đăng ký tham gia ${currentWorkshop?.name || "workshop này"}`;
+    if (!can(PERMISSIONS.guestsEdit)) {
+      window.alert(`${message}. Hãy tìm khách trong danh sách để check-in.`);
+    } else if (window.confirm(`${message}, bạn có muốn sửa thông tin không?`)) {
       openEdit({
         id: duplicateGuest.id,
         full_name: duplicateGuest.full_name,
@@ -301,7 +301,7 @@ export default function DesktopAdmin() {
           <div className="order-1 bg-surface rounded-md border border-line p-4 mb-4 flex items-center gap-3 flex-wrap justify-between">
             <div className="w-full max-w-xl"><WorkshopPicker workshops={workshops} value={wid} onChange={setWid} /></div>
             <div className="flex items-center gap-2 flex-wrap">
-              {can(PERMISSIONS.guestsCreate) && <button type="button" onClick={() => setShowAddGuest((value) => !value)} className="min-h-10 rounded-md border border-brand bg-brand px-4 text-sm font-semibold text-brand-teal">{showAddGuest ? "Đóng form thêm khách" : "Thêm khách"}</button>}
+              {(can(PERMISSIONS.guestsCreate) || can(PERMISSIONS.guestsCreateOnly)) && <button type="button" onClick={() => setShowAddGuest((value) => !value)} className="min-h-10 rounded-md border border-brand bg-brand px-4 text-sm font-semibold text-brand-teal">{showAddGuest ? "Đóng form thêm khách" : "Thêm khách"}</button>}
               <button type="button" aria-expanded={showAdminTools} onClick={() => setShowAdminTools((value) => !value)} className="min-h-10 rounded-md border border-line px-4 text-sm font-semibold text-brand-teal">{showAdminTools ? "Ẩn công cụ quản trị" : "Công cụ quản trị"}</button>
             </div>
             {showAdminTools && <div className="flex w-full items-center gap-2 flex-wrap border-t border-line pt-3">
@@ -404,7 +404,7 @@ export default function DesktopAdmin() {
         </section>
 
         {/* Add guest — cùng field với form đăng ký + VIP */}
-        {showAddGuest && can(PERMISSIONS.guestsCreate) && <section className="order-3 bg-surface rounded-md border border-line p-4 mb-4">
+        {showAddGuest && (can(PERMISSIONS.guestsCreate) || can(PERMISSIONS.guestsCreateOnly)) && <section className="order-3 bg-surface rounded-md border border-line p-4 mb-4">
           <h2 className="font-semibold text-brand-teal mb-2">Thêm khách</h2>
           <div className="flex flex-wrap items-end gap-3 text-sm">
             <label className="block min-w-[160px] flex-1">

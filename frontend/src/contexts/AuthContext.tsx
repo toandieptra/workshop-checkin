@@ -148,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!workshopId) return false;
     if (user?.account_type === "checkin_guest") {
       return guestWindowOpen(user) && workshopId === user.access_workshop_id
-        && ["guests.read", "checkin.read", "checkin.manage"].includes(permission)
+        && ["guests.read", "guests.create", "checkin.read", "checkin.manage"].includes(permission)
         && Boolean(user.workshop_access?.some((item) => item.workshop_id === workshopId && hasPermission(item.permissions, permission)));
     }
     if (user?.role === "admin" || user?.role === "super_admin") return can(permission);

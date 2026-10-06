@@ -12,7 +12,7 @@ from fastapi import HTTPException, Request
 from ..models import AdminUser
 from ..redis_client import get_redis
 
-CHECKIN_GUEST_PERMISSIONS = frozenset({"guests.read", "checkin.read", "checkin.manage"})
+CHECKIN_GUEST_PERMISSIONS = frozenset({"guests.read", "guests.create", "checkin.read", "checkin.manage"})
 PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 128
 _SCRYPT_N = 2 ** 17

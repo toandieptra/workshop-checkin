@@ -4,6 +4,8 @@ export type Permission = string;
 export const PERMISSIONS = {
   guestsView: "guests.read",
   guestsCreate: "guests.write",
+  /** Narrow add-only grant held by timed check-in guest accounts. */
+  guestsCreateOnly: "guests.create",
   guestsEdit: "guests.write",
   guestsDelete: "guests.delete",
   guestsImport: "guests.write",

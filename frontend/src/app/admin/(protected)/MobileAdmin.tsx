@@ -276,10 +276,10 @@ export default function MobileAdmin() {
 
   useEffect(() => {
     if (!duplicateGuest) return;
-    const ok = window.confirm(
-      `Số điện thoại này đã đăng ký tham gia ${currentWorkshop?.name || "workshop này"}, bạn có muốn sửa thông tin không?`
-    );
-    if (ok && can(PERMISSIONS.guestsEdit)) {
+    const message = `Số điện thoại này đã đăng ký tham gia ${currentWorkshop?.name || "workshop này"}`;
+    if (!can(PERMISSIONS.guestsEdit)) {
+      window.alert(`${message}. Hãy tìm khách trong danh sách để check-in.`);
+    } else if (window.confirm(`${message}, bạn có muốn sửa thông tin không?`)) {
       setEditGuest(duplicateGuest);
     }
     clearDuplicateGuest();
@@ -306,7 +306,7 @@ export default function MobileAdmin() {
   const filterActive = statusFilter !== "all" || search.trim().length > 0;
 
   const openAddForm = (prefillPhone?: string) => {
-    if (!can(PERMISSIONS.guestsCreate)) return;
+    if (!(can(PERMISSIONS.guestsCreate) || can(PERMISSIONS.guestsCreateOnly))) return;
     setNewGuest({
       full_name: "",
       phone: (prefillPhone ?? search).trim(),
@@ -422,7 +422,7 @@ export default function MobileAdmin() {
             <IconQrCode className="w-3.5 h-3.5" />
             Quét QR
           </button>}
-          {can(PERMISSIONS.guestsCreate) && <button
+          {(can(PERMISSIONS.guestsCreate) || can(PERMISSIONS.guestsCreateOnly)) && <button
             onClick={() => openAddForm()}
             className="inline-flex items-center justify-center gap-1 h-11 px-3 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 shrink-0"
           >
@@ -442,7 +442,7 @@ export default function MobileAdmin() {
       {/* ======= 5. Guest card list ======= */}
       <section className="px-3 mt-3 flex flex-col gap-2.5">
         {visibleGuests.length === 0 ? (
-          filterActive && can(PERMISSIONS.guestsCreate) ? (
+          filterActive && (can(PERMISSIONS.guestsCreate) || can(PERMISSIONS.guestsCreateOnly)) ? (
             <EmptyStateAddCustomer
               query={search.trim()}
               onAdd={() => openAddForm(search.trim())}
@@ -499,7 +499,7 @@ export default function MobileAdmin() {
       )}
 
       {/* ======= 6. Add-customer bottom sheet ======= */}
-      {showAddForm && can(PERMISSIONS.guestsCreate) && (
+      {showAddForm && (can(PERMISSIONS.guestsCreate) || can(PERMISSIONS.guestsCreateOnly)) && (
         <AddCustomerSheet
           newGuest={newGuest}
           setNewGuest={setNewGuest}

@@ -4,6 +4,7 @@ Requests use real session cookies and the production authentication dependency.
 Only storage and external check-in side effects are replaced with isolated
 fixtures, so account changes must be observed through the next HTTP request.
 """
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -85,6 +86,8 @@ def ctx(monkeypatch, password_hash):
     @event.listens_for(engine, "connect")
     def install_uuid(connection, _record):
         connection.create_function("uuid_generate_v4", 0, lambda: uuid.uuid4().hex)
+        # PostgreSQL regexp_replace(text, pattern, replacement, 'g') used by duplicate-phone checks.
+        connection.create_function("regexp_replace", 4, lambda value, pattern, repl, _flags: re.sub(pattern, repl, value or ""))
 
     Base.metadata.create_all(engine)
     session = Session(engine, expire_on_commit=False)
@@ -174,7 +177,7 @@ def test_guest_login_payload_and_cookie_have_only_fixed_scoped_permissions(ctx):
     assert len(result["workshop_access"]) == 1
     scope = result["workshop_access"][0]
     assert scope["workshop_id"] == str(ctx.workshops[0].id)
-    assert set(scope["permissions"]) == {"guests.read", "checkin.read", "checkin.manage"}
+    assert set(scope["permissions"]) == {"guests.read", "guests.create", "checkin.read", "checkin.manage"}
     assert "password" not in result and "password_hash" not in result
     session = ctx.session.scalar(select(AdminSession).where(AdminSession.user_id == ctx.staff.id))
     assert local_accounts.utc_datetime(session.expires_at) <= local_accounts.utc_datetime(ctx.staff.access_expires_at)
@@ -216,6 +219,7 @@ def test_guest_cannot_write_guests_export_forms_or_manage_users(ctx):
         ("get", f"/api/export/guests?workshop_id={workshop_id}&export_context=reports", None),
         ("post", "/api/registration-forms", {"workshop_ids": [str(workshop_id)]}),
         ("patch", f"/api/workshops/{workshop_id}", {"name": "Forbidden"}),
+        ("post", f"/api/guests/{guest_id}/confirm", None),
         ("get", "/api/admin/users", None),
         ("post", "/api/admin/users", _guest_create_body(ctx)),
         ("patch", f"/api/admin/users/{ctx.staff.id}", {"role": "super_admin"}),
@@ -318,7 +322,7 @@ def test_guest_memberships_and_corrupt_role_overrides_never_expand_grants(ctx):
     assert result.status_code == 200, result.text
     assert result.json()["permissions"] == []
     assert len(result.json()["workshop_access"]) == 1
-    assert set(result.json()["workshop_access"][0]["permissions"]) == {"guests.read", "checkin.read", "checkin.manage"}
+    assert set(result.json()["workshop_access"][0]["permissions"]) == {"guests.read", "guests.create", "checkin.read", "checkin.manage"}
     assert ctx.client.get(f"/api/guests/{ctx.guests[1].id}").status_code == 403
     assert ctx.client.get("/api/admin/users").status_code == 403
     assert ctx.client.post("/api/workshops", json={"name": "Forbidden workshop"}).status_code == 403
@@ -535,3 +539,39 @@ def test_username_uniqueness_on_edit_and_identity_types(ctx):
     # Old clients may continue submitting an email for ordinary local accounts.
     response = ctx.client.post("/api/auth/login", json={"email": ctx.local.email, "password": PASSWORD})
     assert response.status_code == 200
+
+
+def _walk_in(**changes):
+    return {"full_name": "Walk-in attendee", "phone": "0901234567", "business_model": "Quán trà",
+            "source": "Khác", "source_detail": "Khách vãng lai", "party_size": 2, **changes}
+
+
+def test_guest_can_add_attendee_only_in_assigned_workshop(ctx, monkeypatch):
+    from app.services import zalo_messages
+    monkeypatch.setattr(zalo_messages, "enqueue_auto_send_new_guest", AsyncMock())
+    _assert_logged_in(ctx)
+    created = ctx.client.post(f"/api/workshops/{ctx.workshops[0].id}/guests", json=_walk_in())
+    assert created.status_code == 201, created.text
+    row = ctx.session.get(Guest, uuid.UUID(created.json()["id"]))
+    assert row.workshop_id == ctx.workshops[0].id
+    assert row.creator_user_id == ctx.staff.id and row.creator_name == "Check-in staff"
+    assert ctx.client.post(f"/api/workshops/{ctx.workshops[1].id}/guests", json=_walk_in(phone="0907654321")).status_code == 403
+    # Adding does not unlock editing, including the attendee the account just created.
+    assert ctx.client.patch(f"/api/guests/{row.id}", json={"full_name": "Renamed"}).status_code == 403
+    duplicate = ctx.client.post(f"/api/workshops/{ctx.workshops[0].id}/guests", json=_walk_in())
+    assert duplicate.status_code == 409
+
+
+def test_guest_cannot_add_attendee_outside_access_window(ctx):
+    _assert_logged_in(ctx)
+    ctx.staff.access_expires_at = ctx.now - timedelta(seconds=1)
+    ctx.session.commit()
+    response = ctx.client.post(f"/api/workshops/{ctx.workshops[0].id}/guests", json=_walk_in())
+    assert response.status_code == 401
+    assert ctx.session.scalar(select(Guest).where(Guest.full_name == "Walk-in attendee")) is None
+
+
+def test_viewer_role_still_cannot_add_attendee(ctx):
+    _assert_logged_in(ctx, ctx.local)  # editor at workshop A, viewer at workshop B
+    response = ctx.client.post(f"/api/workshops/{ctx.workshops[1].id}/guests", json=_walk_in())
+    assert response.status_code == 403
