@@ -117,6 +117,10 @@ echo "[4/5] Recreate containers"
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/044_guest_multi_workshop_access.sql
 
+# Backend được dựng lại trước khi migration chạy và có thể đã thoát vì thiếu cột mới;
+# khởi động lại để nó đọc schema sau migration.
+"$DOCKER_BIN" compose -p "$COMPOSE_PROJECT" restart backend
+
 echo "[5/5] Wait for health"
 sleep 8
 "$DOCKER_BIN" compose -p "$COMPOSE_PROJECT" ps
