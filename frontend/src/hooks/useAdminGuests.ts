@@ -88,6 +88,31 @@ export interface DuplicatedGuestInfo {
 
 const LAST_WORKSHOP_STORAGE_KEY = "workshop-checkin:last-admin-workshop";
 
+/** Bỏ dấu tiếng Việt và viết thường, để tìm kiếm không phân biệt dấu như phía server. */
+function foldText(value: string | null | undefined): string {
+  return (value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "d").toLowerCase();
+}
+
+/**
+ * Lọc khách theo từ khóa trên máy, cùng quy tắc với tìm kiếm của server: mọi từ phải khớp đầu một từ
+ * trong tên, hoặc nằm trong mô hình kinh doanh / chức danh / loại khách, hoặc nằm trong các chữ số của SĐT.
+ */
+function filterGuestsBySearch(guests: Guest[], search: string): Guest[] {
+  const tokens = foldText(search).match(/[\p{L}\p{N}]+/gu) || [];
+  if (!tokens.length) return guests;
+  return guests.filter((guest) => {
+    const name = foldText(guest.full_name);
+    const other = [guest.business_model, guest.role_title, guest.guest_type].map(foldText).join(" ");
+    const phone = (guest.phone || "").replace(/\D/g, "");
+    return tokens.every((token) => {
+      const digits = token.replace(/\D/g, "");
+      return new RegExp(`(^|[^\\p{L}\\p{N}])${token}`, "u").test(name)
+        || other.includes(token)
+        || phone.includes(digits || token);
+    });
+  });
+}
+
 /**
  * Hook tập trung state + action cho trang Admin Khách mời.
  * Cả MobileAdmin và DesktopAdmin cùng consume để tránh duplicate logic.
@@ -99,12 +124,14 @@ export function useAdminGuests() {
   const accessKey = JSON.stringify([user?.id, user?.role, user?.permissions, user?.workshop_access, user?.account_type, user?.access_workshop_id, user?.access_starts_at, user?.access_expires_at]);
   const [workshops, setWorkshops] = useState<Workshop[]>([]);
   const [wid, setWid] = useState("");
-  const [guests, setGuests] = useState<Guest[]>([]);
+  // Toàn bộ khách của workshop, tải một lần; tìm kiếm và số liệu tổng đều tính từ danh sách này.
   const [allGuests, setAllGuests] = useState<Guest[]>([]);
+  const [guestsLoading, setGuestsLoading] = useState(true);
   const [zbsStatus, setZbsStatus] = useState<Record<string, Record<string, ZbsDelivery>>>({});
   const [msg, setMsg] = useState("");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const guests = useMemo(() => filterGuestsBySearch(allGuests, debouncedSearch), [allGuests, debouncedSearch]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [showDuplicateOnly, setShowDuplicateOnly] = useState(false);
   const [guestDetails, setGuestDetails] = useState<Record<string, GuestDetailState>>({});
@@ -142,7 +169,6 @@ export function useAdminGuests() {
   const live = useRef({ scope, wid, accessKey, canForWorkshop });
   live.current = { scope, wid, accessKey, canForWorkshop };
   const guestRequest = useRef(0);
-  const allRequest = useRef(0);
   const zbsRequest = useRef(0);
   const current = useCallback((snapshot: string, id: string, permission: string = PERMISSIONS.guestsView) =>
     live.current.scope === snapshot && live.current.wid === id && live.current.canForWorkshop(permission, id), []);
@@ -164,34 +190,50 @@ export function useAdminGuests() {
     return ws;
   }, []);
 
-  const loadGuests = useCallback(async (id: string, q?: string, sort?: string, adminLoading = true) => {
+  const loadGuests = useCallback(async (id: string, adminLoading = true) => {
     const snapshot = live.current.scope;
     if (!current(snapshot, id)) return;
     const request = ++guestRequest.current;
-    const params = new URLSearchParams({ sort_registered_at: sort || "desc" });
-    if (q) params.set("search", q);
     try {
-      const data = await api<Guest[]>("/workshops/" + id + "/guests?" + params, { adminLoading });
-      if (current(snapshot, id) && request === guestRequest.current) setGuests(data.map((guest) => ({ ...guest, workshop_id: guest.workshop_id || id })));
+      const data = await api<Guest[]>("/workshops/" + id + "/guests?sort_registered_at=desc", { adminLoading });
+      if (current(snapshot, id) && request === guestRequest.current) setAllGuests(data.map((guest) => ({ ...guest, workshop_id: guest.workshop_id || id })));
     } catch (error) {
       if (current(snapshot, id) && request === guestRequest.current) {
-        setGuests([]); setAllGuests([]); setGuestDetails({}); setZbsStatus({});
+        setAllGuests([]); setGuestDetails({}); setZbsStatus({});
         setMsg(error instanceof Error ? error.message : "Không tải được khách.");
       }
+    } finally {
+      if (current(snapshot, id) && request === guestRequest.current) setGuestsLoading(false);
     }
   }, [current]);
 
-  const loadAllGuests = useCallback(async (id: string) => {
+  /** Thay hoặc thêm một khách trong danh sách, giữ đúng vị trí của dòng đã có. */
+  const upsertGuest = useCallback((guest: Guest) => {
+    setAllGuests((list) => {
+      const index = list.findIndex((item) => item.id === guest.id);
+      if (index === -1) return [guest, ...list];
+      const next = [...list];
+      next[index] = { ...list[index], ...guest };
+      return next;
+    });
+  }, []);
+
+  /** Tải lại đúng một khách thay vì cả danh sách; khách đã bị xóa sẽ được bỏ khỏi bảng. */
+  const refreshGuest = useCallback(async (guestId: string) => {
     const snapshot = live.current.scope;
+    const id = live.current.wid;
     if (!current(snapshot, id)) return;
-    const request = ++allRequest.current;
     try {
-      const data = await api<Guest[]>("/workshops/" + id + "/guests?sort_registered_at=desc", { adminLoading: false });
-      if (current(snapshot, id) && request === allRequest.current) setAllGuests(data);
-    } catch {
-      if (current(snapshot, id) && request === allRequest.current) setAllGuests([]);
+      const guest = await api<Guest>("/guests/" + guestId, { adminLoading: false });
+      if (!current(snapshot, id)) return;
+      if (guest.workshop_id === id) upsertGuest(guest);
+      else setAllGuests((list) => list.filter((item) => item.id !== guestId));
+    } catch (error) {
+      if (current(snapshot, id) && error instanceof Error && /404|not found/i.test(error.message)) {
+        setAllGuests((list) => list.filter((item) => item.id !== guestId));
+      }
     }
-  }, [current]);
+  }, [current, upsertGuest]);
 
   const loadZbsStatus = useCallback(async (id: string) => {
     const snapshot = live.current.scope;
@@ -207,7 +249,7 @@ export function useAdminGuests() {
 
   const loadGuestDetail = useCallback(async (guestId: string, force = false) => {
     const snapshot = scope;
-    if (!current(snapshot, wid) || !guests.some((guest) => guest.id === guestId)) return;
+    if (!current(snapshot, wid) || !allGuests.some((guest) => guest.id === guestId)) return;
     if (!force && guestDetails[guestId]?.data) return;
     setGuestDetails((data) => ({ ...data, [guestId]: { data: data[guestId]?.data || null, loading: true, error: null } }));
     try {
@@ -217,22 +259,20 @@ export function useAdminGuests() {
     } catch (error) {
       if (current(snapshot, wid)) setGuestDetails((data) => ({ ...data, [guestId]: { data: null, loading: false, error: error instanceof Error ? error.message : "Không tải được chi tiết khách" } }));
     }
-  }, [scope, wid, current, guests, guestDetails, zbsStatus]);
+  }, [scope, wid, current, allGuests, guestDetails, zbsStatus]);
 
   const refreshCachedGuestDetail = useCallback(async (guestId: string) => {
     if (guestDetails[guestId]) await loadGuestDetail(guestId, true);
   }, [guestDetails, loadGuestDetail]);
 
-  const reload = useCallback(() => loadGuests(wid, debouncedSearch), [loadGuests, wid, debouncedSearch]);
-  // Tải lại danh sách không bật chỉ báo loading toàn trang, dùng khi chỉ cần cập nhật dữ liệu phụ như ghi chú.
-  const refreshQuietly = useCallback(() => loadGuests(wid, debouncedSearch, undefined, false), [loadGuests, wid, debouncedSearch]);
+  const reload = useCallback(() => loadGuests(wid), [loadGuests, wid]);
 
   useEffect(() => {
     void refreshWorkshops().catch((error) => { setWorkshops([]); setWid(""); setMsg(error instanceof Error ? error.message : "Không tải được workshop."); });
   }, [refreshWorkshops, accessKey]);
 
   useEffect(() => {
-    setGuests([]); setAllGuests([]); setGuestDetails({}); setZbsStatus({});
+    setAllGuests([]); setGuestsLoading(true); setGuestDetails({}); setZbsStatus({});
     setDuplicateGuest(null); setBusyGuestIds(new Set()); setNewGuest(emptyNewGuest()); setMsg("");
     // Only remember a real selection. wid is empty until workshops load, so clearing
     // here would erase the saved choice before refreshWorkshops can restore it;
@@ -247,13 +287,12 @@ export function useAdminGuests() {
     return () => clearTimeout(timer);
   }, [search]);
 
+  // Tìm kiếm lọc trên máy nên chỉ tải lại khi đổi workshop hoặc quyền.
   useEffect(() => {
-    void loadGuests(wid, debouncedSearch);
+    if (!wid) { setGuestsLoading(false); return; }
+    void loadGuests(wid);
     void loadZbsStatus(wid);
-    void loadAllGuests(wid);
-  }, [scope, wid, debouncedSearch, loadGuests, loadZbsStatus, loadAllGuests]);
-
-  useEffect(() => { if (wid) void loadAllGuests(wid); }, [guests, wid, loadAllGuests]);
+  }, [scope, wid, loadGuests, loadZbsStatus]);
 
   useEffect(() => {
     if (!wid || !canForWorkshop(PERMISSIONS.zbsView, wid)) return;
@@ -280,7 +319,14 @@ export function useAdminGuests() {
         const event = await adminApi<{ id?: string } | null>(`/workshops/${wid}/welcome/latest`, { adminLoading: false });
         if (!active || !current(scope, wid)) return;
         const eventId = event?.id || null;
-        if (initialized && eventId && eventId !== lastEventId) void loadGuests(wid, debouncedSearch, undefined, false);
+        if (initialized && eventId && eventId !== lastEventId) {
+          // Chỉ tải lại những khách vừa check-in kể từ lần kiểm tra trước; quá nhiều thì tải lại cả danh sách.
+          const query = lastEventId ? `?after=${encodeURIComponent(lastEventId)}` : "";
+          const changes = await adminApi<{ guest_ids: string[]; overflow: boolean }>(`/workshops/${wid}/welcome/since${query}`, { adminLoading: false });
+          if (!active || !current(scope, wid)) return;
+          if (changes.overflow) void loadGuests(wid, false);
+          else await Promise.all(changes.guest_ids.map((guestId) => refreshGuest(guestId)));
+        }
         initialized = true;
         lastEventId = eventId;
       } catch { /* Guest API and auth refresh surface permission changes. */ }
@@ -289,15 +335,15 @@ export function useAdminGuests() {
     void poll();
     const timer = setInterval(() => void poll(), 3000);
     return () => { active = false; clearInterval(timer); };
-  }, [scope, wid, debouncedSearch, loadGuests, current]);
+  }, [scope, wid, loadGuests, refreshGuest, current]);
 
   const allowed = useCallback((permission: string, guest?: Guest | string) => {
     const guestId = typeof guest === "string" ? guest : guest?.id;
-    const resource = typeof guest === "string" ? guests.find((item) => item.id === guest) : guest;
-    const valid = current(scope, wid, permission) && (!guestId || (resource?.workshop_id === wid && guests.some((item) => item.id === guestId)));
+    const resource = typeof guest === "string" ? allGuests.find((item) => item.id === guest) : guest;
+    const valid = current(scope, wid, permission) && (!guestId || (resource?.workshop_id === wid && allGuests.some((item) => item.id === guestId)));
     if (!valid) setMsg("Bạn không có quyền thực hiện thao tác tại workshop này.");
     return valid;
-  }, [current, scope, wid, guests]);
+  }, [current, scope, wid, allGuests]);
 
   const setActionMsg = useCallback((message: string) => { if (current(scope, wid)) setMsg(message); }, [current, scope, wid]);
 
@@ -349,16 +395,17 @@ export function useAdminGuests() {
         setActionMsg("Lỗi thêm khách: " + (message || "không rõ"));
         return false;
       }
+      const created = await res.json() as Guest;
       if (!current(scope, wid)) return false;
       setNewGuest(emptyNewGuest());
       setActionMsg("Đã thêm khách.");
-      await loadGuests(wid, debouncedSearch);
+      upsertGuest({ ...created, workshop_id: created.workshop_id || wid });
       return true;
     } catch (e: any) {
       setActionMsg("Lỗi thêm khách: " + (e?.message || "không rõ"));
       return false;
     }
-  }, [setActionMsg, allowed, current, scope, newGuest, wid, debouncedSearch, loadGuests]);
+  }, [setActionMsg, allowed, current, scope, newGuest, wid, upsertGuest]);
 
   const delGuest = useCallback(
     async (id: string): Promise<boolean> => {
@@ -372,7 +419,7 @@ export function useAdminGuests() {
           delete next[id];
           return next;
         });
-        await loadGuests(wid, debouncedSearch);
+        setAllGuests((list) => list.filter((item) => item.id !== id));
         return true;
       } catch (e: any) {
         setActionMsg("Lỗi xóa khách: " + (e?.message || "không rõ"));
@@ -381,7 +428,7 @@ export function useAdminGuests() {
         setGuestBusy(id, false);
       }
     },
-    [setActionMsg, allowed, busyGuestIds, wid, debouncedSearch, loadGuests, setGuestBusy],
+    [setActionMsg, allowed, busyGuestIds, setGuestBusy],
   );
 
   const doCheckin = useCallback(
@@ -406,13 +453,13 @@ export function useAdminGuests() {
           body: JSON.stringify({ actual_party_size: actual }),
         });
         setActionMsg("Đã check-in " + guest.full_name + " (" + actual + " khách)");
-        await loadGuests(wid, debouncedSearch);
+        await refreshGuest(guest.id);
         await refreshCachedGuestDetail(guest.id);
       } catch (e: any) {
         setActionMsg("Lỗi check-in: " + (e?.message || "không rõ"));
       }
     },
-    [setActionMsg, allowed, wid, debouncedSearch, loadGuests, refreshCachedGuestDetail],
+    [setActionMsg, allowed, refreshGuest, refreshCachedGuestDetail],
   );
 
   const confirmRegistration = useCallback(async (guest: Guest) => {
@@ -420,12 +467,12 @@ export function useAdminGuests() {
     try {
       await api("/guests/" + guest.id + "/confirm", { method: "POST" });
       setActionMsg("Đã xác nhận đăng ký của " + guest.full_name);
-      await loadGuests(wid, debouncedSearch);
+      await refreshGuest(guest.id);
       await refreshCachedGuestDetail(guest.id);
     } catch (e: any) {
       setActionMsg("Lỗi xác nhận đăng ký: " + (e?.message || "không rõ"));
     }
-  }, [setActionMsg, allowed, wid, debouncedSearch, loadGuests, refreshCachedGuestDetail]);
+  }, [setActionMsg, allowed, refreshGuest, refreshCachedGuestDetail]);
 
   const doUncheckin = useCallback(
     async (guest: Guest) => {
@@ -434,13 +481,13 @@ export function useAdminGuests() {
       try {
         await api("/guests/" + guest.id + "/uncheckin", { method: "POST" });
         setActionMsg("Đã hủy check-in " + guest.full_name);
-        await loadGuests(wid, debouncedSearch);
+        await refreshGuest(guest.id);
         await refreshCachedGuestDetail(guest.id);
       } catch (e: any) {
         setActionMsg("Lỗi hủy check-in: " + (e?.message || "không rõ"));
       }
     },
-    [setActionMsg, allowed, wid, debouncedSearch, loadGuests, refreshCachedGuestDetail],
+    [setActionMsg, allowed, refreshGuest, refreshCachedGuestDetail],
   );
 
   const toggleVip = useCallback(
@@ -453,7 +500,7 @@ export function useAdminGuests() {
           method: "PATCH",
           body: JSON.stringify({ guest_type: vip ? "VIP" : null }),
         });
-        await loadGuests(wid, debouncedSearch);
+        await refreshGuest(guest.id);
         await refreshCachedGuestDetail(guest.id);
       } catch (e: any) {
         setActionMsg("Lỗi cập nhật VIP: " + (e?.message || "không rõ"));
@@ -461,7 +508,7 @@ export function useAdminGuests() {
         setGuestBusy(guest.id, false);
       }
     },
-    [setActionMsg, allowed, busyGuestIds, wid, debouncedSearch, loadGuests, refreshCachedGuestDetail, setGuestBusy],
+    [setActionMsg, allowed, busyGuestIds, refreshGuest, refreshCachedGuestDetail, setGuestBusy],
   );
 
   const copyPhone = useCallback(async (phone: string) => {
@@ -508,14 +555,14 @@ export function useAdminGuests() {
         fd.append("file", file);
         const data = await apiForm<any>("/workshops/" + wid + "/import", fd);
         setActionMsg("Nhập: " + data.imported + "/" + data.total_rows + " dòng");
-        await loadGuests(wid, debouncedSearch);
+        await loadGuests(wid);
       } catch (e: any) {
         setActionMsg("Lỗi nhập dữ liệu: " + (e?.message || "không rõ"));
       } finally {
         setImporting(false);
       }
     },
-    [setActionMsg, allowed, importing, wid, debouncedSearch, loadGuests],
+    [setActionMsg, allowed, importing, wid, loadGuests],
   );
 
   // ----- derived -----
@@ -609,7 +656,8 @@ export function useAdminGuests() {
     loadGuestDetail,
     importFile,
     reload,
-    refreshQuietly,
+    refreshGuest,
+    guestsLoading,
     refreshWorkshops,
     clearDuplicateGuest,
 

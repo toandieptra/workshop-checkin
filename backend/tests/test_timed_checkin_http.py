@@ -25,7 +25,7 @@ from app.auth.session import token_hash
 from app.config import settings
 from app.db import Base, get_db
 from app.models import (
-    AdminSession, AdminUser, CheckinLog, Guest, GuestWorkshopAccess, RegistrationForm,
+    AdminSession, AdminUser, CheckinLog, Guest, GuestNote, GuestWorkshopAccess, RegistrationForm,
     RolePermission, WelcomeEvent, Workshop, WorkshopMember,
 )
 from app.routers import (
@@ -665,3 +665,29 @@ def test_admin_can_add_guest_without_business_model_or_source(ctx):
     assert response.json()["business_model"] is None
     invalid = ctx.admin.post(f"/api/workshops/{ctx.workshops[0].id}/guests", json={"full_name": "Khách khác", "phone": "0905555667", "source": "Khác"})
     assert invalid.status_code == 400
+
+
+def test_welcome_since_lists_guests_checked_in_after_an_event(ctx):
+    a = ctx.workshops[0]
+    first = WelcomeEvent(id=uuid.uuid4(), workshop_id=a.id, guest_id=ctx.guests[0].id, created_at=ctx.now - timedelta(seconds=30))
+    extra = Guest(id=uuid.uuid4(), workshop_id=a.id, full_name="Second", registration_status="confirmed")
+    second = WelcomeEvent(id=uuid.uuid4(), workshop_id=a.id, guest_id=extra.id, created_at=ctx.now - timedelta(seconds=10))
+    ctx.session.add_all([extra, first, second])
+    ctx.session.commit()
+    url = f"/api/admin/workshops/{a.id}/welcome/since"
+    result = ctx.admin.get(url, params={"after": str(first.id)}).json()
+    assert result == {"latest_id": str(second.id), "guest_ids": [str(extra.id)], "overflow": False}
+    assert ctx.admin.get(url, params={"after": str(second.id)}).json() == {"latest_id": str(second.id), "guest_ids": [], "overflow": False}
+    assert ctx.admin.get(url, params={"after": str(uuid.uuid4())}).json()["overflow"] is True
+    assert ctx.admin.get(url).json()["overflow"] is True
+    _assert_logged_in(ctx)  # check-in staff of workshop A may poll it, not workshop B
+    assert ctx.client.get(f"/api/admin/workshops/{ctx.workshops[1].id}/welcome/since").status_code == 403
+
+
+def test_guest_detail_includes_notes_summary(ctx):
+    guest = ctx.guests[0]
+    ctx.session.add(GuestNote(guest_id=guest.id, author_user_id=ctx.owner.id, content="Ưu tiên chỗ ngồi"))
+    ctx.session.commit()
+    detail = ctx.admin.get(f"/api/guests/{guest.id}").json()
+    assert detail["notes_summary"].startswith("Owner · ")
+    assert detail["notes_summary"].endswith(": Ưu tiên chỗ ngồi")

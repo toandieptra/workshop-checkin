@@ -251,6 +251,8 @@ export default function MobileAdmin() {
     busyGuestIds,
     retryZbs,
     reload,
+    refreshGuest,
+    guestsLoading,
     duplicatePhones,
     duplicateGuest,
     clearDuplicateGuest,
@@ -342,10 +344,10 @@ export default function MobileAdmin() {
         )}
 
         <div className="grid grid-cols-4 gap-1.5 px-3 pb-3">
-          <KpiCard label="Khách đăng ký" value={totalRegistered} tone="default" />
-          <KpiCard label="Phiếu đăng ký" value={totalRecords} tone="default" />
-          <KpiCard label="Khách đã vào" value={totalCheckedIn} tone="success" />
-          <KpiCard label="Phiếu đã xử lý" value={checkedInRecords} tone="success" />
+          <KpiCard label="Khách đăng ký" value={totalRegistered} tone="default" loading={guestsLoading} />
+          <KpiCard label="Phiếu đăng ký" value={totalRecords} tone="default" loading={guestsLoading} />
+          <KpiCard label="Khách đã vào" value={totalCheckedIn} tone="success" loading={guestsLoading} />
+          <KpiCard label="Phiếu đã xử lý" value={checkedInRecords} tone="success" loading={guestsLoading} />
         </div>
       </section>
 
@@ -441,7 +443,11 @@ export default function MobileAdmin() {
 
       {/* ======= 5. Guest card list ======= */}
       <section className="px-3 mt-3 flex flex-col gap-2.5">
-        {visibleGuests.length === 0 ? (
+        {guestsLoading && visibleGuests.length === 0 ? (
+          <div className="flex flex-col gap-2.5" role="status" aria-label="Đang tải danh sách khách">
+            {Array.from({ length: 4 }, (_, item) => <div key={item} className="h-28 animate-pulse rounded-md border border-line bg-surface motion-reduce:animate-none" />)}
+          </div>
+        ) : visibleGuests.length === 0 ? (
           filterActive && (can(PERMISSIONS.guestsCreate) || can(PERMISSIONS.guestsCreateOnly)) ? (
             <EmptyStateAddCustomer
               query={search.trim()}
@@ -543,9 +549,10 @@ export default function MobileAdmin() {
           guest={editGuest}
           onClose={() => setEditGuest(null)}
           onSaved={async () => {
+            const savedId = editGuest.id;
             setEditGuest(null);
             setMsg("Đã lưu thông tin khách.");
-            await reload();
+            await refreshGuest(savedId);
           }}
         />
       )}
@@ -585,10 +592,12 @@ function KpiCard({
   label,
   value,
   tone,
+  loading = false,
 }: {
   label: string;
   value: number;
   tone: "default" | "success";
+  loading?: boolean;
 }) {
   const cls =
     tone === "success"
@@ -599,7 +608,9 @@ function KpiCard({
   return (
     <div className={`${cls} border rounded-md px-2 py-2 text-center min-h-[64px] flex flex-col justify-center`}>
       <div className={`text-[10px] font-medium tracking-wide leading-tight ${labelCls}`}>{label}</div>
-      <div className={`text-[18px] font-bold leading-tight mt-0.5 font-heading ${valueCls}`}>{value}</div>
+      {loading
+        ? <div aria-label="Đang tải" className="mx-auto mt-1 h-5 w-8 animate-pulse rounded bg-white/70 motion-reduce:animate-none" />
+        : <div className={`text-[18px] font-bold leading-tight mt-0.5 font-heading ${valueCls}`}>{value}</div>}
     </div>
   );
 }

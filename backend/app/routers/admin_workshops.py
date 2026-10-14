@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.dependencies import current_user, require_permission
@@ -139,3 +139,33 @@ async def latest_admin_welcome(
         "display_name": row.display_name, "display_message": row.display_message,
         "created_at": row.created_at,
     }
+
+
+WELCOME_SINCE_LIMIT = 100
+
+
+@router.get("/{workshop_id}/welcome/since")
+async def welcome_since(
+    workshop_id: uuid.UUID,
+    after: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: AdminUser = Depends(current_user),
+):
+    """Khách check-in sau sự kiện `after`, để màn hình quản trị cập nhật đúng các dòng đó.
+
+    overflow=true khi không tìm thấy mốc hoặc có quá nhiều sự kiện; client tải lại cả danh sách.
+    """
+    await require_workshop_permission(db, user, workshop_id, "guests.read")
+    query = select(WelcomeEvent).where(WelcomeEvent.workshop_id == workshop_id)
+    if after is not None:
+        anchor = await db.get(WelcomeEvent, after)
+        if anchor is None or anchor.workshop_id != workshop_id:
+            latest = await db.scalar(query.order_by(WelcomeEvent.created_at.desc(), WelcomeEvent.id.desc()).limit(1))
+            return {"latest_id": str(latest.id) if latest else None, "guest_ids": [], "overflow": True}
+        query = query.where(tuple_(WelcomeEvent.created_at, WelcomeEvent.id) > tuple_(anchor.created_at, anchor.id))
+    events = (await db.execute(
+        query.order_by(WelcomeEvent.created_at.desc(), WelcomeEvent.id.desc()).limit(WELCOME_SINCE_LIMIT + 1)
+    )).scalars().all()
+    overflow = after is None or len(events) > WELCOME_SINCE_LIMIT
+    guest_ids = list(dict.fromkeys(str(event.guest_id) for event in events[:WELCOME_SINCE_LIMIT] if event.guest_id))
+    return {"latest_id": str(events[0].id) if events else (str(after) if after else None), "guest_ids": guest_ids, "overflow": overflow}

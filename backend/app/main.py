@@ -12,6 +12,7 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -91,6 +92,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="workshop-checkin-backend", lifespan=lifespan)
 
+# Danh sách khách là JSON lớn; nén giúp giảm mạnh dung lượng tải trên mạng di động.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

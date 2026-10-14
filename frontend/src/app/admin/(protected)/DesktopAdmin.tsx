@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import QrDisplay from "@/components/QrDisplay";
 import { api, downloadGuestsXlsx } from "@/lib/api";
 import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
@@ -113,7 +113,8 @@ export default function DesktopAdmin() {
     copyPhone,
     importFile,
     reload,
-    refreshQuietly,
+    refreshGuest,
+    guestsLoading,
     totalRegistered,
     totalCheckedIn,
     totalRecords,
@@ -146,6 +147,21 @@ export default function DesktopAdmin() {
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, defaultVisibleColumns.includes(key)])) as Record<ColumnKey, boolean>);
   const visibleColumnCount = TABLE_COLUMNS.filter(({ key }) => visibleColumns[key]).length;
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [isMac, setIsMac] = useState(true);
+  // ⌘K / Ctrl+K đưa con trỏ tới ô tìm khách từ bất kỳ đâu trên trang.
+  useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent));
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const [expandedGuestId, setExpandedGuestId] = useState<string | null>(null);
   const [showAdminTools, setShowAdminTools] = useState(false);
   const [showAddGuest, setShowAddGuest] = useState(false);
@@ -276,7 +292,7 @@ export default function DesktopAdmin() {
       });
       setMsg("Đã lưu thông tin khách");
       setEditId(null);
-      await reload();
+      await refreshGuest(editId);
       await loadGuestDetail(editId, true);
     } catch (e: any) {
       setMsg("Lỗi lưu: " + (e?.message || "không rõ"));
@@ -503,7 +519,7 @@ export default function DesktopAdmin() {
         <section className="order-4 overflow-hidden bg-surface rounded-md border border-line mb-4 md:mb-0 flex min-h-[24rem] flex-col flex-1">
           <div className="bg-surface border-b border-line px-4 py-3 flex shrink-0 items-center justify-between gap-3 flex-wrap">
             <h2 className="font-semibold text-brand-teal">
-              Phiếu đã check-in: {checkedInRecords}/{totalRecords} · Khách đã check-in: {totalCheckedIn}/{totalRegistered}
+              {guestsLoading ? <span className="text-muted">Đang tải danh sách khách…</span> : <>Phiếu đã check-in: {checkedInRecords}/{totalRecords} · Khách đã check-in: {totalCheckedIn}/{totalRegistered}</>}
             </h2>
             <div className="flex items-center gap-2 flex-wrap">
               <select
@@ -515,12 +531,19 @@ export default function DesktopAdmin() {
                 <option value="checked_in">Đã check-in</option>
                 <option value="not_checked_in">Chưa check-in</option>
               </select>
-              <input
-                className="border border-line rounded-sm px-3 py-2 text-sm min-w-[240px]"
-                placeholder="Tìm tên, SĐT, công ty..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+              <div className="relative">
+                <input
+                  ref={searchRef}
+                  className="border border-line rounded-sm py-2 pl-3 pr-14 text-sm min-w-[240px]"
+                  placeholder="Tìm tên, SĐT, công ty..."
+                  aria-label="Tìm khách"
+                  aria-keyshortcuts="Meta+K Control+K"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Escape") { if (search) setSearch(""); else e.currentTarget.blur(); } }}
+                />
+                <kbd aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-line bg-surface-muted px-1.5 py-0.5 font-sans text-[11px] font-medium text-muted">{isMac ? "⌘K" : "Ctrl K"}</kbd>
+              </div>
               <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -715,13 +738,18 @@ export default function DesktopAdmin() {
                         canSendManualZbs={can(PERMISSIONS.zbsManage)}
                         canReadZalo={can(PERMISSIONS.zaloMessagesView)}
                         canSendZalo={can(PERMISSIONS.zaloMessagesSend)}
-                        onNotesChanged={() => void refreshQuietly()}
+                        onNotesChanged={() => void refreshGuest(g.id)}
                      />}
                      </Fragment>
                    );
                 })}
-                {!visibleGuests.length && (
-                  <tr><td colSpan={visibleColumnCount} className="py-10 text-center text-muted">Không có khách khớp bộ lọc</td></tr>
+                {guestsLoading && !visibleGuests.length && Array.from({ length: 6 }, (_, row) => (
+                  <tr key={`skeleton-${row}`} aria-hidden>
+                    {Array.from({ length: visibleColumnCount }, (_, cell) => <td key={cell} className="px-3 py-3"><div className="h-4 animate-pulse rounded bg-surface-muted motion-reduce:animate-none" /></td>)}
+                  </tr>
+                ))}
+                {!guestsLoading && !visibleGuests.length && (
+                  <tr><td colSpan={visibleColumnCount} className="py-10 text-center text-muted">{search.trim() || statusFilter !== "all" ? "Không có khách khớp bộ lọc" : "Workshop chưa có khách"}</td></tr>
                 )}
               </tbody>
             </table>

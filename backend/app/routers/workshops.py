@@ -48,6 +48,7 @@ from ..schemas import (
 )
 from ..auth.dependencies import current_user, require_permission
 from ..services.guest_provenance import normalize_guest_source
+from ..services.guest_notes import notes_summaries
 
 logger = logging.getLogger("workshops")
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -742,30 +743,12 @@ async def list_guests(
     if not rows:
         return []
 
-    guest_ids = [g.id for g in rows]
-    note_rows = (await db.execute(
-        select(GuestNote.guest_id, GuestNote.content, GuestNote.created_at, AdminUser.name)
-        .outerjoin(AdminUser, AdminUser.id == GuestNote.author_user_id)
-        .where(GuestNote.guest_id.in_(guest_ids))
-        .order_by(GuestNote.created_at.desc(), GuestNote.id.desc())
-    )).all()
-    notes_by_guest: dict[uuid.UUID, list[str]] = {}
-    for guest_id, content, created_at, author_name in note_rows:
-        author = (author_name or "—").strip() or "—"
-        if created_at is not None:
-            local_dt = created_at.astimezone(VN_TZ) if created_at.tzinfo else created_at.replace(tzinfo=VN_TZ)
-            time_str = f"{local_dt.strftime('%H:%M:%S')} {local_dt.day}/{local_dt.month}/{local_dt.year}"
-        else:
-            time_str = "—"
-        line = f"{author} · {time_str}: {content}"
-        notes_by_guest.setdefault(guest_id, []).append(line)
-
+    summaries = await notes_summaries(db, [g.id for g in rows])
     result: list[GuestOut] = []
     for g in rows:
         out = GuestOut.model_validate(g)
-        notes = notes_by_guest.get(g.id)
-        if notes:
-            out = out.model_copy(update={"notes_summary": "\n".join(notes)})
+        if g.id in summaries:
+            out = out.model_copy(update={"notes_summary": summaries[g.id]})
         result.append(out)
     return result
 
