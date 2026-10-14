@@ -242,3 +242,45 @@ def test_scoped_poll_allows_local_viewer_without_global_guest_permission():
     response = request(db, user(), "GET", f"/api/admin/workshops/{uuid.uuid4()}/welcome/latest")
     assert response.status_code == 200
     assert response.json() is None
+
+
+def test_all_workshops_role_grants_access_without_membership():
+    actor = user(all_workshops_role="viewer")
+    workshop_id = uuid.uuid4()
+    db = AsyncMock(spec=AsyncSession)
+    db.execute.return_value = result()
+    db.get.return_value = Workshop(id=workshop_id, name="W", slug="w")
+    grants = asyncio.run(workshop_access.workshop_permissions(db, actor, workshop_id))
+    assert "guests.read" in grants
+    assert "guests.write" not in grants
+
+
+def test_all_workshops_role_unions_with_membership_role():
+    actor = user(all_workshops_role="viewer")
+    workshop_id = uuid.uuid4()
+    db = AsyncMock(spec=AsyncSession)
+    db.execute.return_value = result(scalar="editor")
+    db.get.return_value = Workshop(id=workshop_id, name="W", slug="w")
+    assert "guests.write" in asyncio.run(workshop_access.workshop_permissions(db, actor, workshop_id))
+
+
+def test_all_workshops_role_ignores_unknown_workshop():
+    actor = user(all_workshops_role="editor")
+    db = AsyncMock(spec=AsyncSession)
+    db.execute.return_value = result()
+    db.get.return_value = None
+    assert asyncio.run(workshop_access.workshop_permissions(db, actor, uuid.uuid4())) == set()
+
+
+def test_all_workshops_payload_lists_every_workshop_with_member_roles_merged():
+    actor = user(all_workshops_role="viewer")
+    member = WorkshopMember(user_id=actor.id, workshop_id=uuid.uuid4(), role="editor")
+    other = uuid.uuid4()
+    db = AsyncMock(spec=AsyncSession)
+    db.execute.side_effect = [result(rows=[member]), result(rows=[member.workshop_id, other])]
+    payload = {entry["workshop_id"]: entry for entry in asyncio.run(workshop_access.workshop_access_payload(db, actor))}
+    assert payload[str(member.workshop_id)]["role"] == "editor"
+    assert "guests.write" in payload[str(member.workshop_id)]["permissions"]
+    assert payload[str(other)]["role"] == "viewer"
+    assert "guests.read" in payload[str(other)]["permissions"]
+    assert "guests.write" not in payload[str(other)]["permissions"]

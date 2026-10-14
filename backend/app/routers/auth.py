@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.dependencies import current_user, enforce_same_origin
 from ..auth.lark_oauth import LarkOAuthError, authorization_url, exchange_code
 from ..auth.permissions import effective_permissions_for_user
-from ..auth.workshop_access import workshop_access_payload
+from ..auth.workshop_access import guest_has_workshop, guest_scope_payload, workshop_access_payload
 from ..auth.session import clear_session_cookie, create_session, revoke_session, set_session_cookie, token_hash
 from ..config import settings
 from ..db import get_db
@@ -32,6 +32,7 @@ async def _user_payload(user: AdminUser, db: AsyncSession) -> dict:
         "permissions": [] if is_checkin_guest(user) else sorted(await effective_permissions_for_user(db, user.role, user.permission_overrides)),
         "permission_overrides": {} if is_checkin_guest(user) else user.permission_overrides or {},
         **account_access_payload(user),
+        **await guest_scope_payload(db, user),
         "workshop_access": await workshop_access_payload(db, user),
     }
 
@@ -146,7 +147,7 @@ async def password_login(body: PasswordLogin, request: Request, response: Respon
     verified = await run_in_threadpool(verify_password, body.password, encoded)
     valid_account = bool(user and user.is_active and account_type(user) in {"local", "checkin_guest"})
     if valid_account and is_checkin_guest(user):
-        valid_account = guest_access_active(user) and await db.get(Workshop, user.access_workshop_id) is not None
+        valid_account = guest_access_active(user) and await guest_has_workshop(db, user)
     if not verified or not valid_account:
         raise HTTPException(401, "Thông tin đăng nhập hoặc thời gian truy cập không hợp lệ.")
     user.last_login_at = datetime.now(timezone.utc)

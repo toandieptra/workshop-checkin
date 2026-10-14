@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, delete, event, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
@@ -25,7 +25,7 @@ from app.auth.session import token_hash
 from app.config import settings
 from app.db import Base, get_db
 from app.models import (
-    AdminSession, AdminUser, CheckinLog, Guest, RegistrationForm,
+    AdminSession, AdminUser, CheckinLog, Guest, GuestWorkshopAccess, RegistrationForm,
     RolePermission, WelcomeEvent, Workshop, WorkshopMember,
 )
 from app.routers import (
@@ -111,6 +111,7 @@ def ctx(monkeypatch, password_hash):
     session.add_all([
         *[RolePermission(role=role, label=role, permissions=sorted(grants)) for role, grants in ROLE_PERMISSIONS.items()],
         *ws, owner, staff, local, *records, owner_session,
+        GuestWorkshopAccess(user_id=staff.id, workshop_id=ws[0].id),
         WorkshopMember(user_id=local.id, workshop_id=ws[0].id, role="editor"),
         WorkshopMember(user_id=local.id, workshop_id=ws[1].id, role="viewer"),
     ])
@@ -287,7 +288,7 @@ def test_existing_cookie_stops_working_on_next_request_when_access_is_revoked(ct
     elif change == "lock":
         ctx.staff.is_active = False
     elif change == "scope_removed":
-        ctx.staff.access_workshop_id = None
+        ctx.session.execute(delete(GuestWorkshopAccess).where(GuestWorkshopAccess.user_id == ctx.staff.id))
     else:
         row = ctx.session.scalar(select(AdminSession).where(AdminSession.user_id == ctx.staff.id))
         response = ctx.admin.delete(f"/api/admin/users/{ctx.staff.id}/sessions/{row.id}")
@@ -301,7 +302,8 @@ def test_existing_cookie_stops_working_on_next_request_when_access_is_revoked(ct
 
 def test_existing_cookie_reads_changed_workshop_scope_from_database(ctx):
     _assert_logged_in(ctx)
-    ctx.staff.access_workshop_id = ctx.workshops[1].id
+    ctx.session.execute(delete(GuestWorkshopAccess).where(GuestWorkshopAccess.user_id == ctx.staff.id))
+    ctx.session.add(GuestWorkshopAccess(user_id=ctx.staff.id, workshop_id=ctx.workshops[1].id))
     ctx.session.commit()
     assert ctx.client.get(f"/api/guests/{ctx.guests[0].id}").status_code == 403
     assert ctx.client.get(f"/api/guests/{ctx.guests[1].id}").status_code == 200
@@ -575,3 +577,82 @@ def test_viewer_role_still_cannot_add_attendee(ctx):
     _assert_logged_in(ctx, ctx.local)  # editor at workshop A, viewer at workshop B
     response = ctx.client.post(f"/api/workshops/{ctx.workshops[1].id}/guests", json=_walk_in())
     assert response.status_code == 403
+
+
+def test_admin_replaces_user_workshop_access_with_all_workshops_role(ctx):
+    a, b = ctx.workshops
+    response = ctx.admin.put(f"/api/admin/users/{ctx.local.id}/workshop-access", json={
+        "all_workshops_role": "viewer",
+        "memberships": [{"workshop_id": str(b.id), "role": "editor"}],
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["all_workshops_role"] == "viewer"
+    memberships = ctx.admin.get("/api/admin/workshops/memberships").json()
+    assert [(item["user_id"], item["workshop_id"], item["role"]) for item in memberships] == [(str(ctx.local.id), str(b.id), "editor")]
+
+    _assert_logged_in(ctx, ctx.local)
+    access = {item["workshop_id"]: item for item in ctx.client.get("/api/auth/me").json()["workshop_access"]}
+    assert set(access) == {str(a.id), str(b.id)}
+    assert "guests.write" not in access[str(a.id)]["permissions"]
+    assert "guests.write" in access[str(b.id)]["permissions"]
+
+
+def test_workshop_access_rejects_guests_admins_and_duplicates(ctx):
+    a = ctx.workshops[0]
+    body = {"all_workshops_role": None, "memberships": [{"workshop_id": str(a.id), "role": "viewer"}]}
+    assert ctx.admin.put(f"/api/admin/users/{ctx.staff.id}/workshop-access", json=body).status_code == 400
+    assert ctx.admin.put(f"/api/admin/users/{ctx.owner.id}/workshop-access", json=body).status_code == 400
+    duplicate = {"memberships": [{"workshop_id": str(a.id), "role": "viewer"}] * 2}
+    assert ctx.admin.put(f"/api/admin/users/{ctx.local.id}/workshop-access", json=duplicate).status_code == 400
+    assert ctx.admin.put(f"/api/admin/users/{ctx.local.id}/workshop-access", json={"all_workshops_role": "super_admin"}).status_code == 400
+    # Rejected requests leave the existing memberships untouched.
+    assert len(ctx.admin.get("/api/admin/workshops/memberships").json()) == 2
+
+
+def test_user_list_reports_login_sessions(ctx):
+    users = {item["id"]: item for item in ctx.admin.get("/api/admin/users").json()}
+    assert users[str(ctx.owner.id)]["active_session_count"] == 1
+    assert users[str(ctx.local.id)]["active_session_count"] == 0
+
+
+def test_guest_can_be_scoped_to_several_workshops(ctx):
+    a, b = ctx.workshops
+    response = ctx.admin.post("/api/admin/users", json=_guest_create_body(ctx, access_workshop_ids=[str(a.id), str(b.id)]))
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert sorted(created["access_workshop_ids"]) == sorted([str(a.id), str(b.id)])
+    assert created["access_all_workshops"] is False
+    guest = ctx.session.get(AdminUser, uuid.UUID(created["id"]))
+    _assert_logged_in(ctx, guest)
+    assert ctx.client.get(f"/api/guests/{ctx.guests[0].id}").status_code == 200
+    assert ctx.client.get(f"/api/guests/{ctx.guests[1].id}").status_code == 200
+    access = ctx.client.get("/api/auth/me").json()["workshop_access"]
+    assert {row["workshop_id"] for row in access} == {str(a.id), str(b.id)}
+    assert all("guests.write" not in row["permissions"] for row in access)
+
+
+def test_guest_all_workshops_includes_workshops_created_later(ctx):
+    response = ctx.admin.post("/api/admin/users", json=_guest_create_body(ctx, access_all_workshops=True))
+    assert response.status_code == 201, response.text
+    assert response.json()["access_all_workshops"] is True
+    guest = ctx.session.get(AdminUser, uuid.UUID(response.json()["id"]))
+    later = Workshop(id=uuid.uuid4(), name="Event C", slug="event-c", status="published")
+    ctx.session.add(later)
+    ctx.session.commit()
+    _assert_logged_in(ctx, guest)
+    access = {row["workshop_id"] for row in ctx.client.get("/api/auth/me").json()["workshop_access"]}
+    assert access == {str(workshop.id) for workshop in [*ctx.workshops, later]}
+    assert ctx.client.get(f"/api/guests/{ctx.guests[1].id}").status_code == 200
+
+
+def test_guest_scope_requires_a_workshop_and_switching_to_all_revokes_sessions(ctx):
+    body = _guest_create_body(ctx)
+    body.pop("access_workshop_id")
+    assert ctx.admin.post("/api/admin/users", json=body).status_code == 400
+    _assert_logged_in(ctx)
+    response = ctx.admin.patch(f"/api/admin/users/{ctx.staff.id}", json={"access_all_workshops": True, "access_workshop_ids": []})
+    assert response.status_code == 200, response.text
+    assert response.json()["access_all_workshops"] is True
+    assert ctx.client.get("/api/auth/me").status_code == 401
+    cleared = ctx.admin.patch(f"/api/admin/users/{ctx.staff.id}", json={"access_all_workshops": False, "access_workshop_ids": []})
+    assert cleared.status_code == 400

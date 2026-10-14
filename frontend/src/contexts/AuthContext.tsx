@@ -21,6 +21,8 @@ export interface AuthUser {
   roles?: string[];
   account_type?: "lark" | "local" | "checkin_guest";
   access_workshop_id?: string | null;
+  access_workshop_ids?: string[];
+  access_all_workshops?: boolean;
   access_starts_at?: string | null;
   access_expires_at?: string | null;
   permissions?: string[];
@@ -50,7 +52,8 @@ function normalizeUser(payload: any): AuthUser {
 function guestWindowOpen(user: AuthUser): boolean {
   const start = Date.parse(user.access_starts_at || "");
   const end = Date.parse(user.access_expires_at || "");
-  return Boolean(user.access_workshop_id && Number.isFinite(start) && Number.isFinite(end) && start <= Date.now() && Date.now() < end);
+  // Phạm vi workshop của khách nằm trong workshop_access; ở đây chỉ xét khung thời gian.
+  return Number.isFinite(start) && Number.isFinite(end) && start <= Date.now() && Date.now() < end;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -147,7 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const canForWorkshop = useCallback((permission: Permission, workshopId?: string | null) => {
     if (!workshopId) return false;
     if (user?.account_type === "checkin_guest") {
-      return guestWindowOpen(user) && workshopId === user.access_workshop_id
+      return guestWindowOpen(user)
         && ["guests.read", "guests.create", "checkin.read", "checkin.manage"].includes(permission)
         && Boolean(user.workshop_access?.some((item) => item.workshop_id === workshopId && hasPermission(item.permissions, permission)));
     }
@@ -156,7 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return Boolean(access && hasPermission(access.permissions, permission));
   }, [user, can]);
   const canInAnyWorkshop = useCallback((permission: Permission) => {
-    if (user?.account_type === "checkin_guest") return canForWorkshop(permission, user.access_workshop_id);
+    if (user?.account_type === "checkin_guest") return Boolean(user.workshop_access?.some((item) => canForWorkshop(permission, item.workshop_id)));
     if (user?.role === "admin" || user?.role === "super_admin") return can(permission);
     return Boolean(user?.workshop_access?.some((item) => hasPermission(item.permissions, permission)));
   }, [user, can, canForWorkshop]);

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { adminApi } from "@/lib/api";
 import { useDialogFocus } from "@/hooks/useDialogFocus";
@@ -14,12 +13,17 @@ export interface ManagedAccount {
   is_active: boolean;
   account_type?: "lark" | "local" | "checkin_guest";
   access_workshop_id?: string | null;
+  access_workshop_ids?: string[];
+  access_all_workshops?: boolean;
   access_starts_at?: string | null;
   access_expires_at?: string | null;
   enterprise_email?: string | null;
   lark_account_status?: "active" | "inactive" | "frozen" | "resigned" | "unknown" | null;
   lark_last_synced_at?: string | null;
   last_login_at?: string | null;
+  all_workshops_role?: string | null;
+  active_session_count?: number;
+  last_seen_at?: string | null;
 }
 
 export interface AccountWorkshop { id: string; name: string; }
@@ -51,7 +55,10 @@ export default function AccountManagementModal({ state, roles, onClose, onSaved 
   const [username, setUsername] = useState(user?.username || "");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState(user?.role || "user");
-  const [workshopId, setWorkshopId] = useState(user?.access_workshop_id || "");
+  const initialWorkshopIds = user?.access_workshop_ids?.length ? user.access_workshop_ids : user?.access_workshop_id ? [user.access_workshop_id] : [];
+  const [allWorkshops, setAllWorkshops] = useState(Boolean(user?.access_all_workshops));
+  const [workshopIds, setWorkshopIds] = useState<string[]>(initialWorkshopIds);
+  const [workshopSearch, setWorkshopSearch] = useState("");
   const [startsAt, setStartsAt] = useState(() => localDateTime(user?.access_starts_at || new Date()));
   const [expiresAt, setExpiresAt] = useState(() => localDateTime(user?.access_expires_at || new Date(Date.now() + 8 * 60 * 60 * 1000)));
   const [workshops, setWorkshops] = useState<AccountWorkshop[]>([]);
@@ -119,8 +126,9 @@ export default function AccountManagementModal({ state, roles, onClose, onSaved 
           return;
         }
         changes.username = normalized;
-        if (!workshopId || !workshops.some((item) => item.id === workshopId)) {
-          setError("Vui lòng chọn một workshop.");
+        const selectedIds = workshopIds.filter((id) => workshops.some((item) => item.id === id));
+        if (!allWorkshops && !selectedIds.length) {
+          setError("Vui lòng chọn ít nhất một workshop hoặc Tất cả workshop.");
           return;
         }
         const start = new Date(startsAt);
@@ -129,14 +137,17 @@ export default function AccountManagementModal({ state, roles, onClose, onSaved 
           setError("Thời gian kết thúc phải sau thời gian bắt đầu.");
           return;
         }
-        const scopeChanged = state.mode === "create" || workshopId !== user?.access_workshop_id
+        const sameWorkshops = allWorkshops === Boolean(user?.access_all_workshops)
+          && (allWorkshops || [...selectedIds].sort().join() === [...initialWorkshopIds].sort().join());
+        const scopeChanged = state.mode === "create" || !sameWorkshops
           || startsAt !== localDateTime(user?.access_starts_at || "") || expiresAt !== localDateTime(user?.access_expires_at || "");
         if (scopeChanged && end.getTime() <= Date.now()) {
           setError("Thời gian kết thúc phải nằm trong tương lai.");
           return;
         }
         if (scopeChanged) {
-          changes.access_workshop_id = workshopId;
+          changes.access_all_workshops = allWorkshops;
+          changes.access_workshop_ids = allWorkshops ? [] : selectedIds;
           changes.access_starts_at = start.toISOString();
           changes.access_expires_at = end.toISOString();
         }
@@ -157,7 +168,7 @@ export default function AccountManagementModal({ state, roles, onClose, onSaved 
           body: JSON.stringify(created ? { ...changes, ...(!isGuest ? { email: email.trim() } : {}), password, account_type: accountType, is_active: true } : changes),
         });
         setPassword("");
-        onSaved(updated, created ? isGuest ? "Đã tạo tài khoản khách check-in theo workshop và thời gian đã chọn." : "Đã tạo tài khoản. Hãy cấp quyền tại mục Quyền theo workshop nếu cần." : "Đã cập nhật tài khoản.");
+        onSaved(updated, created ? isGuest ? "Đã tạo tài khoản khách check-in theo workshop và thời gian đã chọn." : "Đã tạo tài khoản. Bấm vào ô Workshop của tài khoản để cấp quyền nếu cần." : "Đã cập nhật tài khoản.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không lưu được tài khoản. Vui lòng thử lại.");
@@ -173,7 +184,7 @@ export default function AccountManagementModal({ state, roles, onClose, onSaved 
       <form onSubmit={(event) => void submit(event)} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
           {error && <div role="alert" className="rounded-sm border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-          {state.mode === "create" && <fieldset disabled={saving}><legend className="mb-2 text-sm font-semibold">Loại tài khoản</legend><div className="grid gap-2 sm:grid-cols-2">{([{ value: "local", label: "Tài khoản riêng", detail: "Đăng nhập bằng email và mật khẩu." }, { value: "checkin_guest", label: "Khách check-in có thời hạn", detail: "Đăng nhập bằng username; check-in một workshop trong thời gian được cấp." }] as const).map((option) => <label key={option.value} className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 text-sm ${accountType === option.value ? "border-brand bg-brand/5" : "border-line"}`}><input type="radio" name="account-type" value={option.value} checked={accountType === option.value} onChange={() => { setAccountType(option.value); setError(""); }} className="mt-1 accent-brand" /><span><span className="block font-semibold">{option.label}</span><span className="mt-1 block text-xs text-muted">{option.detail}</span></span></label>)}</div></fieldset>}
+          {state.mode === "create" && <fieldset disabled={saving}><legend className="mb-2 text-sm font-semibold">Loại tài khoản</legend><div className="grid gap-2 sm:grid-cols-2">{([{ value: "local", label: "Tài khoản riêng", detail: "Đăng nhập bằng email và mật khẩu." }, { value: "checkin_guest", label: "Khách check-in có thời hạn", detail: "Đăng nhập bằng username; check-in tại các workshop được chọn trong thời gian được cấp." }] as const).map((option) => <label key={option.value} className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 text-sm ${accountType === option.value ? "border-brand bg-brand/5" : "border-line"}`}><input type="radio" name="account-type" value={option.value} checked={accountType === option.value} onChange={() => { setAccountType(option.value); setError(""); }} className="mt-1 accent-brand" /><span><span className="block font-semibold">{option.label}</span><span className="mt-1 block text-xs text-muted">{option.detail}</span></span></label>)}</div></fieldset>}
           {!passwordOnly && <>
             <label className="block text-sm font-semibold" htmlFor="account-name">Tên người dùng<input id="account-name" value={name} onChange={(event) => setName(event.target.value)} disabled={saving} required maxLength={200} autoComplete="off" className={inputClass} /></label>
             {isGuest && <label className="block text-sm font-semibold" htmlFor="account-username">Username được cấp<input id="account-username" type="text" required minLength={3} maxLength={64} value={username} onChange={(event) => setUsername(event.target.value)} disabled={saving} autoComplete="off" autoCapitalize="none" spellCheck={false} className={inputClass} /><span className="mt-1 block text-xs font-normal text-muted">Không cần email. Dùng 3–64 ký tự gồm chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang. Username không phân biệt hoa/thường.</span></label>}
@@ -181,15 +192,39 @@ export default function AccountManagementModal({ state, roles, onClose, onSaved 
           </>}
           {needsPassword && <label className="block text-sm font-semibold" htmlFor="account-password">{passwordOnly ? "Mật khẩu mới" : "Mật khẩu"}<input id="account-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} disabled={saving} required minLength={12} maxLength={128} autoComplete="new-password" aria-describedby="account-password-help" className={inputClass} /><span id="account-password-help" className="mt-1 block text-xs font-normal text-muted">Từ 12 đến 128 ký tự. Mật khẩu không hiển thị lại sau khi lưu.</span></label>}
           {passwordOnly ? <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">Sau khi đặt lại mật khẩu, tất cả phiên đăng nhập của tài khoản sẽ được đăng xuất. Người dùng cần đăng nhập lại bằng mật khẩu mới.</p> : isGuest ? <>
-            <div className="rounded-md border border-line bg-surface-muted p-3 text-sm text-muted">Tài khoản khách chỉ xem danh sách khách, thêm khách mới và check-in tại workshop đã chọn; không sửa, xóa hay xác nhận khách. Quyền tự hết hiệu lực khi đến thời gian kết thúc.</div>
-            <label className="block text-sm font-semibold" htmlFor="account-workshop">Workshop<select id="account-workshop" value={workshopId} onChange={(event) => setWorkshopId(event.target.value)} required disabled={saving || workshopsLoading || Boolean(workshopsError)} className={inputClass}><option value="">{workshopsLoading ? "Đang tải workshop…" : "Chọn một workshop"}</option>{workshops.map((workshop) => <option key={workshop.id} value={workshop.id}>{workshop.name}</option>)}</select></label>
+            <div className="rounded-md border border-line bg-surface-muted p-3 text-sm text-muted">Tài khoản khách chỉ xem danh sách khách, thêm khách mới và check-in tại các workshop đã chọn; không sửa, xóa hay xác nhận khách. Quyền tự hết hiệu lực khi đến thời gian kết thúc.</div>
+            <fieldset disabled={saving || workshopsLoading || Boolean(workshopsError)} className="min-w-0">
+              <legend className="text-sm font-semibold">Workshop</legend>
+              <label className={`mt-1 flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 text-sm ${allWorkshops ? "border-brand bg-brand/5" : "border-line"}`}>
+                <input type="checkbox" checked={allWorkshops} onChange={(event) => setAllWorkshops(event.target.checked)} className="h-4 w-4 accent-brand" />
+                <span><span className="block font-semibold">Tất cả workshop</span><span className="block text-xs font-normal text-muted">Kể cả workshop tạo sau trong thời gian được cấp.</span></span>
+              </label>
+              {!allWorkshops && <div className="mt-2 overflow-hidden rounded-md border border-line">
+                <div className="flex items-center gap-2 border-b border-line bg-surface-muted px-2 py-2">
+                  <input type="search" value={workshopSearch} onChange={(event) => setWorkshopSearch(event.target.value)} placeholder={workshopsLoading ? "Đang tải workshop…" : "Tìm workshop"} aria-label="Tìm workshop" className="min-h-9 min-w-0 flex-1 rounded-sm border border-line bg-white px-2 text-sm font-normal" />
+                  <span className="shrink-0 text-xs font-normal text-muted">Đã chọn <strong className="text-ink">{workshopIds.length}</strong></span>
+                  {workshopIds.length > 0 && <button type="button" onClick={() => setWorkshopIds([])} className="min-h-9 shrink-0 px-1 text-xs font-medium text-brand-teal underline">Bỏ chọn</button>}
+                </div>
+                <ul className="max-h-56 overflow-y-auto py-1" aria-label="Chọn workshop">
+                  {workshops
+                    .filter((workshop) => workshop.name.toLocaleLowerCase("vi").includes(workshopSearch.trim().toLocaleLowerCase("vi")))
+                    .sort((a, b) => Number(initialWorkshopIds.includes(b.id)) - Number(initialWorkshopIds.includes(a.id)))
+                    .map((workshop) => <li key={workshop.id}>
+                      <label className="flex cursor-pointer items-center gap-3 px-3 py-1.5 text-sm font-normal hover:bg-surface-muted">
+                        <input type="checkbox" checked={workshopIds.includes(workshop.id)} onChange={(event) => setWorkshopIds((current) => event.target.checked ? [...current, workshop.id] : current.filter((id) => id !== workshop.id))} className="h-4 w-4 shrink-0 accent-brand" />
+                        <span className="min-w-0 break-words">{workshop.name}</span>
+                      </label>
+                    </li>)}
+                </ul>
+              </div>}
+            </fieldset>
             {workshopsError && <div role="alert" className="text-sm text-red-700">{workshopsError}<button type="button" disabled={saving} onClick={() => setReload((value) => value + 1)} className="ml-2 underline">Thử lại</button></div>}
             {!workshopsLoading && !workshopsError && !workshops.length && <p className="text-sm text-muted">Chưa có workshop. Hãy tạo workshop trước khi tạo tài khoản khách.</p>}
             <div className="grid gap-3 sm:grid-cols-2"><label className="block min-w-0 text-sm font-semibold" htmlFor="account-start">Bắt đầu<input id="account-start" type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} required disabled={saving} className={inputClass} /></label><label className="block min-w-0 text-sm font-semibold" htmlFor="account-end">Kết thúc<input id="account-end" type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} required disabled={saving} className={inputClass} /></label></div>
             <p className="text-xs text-muted">Thời gian theo múi giờ thiết bị: {timezone}. Tài khoản chỉ đăng nhập được trong khoảng thời gian này.</p>
           </> : state.mode === "create" && <>
             <label className="block text-sm font-semibold" htmlFor="account-role">Vai trò toàn hệ thống<select id="account-role" value={role} onChange={(event) => setRole(event.target.value)} disabled={saving} className={inputClass}>{roles.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
-            <p className="text-sm text-muted">{role === "admin" || role === "super_admin" ? "Quản trị viên toàn hệ thống được truy cập mọi workshop theo quyền chức năng của vai trò." : <>Sau khi tạo, cấp vai trò tại từng workshop trong <Link href="/admin/cai-dat?tab=phan-quyen" className="font-medium text-brand-teal underline" onClick={(event) => { if (saving) event.preventDefault(); }}>Phân quyền → Quyền theo workshop</Link>.</>}</p>
+            <p className="text-sm text-muted">{role === "admin" || role === "super_admin" ? "Quản trị viên toàn hệ thống được truy cập mọi workshop theo quyền chức năng của vai trò." : <>Sau khi tạo, cấp quyền workshop bằng cách bấm vào ô <strong>Workshop</strong> của tài khoản trong bảng Người dùng.</>}</p>
           </>}
         </div>
         <div className="flex justify-end gap-2 border-t border-line px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">

@@ -406,9 +406,8 @@ async def update_guest_note(
     if not note:
         raise HTTPException(404, "note not found")
     if not _can_edit_guest_note(user, note):
-        from ..models import WorkshopMember
-        member = await db.get(WorkshopMember, (user.id, guest.workshop_id))
-        if member is None or member.role != "admin":
+        from ..auth.workshop_access import has_workshop_role
+        if not await has_workshop_role(db, user, guest.workshop_id, "admin"):
             raise HTTPException(403, "you cannot edit this note")
 
     note.content = _note_content(body.content)

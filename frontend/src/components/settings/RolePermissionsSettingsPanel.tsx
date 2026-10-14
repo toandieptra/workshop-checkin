@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { adminApi } from "@/lib/api";
 import { PERMISSIONS } from "@/lib/permissions";
 import { useAuth } from "@/contexts/AuthContext";
-import WorkshopPermissionsSettingsPanel from "./WorkshopPermissionsSettingsPanel";
 
 interface RoleDefinition {
   key: string;
@@ -283,7 +282,6 @@ function RolePermissionsPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolea
 }
 
 export default function RolePermissionsSettingsPanel() {
-  const [tab, setTab] = useState<"roles" | "workshops">("roles");
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
     if (!dirty) return;
@@ -291,15 +289,7 @@ export default function RolePermissionsSettingsPanel() {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
-  const switchTab = (next: typeof tab) => {
-    if (next === tab || (dirty && !window.confirm("Bạn có thay đổi chưa lưu. Chuyển mục và bỏ thay đổi?"))) return;
-    setDirty(false);
-    setTab(next);
-  };
   return <div className="min-h-0 lg:flex lg:flex-1 lg:flex-col">
-    <div className="mb-5 flex shrink-0 gap-2 border-b border-line" role="tablist" aria-label="Phạm vi phân quyền">
-      {([{ key: "roles", label: "Quyền theo vai trò" }, { key: "workshops", label: "Quyền theo workshop" }] as const).map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} onClick={() => switchTab(item.key)} className={`min-h-11 border-b-2 px-3 py-2 text-sm font-semibold ${tab === item.key ? "border-brand text-brand-teal" : "border-transparent text-muted"}`}>{item.label}</button>)}
-    </div>
-    {tab === "roles" ? <RolePermissionsPanel onDirtyChange={setDirty} /> : <WorkshopPermissionsSettingsPanel onDirtyChange={setDirty} />}
+    <RolePermissionsPanel onDirtyChange={setDirty} />
   </div>;
 }

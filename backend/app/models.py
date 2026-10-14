@@ -47,11 +47,14 @@ class AdminUser(Base):
         CheckConstraint("account_type = 'lark' OR password_hash IS NOT NULL", name="admin_users_password_required"),
         CheckConstraint("account_type <> 'checkin_guest' OR (role = 'user' AND permission_overrides = '{}' AND access_starts_at IS NOT NULL AND access_expires_at IS NOT NULL AND access_starts_at < access_expires_at)", name="admin_users_guest_access_check"),
         CheckConstraint("account_type = 'checkin_guest' OR (access_workshop_id IS NULL AND access_starts_at IS NULL AND access_expires_at IS NULL)", name="admin_users_non_guest_access_check"),
+        CheckConstraint("account_type = 'checkin_guest' OR access_all_workshops = false", name="admin_users_all_workshops_guest_only"),
     )
     username: Mapped[str | None] = mapped_column(Text)
     account_type: Mapped[str] = mapped_column(Text, default="lark", server_default="lark", nullable=False)
     password_hash: Mapped[str | None] = mapped_column(Text)
+    # Cột cũ (một workshop); phạm vi hiện tại nằm ở guest_workshop_access và access_all_workshops.
     access_workshop_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="SET NULL"), index=True)
+    access_all_workshops: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     access_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     access_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
@@ -69,6 +72,8 @@ class AdminUser(Base):
     lark_is_resigned: Mapped[bool | None] = mapped_column(Boolean)
     lark_last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     role: Mapped[str] = mapped_column(Text, default="viewer", nullable=False)
+    # Workshop role applied to every workshop, including ones created later.
+    all_workshops_role: Mapped[str | None] = mapped_column(Text, ForeignKey("role_permissions.role", ondelete="SET NULL"))
     permission_overrides: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -87,6 +92,18 @@ class RolePermission(Base):
     description: Mapped[str | None] = mapped_column(Text)
     permissions: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class GuestWorkshopAccess(Base):
+    """Workshop mà một tài khoản khách check-in được phép truy cập."""
+    __tablename__ = "guest_workshop_access"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="CASCADE"), primary_key=True,
+    )
+    workshop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"), primary_key=True, index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class WorkshopMember(Base):

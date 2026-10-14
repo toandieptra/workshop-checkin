@@ -10,6 +10,7 @@ from ..db import get_db
 from ..models import AdminSession, AdminUser, Workshop
 from .permissions import effective_permissions_for_user
 from .local_accounts import guest_access_active, is_checkin_guest, utc_datetime
+from .workshop_access import guest_has_workshop
 from .session import token_hash
 
 
@@ -76,7 +77,7 @@ async def current_user(
         await db.commit()
         raise HTTPException(401, "session expired or user inactive")
     if is_checkin_guest(user) and (
-        not guest_access_active(user, now) or await db.get(Workshop, user.access_workshop_id) is None
+        not guest_access_active(user, now) or not await guest_has_workshop(db, user)
     ):
         await db.delete(session)
         await db.commit()

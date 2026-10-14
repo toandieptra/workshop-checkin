@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.dependencies import require_permission
 from ..auth.permissions import PERMISSIONS, ROLE_PERMISSIONS, effective_permissions_for_user, role_exists, role_permissions
 from ..auth.session import clear_session_cookie, token_hash
+from ..auth.workshop_access import GLOBAL_WORKSHOP_ROLES, guest_scope_payload, guest_workshop_ids, set_guest_workshops
 from ..config import settings
 from ..db import get_db
-from ..models import AdminSession, AdminUser, RolePermission, Workshop
+from ..models import AdminSession, AdminUser, RolePermission, Workshop, WorkshopMember
 from ..auth.local_accounts import account_access_payload, account_type, guest_access_active, hash_password, is_checkin_guest, utc_datetime, normalize_username
 from ..services.admin_directory_sync import get_sync_state, status_payload, sync_directory
 
@@ -31,8 +32,21 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
     permission_overrides: dict[str, bool] | None = None
     access_workshop_id: uuid.UUID | None = None
+    access_workshop_ids: list[uuid.UUID] | None = None
+    access_all_workshops: bool | None = None
     access_starts_at: AwareDatetime | None = None
     access_expires_at: AwareDatetime | None = None
+
+
+class WorkshopMembershipIn(BaseModel):
+    workshop_id: uuid.UUID
+    role: str
+
+
+class WorkshopAccessUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    all_workshops_role: str | None = None
+    memberships: list[WorkshopMembershipIn] = []
 
 
 class UserCreate(BaseModel):
@@ -45,6 +59,8 @@ class UserCreate(BaseModel):
     role: str = "user"
     is_active: bool = True
     access_workshop_id: uuid.UUID | None = None
+    access_workshop_ids: list[uuid.UUID] | None = None
+    access_all_workshops: bool = False
     access_starts_at: AwareDatetime | None = None
     access_expires_at: AwareDatetime | None = None
 
@@ -109,9 +125,11 @@ async def _out(user: AdminUser, db: AsyncSession) -> dict:
     return {
         "id": str(user.id), "email": user.email, "name": user.name,
         "avatar_url": user.avatar_url, "role": "user" if is_checkin_guest(user) else user.role, "is_active": user.is_active,
+        "all_workshops_role": user.all_workshops_role,
         "enterprise_email": user.enterprise_email,
         "permission_overrides": {} if is_checkin_guest(user) else user.permission_overrides or {},
         **account_access_payload(user),
+        **await guest_scope_payload(db, user),
         "permissions": [] if is_checkin_guest(user) else sorted(await effective_permissions_for_user(db, user.role, user.permission_overrides)),
         "lark_tenant_key": user.lark_tenant_key, "lark_user_id": user.lark_user_id,
         "lark_account_status": user.lark_account_status,
@@ -122,15 +140,24 @@ async def _out(user: AdminUser, db: AsyncSession) -> dict:
     }
 
 
-async def _validate_guest_access(db: AsyncSession, workshop_id, starts_at, expires_at, *, require_future: bool = True) -> None:
-    if not workshop_id or not starts_at or not expires_at:
-        raise HTTPException(400, "Tài khoản khách cần một workshop và thời gian bắt đầu, kết thúc.")
+def _requested_workshops(single: uuid.UUID | None, many: list[uuid.UUID] | None) -> list[uuid.UUID] | None:
+    """Gộp access_workshop_ids với access_workshop_id cũ; None nghĩa là client không gửi phạm vi."""
+    if many is None and single is None:
+        return None
+    return list(dict.fromkeys([*(many or []), *([single] if single else [])]))
+
+
+async def _validate_guest_access(db: AsyncSession, workshop_ids: list[uuid.UUID], all_workshops: bool, starts_at, expires_at, *, require_future: bool = True) -> None:
+    if (not all_workshops and not workshop_ids) or not starts_at or not expires_at:
+        raise HTTPException(400, "Tài khoản khách cần ít nhất một workshop (hoặc tất cả workshop) và thời gian bắt đầu, kết thúc.")
     if utc_datetime(starts_at) >= utc_datetime(expires_at):
         raise HTTPException(400, "Thời gian kết thúc phải sau thời gian bắt đầu.")
     if require_future and utc_datetime(expires_at) <= datetime.now(timezone.utc):
         raise HTTPException(400, "Thời gian kết thúc phải ở tương lai.")
-    if await db.get(Workshop, workshop_id) is None:
-        raise HTTPException(400, "Workshop không tồn tại.")
+    if not all_workshops:
+        found = set((await db.execute(select(Workshop.id).where(Workshop.id.in_(workshop_ids)))).scalars().all())
+        if found != set(workshop_ids):
+            raise HTTPException(400, "Workshop không tồn tại.")
 
 
 @router.post("", status_code=201)
@@ -140,20 +167,23 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db),
         raise HTTPException(409, "Username này đã được sử dụng.")
     if body.email and (await db.execute(select(AdminUser.id).where(func.lower(AdminUser.email) == body.email))).scalar_one_or_none():
         raise HTTPException(409, "Email này đã được sử dụng.")
+    guest_workshops = _requested_workshops(body.access_workshop_id, body.access_workshop_ids) or []
     if body.account_type == "checkin_guest":
-        await _validate_guest_access(db, body.access_workshop_id, body.access_starts_at, body.access_expires_at)
+        await _validate_guest_access(db, guest_workshops, body.access_all_workshops, body.access_starts_at, body.access_expires_at)
         role = "user"
     else:
-        if any(value is not None for value in (body.access_workshop_id, body.access_starts_at, body.access_expires_at)):
+        if guest_workshops or body.access_all_workshops or any(value is not None for value in (body.access_starts_at, body.access_expires_at)):
             raise HTTPException(400, "Chỉ tài khoản khách mới có thời gian truy cập giới hạn.")
         role = body.role
         await _validate(db, role, {})
     user = AdminUser(email=body.email, username=body.username, name=body.name, account_type=body.account_type,
                      role=role, is_active=True if role == "super_admin" else body.is_active,
                      permission_overrides={}, password_hash=await run_in_threadpool(hash_password, body.password),
-                     access_workshop_id=body.access_workshop_id, access_starts_at=body.access_starts_at,
-                     access_expires_at=body.access_expires_at)
+                     access_starts_at=body.access_starts_at, access_expires_at=body.access_expires_at)
     db.add(user)
+    if body.account_type == "checkin_guest":
+        await db.flush()
+        await set_guest_workshops(db, user, guest_workshops, body.access_all_workshops)
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -191,7 +221,24 @@ async def list_users(
     _=Depends(require_permission("users.manage")),
 ):
     users = (await db.execute(select(AdminUser).order_by(AdminUser.created_at))).scalars().all()
-    return [await _out(user, db) for user in users]
+    now = datetime.now(timezone.utc)
+    session_stats = {
+        user_id: (active, last_seen)
+        for user_id, active, last_seen in (await db.execute(
+            select(
+                AdminSession.user_id,
+                func.count().filter(AdminSession.expires_at > now),
+                func.max(AdminSession.last_seen_at),
+            ).group_by(AdminSession.user_id)
+        )).all()
+    }
+    result = []
+    for user in users:
+        active, last_seen = session_stats.get(user.id, (0, None))
+        # Phiên của tài khoản bị khóa hoặc khách hết hạn không còn dùng được dù chưa hết hạn token.
+        usable = user.is_active and (not is_checkin_guest(user) or guest_access_active(user, now))
+        result.append({**await _out(user, db), "active_session_count": active if usable else 0, "last_seen_at": last_seen})
+    return result
 
 
 def _session_payload(
@@ -383,6 +430,44 @@ async def run_directory_sync(db: AsyncSession = Depends(get_db), _=Depends(requi
     return {**result.__dict__, **status_payload(await get_sync_state(db))}
 
 
+@router.put("/{user_id}/workshop-access")
+async def replace_workshop_access(
+    user_id: uuid.UUID,
+    body: WorkshopAccessUpdate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_permission("users.manage")),
+):
+    """Thay toàn bộ quyền workshop của một tài khoản: vai trò mọi workshop và vai trò riêng từng workshop."""
+    user = (await db.execute(select(AdminUser).where(AdminUser.id == user_id).with_for_update())).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "user not found")
+    if is_checkin_guest(user):
+        raise HTTPException(400, "Tài khoản khách được cấp workshop và thời gian tại trang Người dùng.")
+    if user.role in GLOBAL_WORKSHOP_ROLES:
+        raise HTTPException(400, "Tài khoản quản trị đã có quyền truy cập mọi workshop.")
+    workshop_ids = [item.workshop_id for item in body.memberships]
+    if len(set(workshop_ids)) != len(workshop_ids):
+        raise HTTPException(400, "Mỗi workshop chỉ được gán một vai trò.")
+    requested_roles = {item.role for item in body.memberships} | ({body.all_workshops_role} if body.all_workshops_role else set())
+    if "super_admin" in requested_roles:
+        raise HTTPException(400, "Không thể gán Quản trị cấp cao trong workshop.")
+    for role in requested_roles:
+        if not await role_exists(db, role):
+            raise HTTPException(400, "Vai trò không hợp lệ.")
+    if workshop_ids:
+        found = set((await db.execute(select(Workshop.id).where(Workshop.id.in_(workshop_ids)))).scalars().all())
+        if found != set(workshop_ids):
+            raise HTTPException(400, "Danh sách có workshop không tồn tại.")
+    await db.execute(delete(WorkshopMember).where(WorkshopMember.user_id == user.id))
+    for item in body.memberships:
+        db.add(WorkshopMember(user_id=user.id, workshop_id=item.workshop_id, role=item.role))
+    user.all_workshops_role = body.all_workshops_role
+    user.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(user)
+    return await _out(user, db)
+
+
 @router.patch("/{user_id}")
 async def update_user(user_id: uuid.UUID, body: UserUpdate, db: AsyncSession = Depends(get_db), _=Depends(require_permission("users.manage"))):
     user = await db.get(AdminUser, user_id)
@@ -408,13 +493,24 @@ async def update_user(user_id: uuid.UUID, body: UserUpdate, db: AsyncSession = D
         username_changed = changes["username"] != user.username
         if username_changed and (await db.execute(select(AdminUser.id).where(func.lower(AdminUser.username) == changes["username"], AdminUser.id != user.id))).scalar_one_or_none():
             raise HTTPException(409, "Username này đã được sử dụng.")
-    access_keys = {"access_workshop_id", "access_starts_at", "access_expires_at"}
-    access_changed = any(key in changes and changes[key] != getattr(user, key) for key in access_keys)
+    access_keys = {"access_workshop_id", "access_workshop_ids", "access_all_workshops", "access_starts_at", "access_expires_at"}
+    window_keys = {"access_starts_at", "access_expires_at"}
+    current_scope = await guest_workshop_ids(db, user) if is_checkin_guest(user) else None
+    new_scope = None
+    if is_checkin_guest(user) and (access_keys - window_keys) & changes.keys():
+        requested = _requested_workshops(changes.pop("access_workshop_id", None), changes.pop("access_workshop_ids", None))
+        all_flag = changes.pop("access_all_workshops", None)
+        all_workshops = current_scope is None if all_flag is None else all_flag
+        new_scope = (requested if requested is not None else sorted(current_scope or ()), all_workshops)
+    access_changed = any(key in changes and changes[key] != getattr(user, key) for key in window_keys) or (
+        new_scope is not None and (None if new_scope[1] else set(new_scope[0])) != current_scope
+    )
     if is_checkin_guest(user):
         if changes.get("role", "user") != "user" or changes.get("permission_overrides", {}) != {}:
             raise HTTPException(400, "Tài khoản khách chỉ có quyền check-in cố định.")
-        if access_keys & changes.keys():
-            await _validate_guest_access(db, changes.get("access_workshop_id", user.access_workshop_id),
+        if new_scope is not None or window_keys & changes.keys():
+            workshops, all_workshops = new_scope or (sorted(current_scope or ()), current_scope is None)
+            await _validate_guest_access(db, workshops, all_workshops,
                                          changes.get("access_starts_at", user.access_starts_at),
                                          changes.get("access_expires_at", user.access_expires_at))
         changes["role"], changes["permission_overrides"] = "user", {}
@@ -430,6 +526,8 @@ async def update_user(user_id: uuid.UUID, body: UserUpdate, db: AsyncSession = D
             changes["is_active"] = True
     for key, value in changes.items():
         setattr(user, key, value)
+    if new_scope is not None:
+        await set_guest_workshops(db, user, *new_scope)
     user.updated_at = datetime.now(timezone.utc)
     if changes.get("is_active") is False or access_changed or username_changed:
         await db.execute(delete(AdminSession).where(AdminSession.user_id == user.id))

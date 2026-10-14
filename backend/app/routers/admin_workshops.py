@@ -52,6 +52,20 @@ async def list_managed_workshops(
     } for w in workshops]
 
 
+@router.get("/memberships")
+async def list_memberships(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_permission("users.manage")),
+):
+    """Toàn bộ vai trò gán riêng theo workshop, để hiển thị bảng phân quyền theo người dùng."""
+    rows = (await db.execute(
+        select(WorkshopMember.user_id, WorkshopMember.workshop_id, WorkshopMember.role)
+        .join(AdminUser, AdminUser.id == WorkshopMember.user_id)
+        .where(AdminUser.account_type != "checkin_guest")
+    )).all()
+    return [{"user_id": str(user_id), "workshop_id": str(workshop_id), "role": role} for user_id, workshop_id, role in rows]
+
+
 @router.get("/{workshop_id}/members")
 async def get_members(
     workshop_id: uuid.UUID,

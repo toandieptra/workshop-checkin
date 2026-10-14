@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { PERMISSIONS } from "@/lib/permissions";
-import UsersSettingsPanel from "@/components/settings/UsersSettingsPanel";
+import UserAccessTable from "@/components/settings/UserAccessTable";
 import RolePermissionsSettingsPanel from "@/components/settings/RolePermissionsSettingsPanel";
 import ConnectionsSettingsPanel from "@/components/settings/ConnectionsSettingsPanel";
 import ZbsTemplateSettingsPanel from "@/components/settings/ZbsTemplateSettingsPanel";
@@ -12,7 +12,7 @@ import ZaloMessageSettingsPanel from "@/components/settings/ZaloMessageSettingsP
 import PublicApiSettingsPanel from "@/components/settings/PublicApiSettingsPanel";
 
 const TABS = [
-  { key: "nguoi-dung", label: "Người dùng", description: "Tài khoản quản trị", permission: PERMISSIONS.usersView },
+  { key: "nguoi-dung", label: "Người dùng", description: "Tài khoản và quyền truy cập", permission: PERMISSIONS.usersView },
   { key: "phan-quyen", label: "Phân quyền", description: "Vai trò và quyền hạn", permission: PERMISSIONS.usersManage },
   { key: "ket-noi", label: "Kết nối", description: "Zalo OA và Zalo user", permission: PERMISSIONS.connectionsView },
   { key: "mau-tin-zbs", label: "Mẫu tin ZBS", description: "Mẫu tin và gửi tự động", permission: PERMISSIONS.zbsView },
@@ -58,7 +58,7 @@ export default function SettingsPage() {
         </aside>
 
         <section className="settings-panel min-w-0 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
-          {activeTab.key === "nguoi-dung" && <UsersSettingsPanel />}
+          {activeTab.key === "nguoi-dung" && <UserAccessTable />}
           {activeTab.key === "phan-quyen" && <RolePermissionsSettingsPanel />}
           {activeTab.key === "ket-noi" && <ConnectionsSettingsPanel />}
           {activeTab.key === "mau-tin-zbs" && <ZbsTemplateSettingsPanel />}

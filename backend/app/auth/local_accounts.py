@@ -37,8 +37,8 @@ def guest_access_active(user: AdminUser, now: datetime | None = None) -> bool:
     now = now or datetime.now(timezone.utc)
     start = getattr(user, "access_starts_at", None)
     end = getattr(user, "access_expires_at", None)
-    return bool(user.is_active and getattr(user, "access_workshop_id", None) and start and end
-                and utc_datetime(start) <= now < utc_datetime(end))
+    # Chỉ xét khung thời gian; phạm vi workshop được kiểm tra riêng (guest_has_workshop).
+    return bool(user.is_active and start and end and utc_datetime(start) <= now < utc_datetime(end))
 
 
 def normalize_username(value: str) -> str:
@@ -51,7 +51,6 @@ def normalize_username(value: str) -> str:
 def account_access_payload(user: AdminUser) -> dict:
     return {"account_type": account_type(user),
             "username": getattr(user, "username", None),
-            "access_workshop_id": str(user.access_workshop_id) if getattr(user, "access_workshop_id", None) else None,
             "access_starts_at": getattr(user, "access_starts_at", None),
             "access_expires_at": getattr(user, "access_expires_at", None)}
 
