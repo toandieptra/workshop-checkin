@@ -344,6 +344,7 @@ class ZbsTemplate(Base):
     price_sdt: Mapped[str | None] = mapped_column(Text)
     price_uid: Mapped[str | None] = mapped_column(Text)
     zalo_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

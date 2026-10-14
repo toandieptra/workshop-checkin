@@ -5,6 +5,7 @@ import {
   getZbsTemplate,
   listZbsTaskConfigs,
   listZbsTemplates,
+  setZbsTemplateHidden,
   syncZbsTemplates,
   updateZbsTaskConfig,
 } from "@/lib/api";
@@ -17,6 +18,8 @@ import type {
   ZbsTemplateQuality,
   ZbsTemplateStatus,
 } from "@/types/zbs-template";
+import ZbsBulkHistory from "./ZbsBulkHistory";
+import ZbsBulkSendModal from "./ZbsBulkSendModal";
 
 const PAGE_SIZE = 20;
 const STATUS_OPTIONS: Array<{ value: ZbsTemplateStatus | ""; label: string }> = [
@@ -188,6 +191,11 @@ export default function ZbsTemplateSettingsPanel() {
   const [taskDrafts, setTaskDrafts] = useState<Record<string, { enabled: boolean; templateId: string }>>({});
   const [status, setStatus] = useState<ZbsTemplateStatus | "">("");
   const [search, setSearch] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
+  const [hiddenCount, setHiddenCount] = useState(0);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [historyKey, setHistoryKey] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -207,13 +215,14 @@ export default function ZbsTemplateSettingsPanel() {
     setError("");
     try {
       const [list, enabled, configs] = await Promise.all([
-        listZbsTemplates({ offset: (page - 1) * PAGE_SIZE, limit: PAGE_SIZE, status, search }),
+        listZbsTemplates({ offset: (page - 1) * PAGE_SIZE, limit: PAGE_SIZE, status, search, includeHidden: showHidden }),
         listAllEnabledTemplates(),
         listZbsTaskConfigs(),
       ]);
       setTemplates(list.data);
       setTotal(list.metadata.total);
       setLastSyncedAt(list.metadata.last_synced_at);
+      setHiddenCount(list.metadata.hidden_count);
       setEnabledTemplates(enabled);
       setTaskConfigs(configs);
       setTaskDrafts(Object.fromEntries(configs.map((config) => [config.task_key, {
@@ -225,7 +234,7 @@ export default function ZbsTemplateSettingsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, status]);
+  }, [page, search, showHidden, status]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -265,6 +274,21 @@ export default function ZbsTemplateSettingsPanel() {
     }
   };
 
+  const toggleHidden = async (template: ZbsTemplateListItem) => {
+    setTogglingId(template.template_id);
+    setMessage("");
+    setError("");
+    try {
+      await setZbsTemplateHidden(template.template_id, !template.hidden);
+      setMessage(template.hidden ? `Đã bỏ ẩn “${template.template_name}”.` : `Đã ẩn “${template.template_name}”.`);
+      await load();
+    } catch (toggleError) {
+      setError("Không thể cập nhật mẫu tin: " + errorMessage(toggleError));
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
   const openDetail = async (templateId: string, trigger: HTMLButtonElement) => {
     detailTriggerRef.current = trigger;
     setDetailOpen(true);
@@ -294,7 +318,10 @@ export default function ZbsTemplateSettingsPanel() {
           <h2 className="font-heading mt-1 text-2xl font-bold text-ink">Quản lý mẫu tin ZBS</h2>
           <p className="mt-1 text-sm text-muted">Cấu hình gửi tự động và lưu bản sao danh sách mẫu tin từ Zalo.</p>
         </div>
-        {canManage && <button type="button" onClick={() => void synchronize()} disabled={syncing} className="min-h-10 rounded-md bg-brand px-4 text-sm font-semibold text-brand-teal disabled:opacity-50">{syncing ? "Đang đồng bộ..." : "Đồng bộ từ Zalo"}</button>}
+        {canManage && <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setBulkOpen(true)} disabled={!enabledTemplates.length} className="min-h-10 rounded-md border border-brand px-4 text-sm font-semibold text-brand hover:bg-brand/5 disabled:opacity-50">Gửi hàng loạt</button>
+          <button type="button" onClick={() => void synchronize()} disabled={syncing} className="min-h-10 rounded-md bg-brand px-4 text-sm font-semibold text-brand-teal disabled:opacity-50">{syncing ? "Đang đồng bộ..." : "Đồng bộ từ Zalo"}</button>
+        </div>}
       </div>
 
       {message && <div role="status" aria-live="polite" className="mb-4 flex items-center justify-between rounded-md border border-success-border bg-success-soft px-4 py-3 text-sm text-success"><span>{message}</span><button className="grid h-11 w-11 place-items-center" onClick={() => setMessage("")} aria-label="Đóng thông báo">×</button></div>}
@@ -343,10 +370,19 @@ export default function ZbsTemplateSettingsPanel() {
         ) : <div className="mt-5 rounded-md border border-line p-5 text-center text-muted">Không tải được cấu hình tác vụ.</div>}
       </section>
 
+      <ZbsBulkHistory refreshKey={historyKey} canManage={canManage} />
+
       <section className="overflow-hidden rounded-lg border border-line bg-white shadow-sm">
         <div className="border-b border-line px-4 py-4">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <div><h2 className="font-heading font-bold text-ink">Danh sách mẫu tin đã đồng bộ</h2><p className="mt-0.5 text-xs text-muted">Đồng bộ gần nhất: {formatDateTime(lastSyncedAt)}</p></div>
+            <div>
+              <h2 className="font-heading font-bold text-ink">Danh sách mẫu tin đã đồng bộ</h2>
+              <p className="mt-0.5 text-xs text-muted">Đồng bộ gần nhất: {formatDateTime(lastSyncedAt)}</p>
+              {hiddenCount > 0 && <label className="mt-1 flex w-fit cursor-pointer items-center gap-2 text-xs text-muted">
+                <input type="checkbox" checked={showHidden} onChange={(event) => { setPage(1); setShowHidden(event.target.checked); }} />
+                Hiện {hiddenCount} mẫu tin đã ẩn
+              </label>}
+            </div>
             <div className="mt-3 flex flex-col gap-2 sm:mt-0 sm:flex-row">
               <form onSubmit={(event) => { event.preventDefault(); setPage(1); setSearch(searchInput); }} className="flex">
                 <label htmlFor="zbs-template-search" className="sr-only">Tìm mẫu tin ZBS</label>
@@ -367,7 +403,7 @@ export default function ZbsTemplateSettingsPanel() {
               {loading ? [1, 2, 3, 4, 5].map((row) => <tr key={row}>{[1, 2, 3, 4, 5, 6, 7, 8].map((cell) => <td key={cell} className="px-4 py-4"><div className="h-4 animate-pulse rounded bg-surface-muted" /></td>)}</tr>) : templates.map((template) => {
                 const statusMeta = STATUS_META[template.status] || { label: template.status, className: "bg-gray-100 text-gray-600" };
                 const qualityMeta = template.quality ? QUALITY_META[template.quality] : null;
-                return <tr key={template.template_id} className="hover:bg-brand/5"><td className="px-4 py-3 font-mono text-xs text-muted">{template.template_id}</td><td className="px-4 py-3 font-semibold text-ink">{template.template_name}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusMeta.className}`}>{statusMeta.label}</span></td><td className={`px-4 py-3 font-medium ${qualityMeta?.className || "text-muted"}`}>{qualityMeta?.label || "Chưa đánh giá"}</td><td className="px-4 py-3 text-text-secondary">{template.tag ? TAG_LABELS[template.tag] || template.tag : "—"}</td><td className="px-4 py-3 text-text-secondary">{template.template_type ? TYPE_LABELS[template.template_type] : "—"}</td><td className="px-4 py-3 whitespace-nowrap text-muted">{formatDateTime(template.zalo_created_at)}</td><td className="px-4 py-3"><button type="button" onClick={(event) => void openDetail(template.template_id, event.currentTarget)} className="min-h-11 font-semibold text-brand-teal underline">Xem chi tiết</button></td></tr>;
+                return <tr key={template.template_id} className="hover:bg-brand/5"><td className="px-4 py-3 font-mono text-xs text-muted">{template.template_id}</td><td className="px-4 py-3 font-semibold text-ink">{template.template_name}{template.hidden && <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">Đã ẩn</span>}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusMeta.className}`}>{statusMeta.label}</span></td><td className={`px-4 py-3 font-medium ${qualityMeta?.className || "text-muted"}`}>{qualityMeta?.label || "Chưa đánh giá"}</td><td className="px-4 py-3 text-text-secondary">{template.tag ? TAG_LABELS[template.tag] || template.tag : "—"}</td><td className="px-4 py-3 text-text-secondary">{template.template_type ? TYPE_LABELS[template.template_type] : "—"}</td><td className="px-4 py-3 whitespace-nowrap text-muted">{formatDateTime(template.zalo_created_at)}</td><td className="px-4 py-3"><div className="flex items-center gap-4"><button type="button" onClick={(event) => void openDetail(template.template_id, event.currentTarget)} className="min-h-11 font-semibold text-brand-teal underline">Xem chi tiết</button>{canManage && <button type="button" disabled={togglingId === template.template_id} onClick={() => void toggleHidden(template)} className="min-h-11 font-semibold text-muted underline disabled:opacity-50">{template.hidden ? "Bỏ ẩn" : "Ẩn"}</button>}</div></td></tr>;
               })}
               {!loading && !templates.length && <tr><td colSpan={8} className="px-4 py-14 text-center"><div className="font-semibold text-ink">Chưa có mẫu tin phù hợp</div><p className="mt-1 text-sm text-muted">Hãy đổi bộ lọc hoặc dùng nút “Đồng bộ từ Zalo” để tạo bản sao.</p></td></tr>}
             </tbody>
@@ -380,6 +416,7 @@ export default function ZbsTemplateSettingsPanel() {
         </div>
       </section>
 
+      {bulkOpen && <ZbsBulkSendModal templates={enabledTemplates} onClose={() => setBulkOpen(false)} onSent={() => setHistoryKey((value) => value + 1)} />}
       {detailOpen && <DetailModal detail={detail} loading={detailLoading} onClose={closeDetail} />}
     </div>
   );

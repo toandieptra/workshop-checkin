@@ -17,6 +17,7 @@ REGISTRATION_TASK_LABEL = "Xác nhận đăng ký Workshop"
 CHECKIN_TASK_KEY = "checkin_confirmation"
 CHECKIN_TASK_LABEL = "Xác nhận Check-in Workshop"
 CHECKIN_TEMPLATE_ID = "610839"
+BULK_TASK_KEY = "bulk_campaign"
 TASK_DEFINITIONS = (
     (REGISTRATION_TASK_KEY, REGISTRATION_TASK_LABEL),
     (CHECKIN_TASK_KEY, CHECKIN_TASK_LABEL),
@@ -236,6 +237,9 @@ def _expiry(delivery: ZbsDelivery) -> datetime | None:
 
 def _payload_error(delivery: ZbsDelivery) -> str | None:
     data = delivery.payload.get("template_data") or {}
+    if delivery.event_type == BULK_TASK_KEY:
+        # Tham số đã được kiểm tra theo listParams của mẫu tin lúc xếp hàng.
+        return None if isinstance(data, dict) else "invalid template data"
     if delivery.event_type == CHECKIN_TASK_KEY:
         for key in ("customer_name", "workshop", "customer_checkin_time"):
             if not data.get(key):
@@ -287,9 +291,10 @@ async def _send(db: AsyncSession, delivery: ZbsDelivery) -> tuple[bool, bool, di
     return False, _retryable(response.status_code, error), data, message
 
 
-async def process_once(db: AsyncSession) -> None:
+async def process_once(db: AsyncSession) -> bool:
+    """Gửi tối đa một tin đến hạn; trả về True nếu đã xử lý một tin."""
     if not settings.ZBS_ENABLED:
-        return
+        return False
     enabled_tasks = (await db.execute(
         select(ZbsTaskConfig.task_key).where(ZbsTaskConfig.enabled.is_(True))
     )).scalars().all()
@@ -314,14 +319,14 @@ async def process_once(db: AsyncSession) -> None:
         ZbsDelivery.next_attempt_at <= now,
     ).order_by(ZbsDelivery.created_at).with_for_update(skip_locked=True).limit(1))
     if not delivery:
-        return
+        return False
     expires_at = _expiry(delivery)
     if expires_at and now > expires_at:
         delivery.status = "expired"
         delivery.last_error = "Quá thời hạn 7 ngày kể từ lúc phát sinh tác vụ"
         delivery.updated_at = now
         await db.commit()
-        return
+        return True
     delivery.status = "sending"
     delivery.attempt_count += 1
     delivery.sending_started_at = now
@@ -346,6 +351,7 @@ async def process_once(db: AsyncSession) -> None:
         else:
             delivery.next_attempt_at = datetime.now(timezone.utc) + timedelta(days=3650)
     await db.commit()
+    return True
 
 
 def _zalo_created_at(value: object) -> datetime | None:
@@ -446,8 +452,11 @@ async def sync_templates(db: AsyncSession) -> dict[str, int]:
 async def worker_loop(session_maker) -> None:
     while True:
         try:
-            async with session_maker() as db:
-                await process_once(db)
+            # ZBS không giới hạn tốc độ như tin Zalo cá nhân: gửi liên tục đến khi hết tin đến hạn.
+            while True:
+                async with session_maker() as db:
+                    if not await process_once(db):
+                        break
         except Exception:
             logger.exception("ZBS worker iteration failed")
         await asyncio.sleep(max(1, settings.ZBS_WORKER_INTERVAL_SECONDS))

@@ -1,4 +1,10 @@
 import type {
+  ZbsBulkBatch,
+  ZbsBulkOptions,
+  ZbsBulkPreflight,
+  ZbsBulkRequest,
+  ZbsGuestBulkStatus,
+  ZbsTemplateListItem,
   ZbsSyncResult,
   ZbsTaskConfig,
   ZbsTaskKey,
@@ -550,11 +556,13 @@ export async function listZbsTemplates(params: {
   limit?: number;
   status?: ZbsTemplateStatus | "";
   search?: string;
+  includeHidden?: boolean;
 } = {}): Promise<ZbsTemplateListResponse> {
   const query = new URLSearchParams({
     offset: String(params.offset || 0),
     limit: String(params.limit || 20),
   });
+  if (params.includeHidden) query.set("include_hidden", "true");
   if (params.status) query.set("status", params.status);
   if (params.search?.trim()) query.set("search", params.search.trim());
   return api(`/zbs/templates?${query.toString()}`);
@@ -566,6 +574,42 @@ export async function getZbsTemplate(templateId: string): Promise<ZbsTemplateDet
 
 export async function syncZbsTemplates(): Promise<ZbsSyncResult> {
   return api("/zbs/templates/sync", { method: "POST" });
+}
+
+export function setZbsTemplateHidden(templateId: string, hidden: boolean): Promise<ZbsTemplateListItem> {
+  return api(`/zbs/templates/${encodeURIComponent(templateId)}/hidden`, {
+    method: "PUT",
+    body: JSON.stringify({ hidden }),
+  });
+}
+
+export function getZbsBulkOptions(): Promise<ZbsBulkOptions> {
+  return api("/zbs/bulk/options");
+}
+
+export function preflightZbsBulk(body: ZbsBulkRequest): Promise<ZbsBulkPreflight> {
+  return api("/zbs/bulk/preflight", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function sendZbsBulk(body: ZbsBulkRequest & { bulk_id: string }): Promise<ZbsBulkBatch> {
+  return api("/zbs/bulk/send", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function listZbsGuestBulkStatuses(workshopId: string, templateId: string): Promise<Record<string, ZbsGuestBulkStatus>> {
+  const query = new URLSearchParams({ workshop_id: workshopId, template_id: templateId });
+  return api(`/zbs/bulk/statuses?${query.toString()}`);
+}
+
+export function listZbsBulkBatches(limit = 20): Promise<ZbsBulkBatch[]> {
+  return api(`/zbs/bulk/batches?limit=${limit}`);
+}
+
+export function getZbsBulkBatch(bulkId: string): Promise<ZbsBulkBatch> {
+  return api(`/zbs/bulk/batches/${encodeURIComponent(bulkId)}`);
+}
+
+export function retryZbsBulkFailed(bulkId: string): Promise<ZbsBulkBatch> {
+  return api(`/zbs/bulk/batches/${encodeURIComponent(bulkId)}/retry-failed`, { method: "POST" });
 }
 
 export function getZbsOAuthStatus(): Promise<ZbsOAuthStatusResponse> {
