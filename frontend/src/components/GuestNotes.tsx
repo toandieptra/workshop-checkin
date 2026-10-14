@@ -20,7 +20,7 @@ function formatDateTime(value: string): string {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("vi-VN");
 }
 
-export default function GuestNotes({ guestId, workshopId }: { guestId: string; workshopId: string }) {
+export default function GuestNotes({ guestId, workshopId, onChanged }: { guestId: string; workshopId: string; onChanged?: () => void }) {
   const { user, canForWorkshop } = useAuth();
   const [notes, setNotes] = useState<GuestNote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +66,7 @@ export default function GuestNotes({ guestId, workshopId }: { guestId: string; w
       });
       setNotes((current) => [note, ...current]);
       setContent("");
+      onChanged?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể thêm ghi chú.");
     } finally {
@@ -92,6 +93,7 @@ export default function GuestNotes({ guestId, workshopId }: { guestId: string; w
       setNotes((current) => current.map((note) => note.id === noteId ? updated : note));
       setEditingId(null);
       setEditContent("");
+      onChanged?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể cập nhật ghi chú.");
     } finally {

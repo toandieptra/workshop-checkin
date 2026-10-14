@@ -80,6 +80,7 @@ export default function GuestDetailContent({
   canSendManualZbs,
   canReadZalo,
   canSendZalo,
+  onNotesChanged,
 }: {
   guest: Guest;
   workshopName: string;
@@ -94,6 +95,7 @@ export default function GuestDetailContent({
   canSendManualZbs: boolean;
   canReadZalo: boolean;
   canSendZalo: boolean;
+  onNotesChanged?: () => void;
 }) {
   const { canForWorkshop } = useAuth();
   const can = (permission: string) => canForWorkshop(permission, workshopId);
@@ -155,7 +157,7 @@ export default function GuestDetailContent({
       </div>
     </section>}
 
-    <GuestNotes key={guest.id} guestId={guest.id} workshopId={workshopId} />
+    <GuestNotes key={guest.id} guestId={guest.id} workshopId={workshopId} onChanged={onNotesChanged} />
     <GuestZaloMessageBlock key={guest.id} guestId={guest.id} canRead={canReadZalo} canSend={canSendZalo} />
   </div>;
 }

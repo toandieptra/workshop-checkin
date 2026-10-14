@@ -20,6 +20,7 @@ export default function GuestDetailRow({
   canSendManualZbs,
   canReadZalo,
   canSendZalo,
+  onNotesChanged,
 }: {
   detail?: GuestDetailState;
   colSpan: number;
@@ -36,6 +37,7 @@ export default function GuestDetailRow({
   canSendManualZbs: boolean;
   canReadZalo: boolean;
   canSendZalo: boolean;
+  onNotesChanged?: () => void;
 }) {
   const cellRef = useRef<HTMLTableCellElement>(null);
   const [viewport, setViewport] = useState({ width: 0, offset: 0 });
@@ -77,6 +79,7 @@ export default function GuestDetailRow({
            canSendManualZbs={canSendManualZbs}
            canReadZalo={canReadZalo}
            canSendZalo={canSendZalo}
+           onNotesChanged={onNotesChanged}
         /> : <div className="p-8 text-center text-muted">Không tìm thấy thông tin khách.</div>}
       </div>
     </td>

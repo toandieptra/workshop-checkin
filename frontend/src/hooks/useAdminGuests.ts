@@ -39,6 +39,7 @@ export interface Guest {
   creator_name?: string | null;
   creator_user_id?: string | null;
   local_updated_at?: string | null;
+  notes_summary?: string | null;
   zbs?: {
     registration_confirmation?: ZbsDelivery;
     checkin_confirmation?: ZbsDelivery;
@@ -223,6 +224,8 @@ export function useAdminGuests() {
   }, [guestDetails, loadGuestDetail]);
 
   const reload = useCallback(() => loadGuests(wid, debouncedSearch), [loadGuests, wid, debouncedSearch]);
+  // Tải lại danh sách không bật chỉ báo loading toàn trang, dùng khi chỉ cần cập nhật dữ liệu phụ như ghi chú.
+  const refreshQuietly = useCallback(() => loadGuests(wid, debouncedSearch, undefined, false), [loadGuests, wid, debouncedSearch]);
 
   useEffect(() => {
     void refreshWorkshops().catch((error) => { setWorkshops([]); setWid(""); setMsg(error instanceof Error ? error.message : "Không tải được workshop."); });
@@ -231,9 +234,11 @@ export function useAdminGuests() {
   useEffect(() => {
     setGuests([]); setAllGuests([]); setGuestDetails({}); setZbsStatus({});
     setDuplicateGuest(null); setBusyGuestIds(new Set()); setNewGuest(emptyNewGuest()); setMsg("");
+    // Only remember a real selection. wid is empty until workshops load, so clearing
+    // here would erase the saved choice before refreshWorkshops can restore it;
+    // stale or no-longer-accessible IDs are dropped there instead.
     try {
       if (wid && canForWorkshop(PERMISSIONS.guestsView, wid)) window.localStorage.setItem(LAST_WORKSHOP_STORAGE_KEY, wid);
-      else window.localStorage.removeItem(LAST_WORKSHOP_STORAGE_KEY);
     } catch { /* Storage may be disabled. */ }
   }, [scope]);
 
@@ -603,6 +608,7 @@ export function useAdminGuests() {
     loadGuestDetail,
     importFile,
     reload,
+    refreshQuietly,
     refreshWorkshops,
     clearDuplicateGuest,
 

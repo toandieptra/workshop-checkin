@@ -13,12 +13,12 @@ import { PERMISSIONS } from "@/lib/permissions";
 import WorkshopPicker from "@/components/WorkshopPicker";
 import { formatEventDateTime, formatTimestamp } from "@/lib/date-format";
 
-type ColumnKey = "name" | "phone" | "businessModel" | "source" | "creator" | "registered" | "checkedIn" | "checkin" | "qr" | "zbs" | "actions" | "registeredAt";
+type ColumnKey = "name" | "phone" | "businessModel" | "source" | "note" | "creator" | "registered" | "checkedIn" | "qr" | "zbs" | "actions" | "registeredAt";
 const TABLE_COLUMNS = [
   { key: "name", label: "Tên khách" }, { key: "phone", label: "SĐT" }, { key: "businessModel", label: "Mô hình kinh doanh" },
-  { key: "source", label: "Nguồn" }, { key: "creator", label: "Người tạo" },
-  { key: "registered", label: "Số khách đăng ký" }, { key: "checkedIn", label: "Số khách check-in" },
-  { key: "checkin", label: "Check-in" }, { key: "qr", label: "QR" },
+  { key: "source", label: "Nguồn" }, { key: "note", label: "Ghi chú" }, { key: "creator", label: "Người tạo" },
+  { key: "registered", label: "Đăng ký" }, { key: "checkedIn", label: "Check in" },
+  { key: "qr", label: "QR" },
   { key: "zbs", label: "ZBS" },
   { key: "actions", label: "Thao tác" }, { key: "registeredAt", label: "Ngày đăng ký" },
 ] as const;
@@ -113,6 +113,7 @@ export default function DesktopAdmin() {
     copyPhone,
     importFile,
     reload,
+    refreshQuietly,
     totalRegistered,
     totalCheckedIn,
     totalRecords,
@@ -139,8 +140,8 @@ export default function DesktopAdmin() {
   const can = (permission: string) => canForWorkshop(permission, wid);
   const accessKey = JSON.stringify(user?.workshop_access);
   const defaultVisibleColumns: ColumnKey[] = [
-    "name", "phone", "businessModel", "source", "creator",
-    "registered", "checkedIn", "checkin", "actions", "registeredAt",
+    "name", "phone", "businessModel", "source", "note", "creator",
+    "registered", "checkedIn", "actions", "registeredAt",
   ];
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, defaultVisibleColumns.includes(key)])) as Record<ColumnKey, boolean>);
@@ -545,10 +546,10 @@ export default function DesktopAdmin() {
                   {visibleColumns.phone && <th className="px-3 py-2 font-medium">SĐT</th>}
                   {visibleColumns.businessModel && <th className="px-3 py-2 font-medium min-w-[160px]">Mô hình kinh doanh</th>}
                   {visibleColumns.source && <th className="px-3 py-2 font-medium min-w-[180px]">Nguồn</th>}
+                  {visibleColumns.note && <th className="px-3 py-2 font-medium min-w-[200px]">Ghi chú</th>}
                   {visibleColumns.creator && <th className="px-3 py-2 font-medium min-w-[130px]">Người tạo</th>}
-                  {visibleColumns.registered && <th className="text-center px-3 py-2 font-medium w-28">Số khách đăng ký</th>}
-                  {visibleColumns.checkedIn && <th className="text-center px-3 py-2 font-medium w-28">Số khách check-in</th>}
-                   {visibleColumns.checkin && <th className="text-center px-3 py-2 font-medium w-32">Check-in</th>}
+                  {visibleColumns.registered && <th className="text-center px-3 py-2 font-medium whitespace-nowrap" title="Số khách đăng ký">Đăng ký</th>}
+                  {visibleColumns.checkedIn && <th className="text-center px-3 py-2 font-medium whitespace-nowrap w-28" title="Số khách đã check-in">Check in</th>}
                    {visibleColumns.qr && <th className="text-center px-3 py-2 font-medium w-24">QR</th>}
                    {visibleColumns.zbs && <th className="text-center px-3 py-2 font-medium min-w-[130px]">ZBS</th>}
                   {visibleColumns.actions && <th className="text-right px-3 py-2 font-medium min-w-[160px]">Thao tác</th>}
@@ -601,49 +602,54 @@ export default function DesktopAdmin() {
                       {visibleColumns.source && <td className="px-3 py-2 align-top text-muted" title={g.source_detail || g.source || ""}>
                         {truncate(g.source === "Khác" && g.source_detail ? `Khác: ${g.source_detail}` : g.source, 60)}
                       </td>}
+                      {visibleColumns.note && <td className="px-3 py-2 align-top max-w-[260px]" title={g.notes_summary || g.note || ""}>
+                        {(() => {
+                          // notes_summary: mỗi dòng "Người viết · giờ: nội dung", ghi chú mới nhất ở đầu.
+                          const lines = (g.notes_summary || "").split("\n").filter(Boolean);
+                          if (!lines.length) return g.note ? <span className="line-clamp-3 whitespace-pre-wrap break-words text-muted">{g.note}</span> : <span className="text-muted">—</span>;
+                          const separator = lines[0].indexOf(": ");
+                          const meta = separator > 0 ? lines[0].slice(0, separator) : "";
+                          const content = separator > 0 ? lines[0].slice(separator + 2) : lines[0];
+                          return <div className="min-w-0">
+                            <p className="line-clamp-3 whitespace-pre-wrap break-words text-ink">{content}</p>
+                            <p className="mt-0.5 truncate text-xs text-muted">{meta}{lines.length > 1 ? ` · +${lines.length - 1} ghi chú` : ""}</p>
+                          </div>;
+                        })()}
+                      </td>}
                       {visibleColumns.creator && <td className="px-3 py-2 align-top text-muted whitespace-nowrap">{g.creator_name || "—"}</td>}
                       {visibleColumns.registered && <td className="px-3 py-2 align-top text-center">{g.party_size || 1}</td>}
                       {visibleColumns.checkedIn && <td className="px-3 py-2 align-top text-center">
-                         {g.registration_status !== "confirmed" ? (
-                           <button
-                             type="button"
-                             disabled
-                             className="flex min-h-[32px] w-full items-center justify-center rounded-sm border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800"
-                           >
-                             Cần xác nhận
-                           </button>
-                         ) : g.checkin_status === "checked_in" ? (
-                          (() => {
-                            const registered = g.party_size || 1;
-                            const actual = g.actual_party_size ?? registered;
-                            const same = actual === registered;
-                            return (
-                              <span className={(same ? "text-cyan-600" : "text-red-600") + " font-semibold"}>
-                                {actual}
-                              </span>
-                            );
-                          })()
-                        ) : (
-                          "—"
-                        )}
+                        {(() => {
+                          const registered = g.party_size || 1;
+                          const actual = g.actual_party_size ?? registered;
+                          const checkedIn = g.checkin_status === "checked_in";
+                          // Số khách check-in khác số đăng ký được tô đỏ để dễ nhận ra.
+                          const count = <span className={`font-semibold tabular-nums ${actual === registered ? "text-cyan-700" : "text-red-600"}`}>{actual}</span>;
+                          if (!can(PERMISSIONS.guestsCheckin)) {
+                            return checkedIn ? count : <span className="text-xs text-muted">Chưa check-in</span>;
+                          }
+                          return checkedIn ? (
+                            <button
+                              type="button"
+                              onClick={(event) => { event.stopPropagation(); void doUncheckin(g); }}
+                              title="Bấm để hoàn tác check-in"
+                              aria-label={`Đã check-in ${actual} khách — bấm để hoàn tác`}
+                              className="flex min-h-[32px] w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-sm bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-100"
+                            >
+                              <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5"><path d="m5 12 5 5L20 7" /></svg>
+                              {count} khách
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(event) => { event.stopPropagation(); void doCheckin(g); }}
+                              className="flex min-h-[32px] w-full items-center justify-center whitespace-nowrap rounded-sm border border-green-600 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-50"
+                            >
+                              Check-in
+                            </button>
+                          );
+                        })()}
                       </td>}
-                       {visibleColumns.checkin && <td className="px-3 py-2 align-top">
-                        {!can(PERMISSIONS.guestsCheckin) ? <span className="text-xs text-muted">{g.checkin_status === "checked_in" ? "Đã check-in" : "Chưa check-in"}</span> : g.checkin_status === "checked_in" ? (
-                           <button
-                             onClick={(event) => { event.stopPropagation(); void doUncheckin(g); }}
-                            className="bg-green-50 text-green-700 font-semibold text-xs px-3 py-1.5 rounded-sm min-h-[32px] flex items-center justify-center w-full"
-                          >
-                            Đã check-in
-                          </button>
-                        ) : (
-                           <button
-                             onClick={(event) => { event.stopPropagation(); void doCheckin(g); }}
-                            className="border border-green-600 text-green-700 font-semibold text-xs px-3 py-1.5 rounded-sm hover:bg-green-50 min-h-[32px] flex items-center justify-center w-full"
-                          >
-                            Check-in
-                          </button>
-                        )}
-                       </td>}
                        {visibleColumns.qr && <td className="px-3 py-2 align-top">
                          <div onClick={(event) => event.stopPropagation()}>
                          {currentWorkshop && can(PERMISSIONS.guestsView) && (
@@ -713,6 +719,7 @@ export default function DesktopAdmin() {
                         canSendManualZbs={can(PERMISSIONS.zbsManage)}
                         canReadZalo={can(PERMISSIONS.zaloMessagesView)}
                         canSendZalo={can(PERMISSIONS.zaloMessagesSend)}
+                        onNotesChanged={() => void refreshQuietly()}
                      />}
                      </Fragment>
                    );
