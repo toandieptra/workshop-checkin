@@ -241,8 +241,10 @@ async def lookup_by_phone(
         WHERE deleted_at IS NULL
           AND phone IS NOT NULL
           AND regexp_replace(coalesce(phone, ''), '\\D', '', 'g') = :norm
+        -- Cùng một SĐT có thể đăng ký nhiều workshop: ưu tiên bản ghi của workshop đang check-in.
+        ORDER BY (workshop_id = :workshop_id) DESC, created_at DESC
         LIMIT 1
-    """), {"norm": norm})).first()
+    """), {"norm": norm, "workshop_id": workshop.id})).first()
 
     if not rows:
         return LookupByPhoneResult(

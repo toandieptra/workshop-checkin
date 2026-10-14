@@ -14,6 +14,42 @@ import {
 } from "@/lib/api";
 import { formatEventDateTime, shortLocation } from "@/lib/date-format";
 
+/** Ô số người với nút −/+ lớn, dễ bấm trên điện thoại tại quầy check-in. */
+function CountStepper({ id, value, onChange, label }: { id: string; value: number; onChange: (value: number) => void; label: string }) {
+  const set = (next: number) => onChange(Number.isFinite(next) ? Math.max(1, Math.floor(next)) : 1);
+  return (
+    <div className="grid min-h-[52px] grid-cols-[52px_minmax(0,1fr)_52px] overflow-hidden rounded-[14px] border-[1.5px] border-line bg-white transition focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10">
+      <button
+        type="button"
+        aria-label={`Giảm ${label}`}
+        disabled={value <= 1}
+        onClick={() => set(value - 1)}
+        className="grid place-items-center text-2xl font-semibold text-brand-teal transition active:bg-brand/10 disabled:opacity-30"
+      >
+        −
+      </button>
+      <input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        min={1}
+        step={1}
+        value={value}
+        onChange={(e) => set(Number(e.target.value))}
+        className="min-w-0 border-x border-line bg-white px-2 py-3 text-center font-mono text-lg font-medium text-brand-teal focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      />
+      <button
+        type="button"
+        aria-label={`Tăng ${label}`}
+        onClick={() => set(value + 1)}
+        className="grid place-items-center text-2xl font-semibold text-brand-teal transition active:bg-brand/10"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 type Step = "loading" | "phone" | "confirm" | "register" | "success" | "error" | "wrong_workshop";
 
 interface Guest {
@@ -80,11 +116,14 @@ function CheckinSelfInner() {
   // Register form (khi SĐT không có trong DS)
   const [regName, setRegName] = useState("");
   const [regActual, setRegActual] = useState(1);
+  // Tên workshop khác mà SĐT đã đăng ký; khác rỗng nghĩa là khách đang đăng ký thêm workshop hiện tại.
+  const [otherWorkshop, setOtherWorkshop] = useState("");
 
   const resetKiosk = () => {
     setPhone("");
     setGuest(null);
     setErrMsg("");
+    setOtherWorkshop("");
     setStep("phone");
     requestAnimationFrame(() => phoneRef.current?.focus());
   };
@@ -131,7 +170,8 @@ function CheckinSelfInner() {
           setStep("confirm");
         }
       } else if (res.reason === "wrong_workshop") {
-        setErrMsg(`Số điện thoại này đăng ký workshop khác: "${res.other_workshop_name || "?"}". Vui lòng đến quầy để chuyển.`);
+        setErrMsg("");
+        setOtherWorkshop(res.other_workshop_name || "workshop khác");
         setStep("wrong_workshop");
       } else {
         // not_in_workshop → cho đăng ký nhanh
@@ -295,14 +335,7 @@ function CheckinSelfInner() {
                   <label htmlFor="checkin-actual" className="block text-sm font-medium text-ink mb-1">
                     Số người tham gia thực tế
                   </label>
-                  <input
-                    id="checkin-actual"
-                    type="number"
-                    min={1}
-                    value={actual}
-                    onChange={(e) => setActual(parseInt(e.target.value) || 1)}
-                    className="w-full border border-line rounded-md px-4 py-3 text-lg font-mono focus:outline-none focus:ring-2 focus:ring-brand"
-                  />
+                  <CountStepper id="checkin-actual" value={actual} onChange={setActual} label="số người tham gia thực tế" />
                   <div className="text-xs text-muted mt-1">
                     (Mặc định = số vé đăng ký)
                   </div>
@@ -320,14 +353,7 @@ function CheckinSelfInner() {
                   <label htmlFor="checkin-extra" className="block text-sm font-medium text-ink mb-1">
                     Cộng thêm số người tham gia
                   </label>
-                  <input
-                    id="checkin-extra"
-                    type="number"
-                    min={1}
-                    value={extra}
-                    onChange={(e) => setExtra(parseInt(e.target.value) || 1)}
-                    className="w-full border border-line rounded-md px-4 py-3 text-lg font-mono focus:outline-none focus:ring-2 focus:ring-brand"
-                  />
+                  <CountStepper id="checkin-extra" value={extra} onChange={setExtra} label="số người cộng thêm" />
                 </div>
                 <button
                   onClick={handleExtraCheckin}
@@ -351,10 +377,12 @@ function CheckinSelfInner() {
           <div className="bg-surface rounded-lg border border-line p-5 space-y-4">
             <div>
               <div className="text-base font-semibold text-yellow-700">
-                Số điện thoại chưa có trong danh sách
+                {otherWorkshop ? "Đăng ký tham gia workshop này" : "Số điện thoại chưa có trong danh sách"}
               </div>
               <div className="text-xs text-muted mt-1">
-                Workshop <b>{workshop?.name}</b>. Bạn có thể đăng ký nhanh tại đây hoặc đến quầy để nhân viên hỗ trợ.
+                {otherWorkshop
+                  ? <>Đăng ký mới cho workshop <b>{workshop?.name}</b>. Đăng ký ở workshop &quot;{otherWorkshop}&quot; vẫn được giữ nguyên.</>
+                  : <>Workshop <b>{workshop?.name}</b>. Bạn có thể đăng ký nhanh tại đây hoặc đến quầy để nhân viên hỗ trợ.</>}
               </div>
             </div>
 
@@ -376,39 +404,7 @@ function CheckinSelfInner() {
               <label htmlFor="checkin-register-party" className="block text-sm font-medium text-ink mb-1">
                 Số người tham gia *
               </label>
-              <div className="grid min-h-[52px] grid-cols-[52px_minmax(0,1fr)_52px] overflow-hidden rounded-[14px] border-[1.5px] border-line bg-white transition focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10">
-                <button
-                  type="button"
-                  aria-label="Giảm số người tham gia"
-                  disabled={regActual <= 1}
-                  onClick={() => setRegActual((value) => Math.max(1, value - 1))}
-                  className="grid place-items-center text-2xl font-semibold text-brand-teal transition active:bg-brand/10 disabled:opacity-30"
-                >
-                  −
-                </button>
-                <input
-                  id="checkin-register-party"
-                  name="party_size"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  step={1}
-                  value={regActual}
-                  onChange={(e) => {
-                    const value = Number(e.target.value);
-                    setRegActual(Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1);
-                  }}
-                  className="min-w-0 border-x border-line bg-white px-2 py-3 text-center font-mono text-lg font-medium text-brand-teal focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                />
-                <button
-                  type="button"
-                  aria-label="Tăng số người tham gia"
-                  onClick={() => setRegActual((value) => value + 1)}
-                  className="grid place-items-center text-2xl font-semibold text-brand-teal transition active:bg-brand/10"
-                >
-                  +
-                </button>
-              </div>
+              <CountStepper id="checkin-register-party" value={regActual} onChange={setRegActual} label="số người tham gia" />
             </div>
 
             <button
@@ -447,7 +443,6 @@ function CheckinSelfInner() {
             <div className="pt-3 border-t border-line text-xs text-muted">
               Vui lòng vào khu vực workshop. Chúc anh/chị buổi trải nghiệm vui vẻ!
             </div>
-            <button type="button" onClick={resetKiosk} className="h-12 w-full rounded-md bg-brand font-semibold text-brand-teal">Check-in khách tiếp theo</button>
           </div>
         )}
 
@@ -467,15 +462,31 @@ function CheckinSelfInner() {
 
         {/* ───── Step: wrong_workshop ───── */}
         {step === "wrong_workshop" && (
-          <div className="bg-surface rounded-lg border border-line p-6 text-center space-y-3">
-            <div className="text-4xl">🔀</div>
-            <div className="text-sm">{errMsg}</div>
-            <button
-              onClick={resetKiosk}
-              className="text-brand underline text-sm"
-            >
-              ← Thử số khác
-            </button>
+          <div className="bg-surface rounded-lg border border-line p-6 space-y-4 text-center">
+            <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-amber-50 text-amber-700" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-7 w-7"><path d="M16 3h5v5" /><path d="M4 20 21 3" /><path d="M21 16v5h-5" /><path d="m15 15 6 6" /><path d="M4 4l5 5" /></svg>
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-ink">Số điện thoại đã đăng ký workshop khác</h2>
+              <p className="mt-1 text-sm text-muted">Số <b className="font-mono text-ink">{phone}</b> đang đăng ký <b className="text-ink">&quot;{otherWorkshop}&quot;</b>.</p>
+            </div>
+            <p className="rounded-md bg-surface-muted px-3 py-2 text-sm text-ink">
+              Bạn có muốn đăng ký và check-in workshop <b>{workshop?.name}</b> không?
+            </p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => { setErrMsg(""); setRegName(""); setRegActual(1); setStep("register"); }}
+                className="h-12 w-full rounded-md bg-brand font-semibold text-brand-teal"
+              >
+                Có, đăng ký workshop này
+              </button>
+              <button type="button" onClick={resetKiosk} className="h-11 w-full rounded-md border border-line text-sm font-medium text-ink">
+                Không, thử số khác
+              </button>
+            </div>
+            <p className="text-xs text-muted">Nếu muốn chuyển đăng ký từ workshop khác sang, vui lòng đến quầy để nhân viên hỗ trợ.</p>
           </div>
         )}
 
