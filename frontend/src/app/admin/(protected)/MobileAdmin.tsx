@@ -1097,7 +1097,7 @@ function AddCustomerSheet({
             </Field>
           </div>
 
-          <Field label="Mô hình kinh doanh" required>
+          <Field label="Mô hình kinh doanh">
             <select
               value={newGuest.business_model}
               onChange={(e) =>
@@ -1114,7 +1114,7 @@ function AddCustomerSheet({
             </select>
           </Field>
 
-          <Field label="Nguồn" required>
+          <Field label="Nguồn">
             <select
               value={newGuest.source}
               onChange={(e) => setNewGuest({ ...newGuest, source: e.target.value, source_detail: "" })}
@@ -1148,9 +1148,7 @@ function AddCustomerSheet({
             onClick={onSubmit}
             disabled={
               !newGuest.full_name.trim() ||
-              !newGuest.phone.trim() ||
-              !newGuest.business_model
-              || !newGuest.source
+              !newGuest.phone.trim()
               || (newGuest.source === "Khác" && !newGuest.source_detail.trim())
             }
             className="h-10 rounded-md text-[13px] font-bold border bg-brand text-brand-teal border-brand active:opacity-90 inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"

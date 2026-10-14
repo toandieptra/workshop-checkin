@@ -21,8 +21,11 @@ GUEST_SOURCE_OPTIONS = {
 }
 
 
-def normalize_guest_source(source: str, source_detail: str | None) -> tuple[str, str | None]:
+def normalize_guest_source(source: str | None, source_detail: str | None, *, required: bool = True) -> tuple[str | None, str | None]:
     normalized_source = (source or "").strip()
+    if not normalized_source and not required:
+        # Admin thêm khách tại quầy có thể bỏ trống nguồn; form đăng ký công khai vẫn bắt buộc.
+        return None, None
     if normalized_source not in GUEST_SOURCE_OPTIONS:
         raise HTTPException(400, "Vui lòng chọn nguồn thông tin hợp lệ")
     normalized_detail = (source_detail or "").strip() or None

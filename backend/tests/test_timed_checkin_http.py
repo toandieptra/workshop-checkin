@@ -656,3 +656,12 @@ def test_guest_scope_requires_a_workshop_and_switching_to_all_revokes_sessions(c
     assert ctx.client.get("/api/auth/me").status_code == 401
     cleared = ctx.admin.patch(f"/api/admin/users/{ctx.staff.id}", json={"access_all_workshops": False, "access_workshop_ids": []})
     assert cleared.status_code == 400
+
+
+def test_admin_can_add_guest_without_business_model_or_source(ctx):
+    response = ctx.admin.post(f"/api/workshops/{ctx.workshops[0].id}/guests", json={"full_name": "Khách tại quầy", "phone": "0905555666", "party_size": 1})
+    assert response.status_code == 201, response.text
+    assert response.json()["source"] is None
+    assert response.json()["business_model"] is None
+    invalid = ctx.admin.post(f"/api/workshops/{ctx.workshops[0].id}/guests", json={"full_name": "Khách khác", "phone": "0905555667", "source": "Khác"})
+    assert invalid.status_code == 400

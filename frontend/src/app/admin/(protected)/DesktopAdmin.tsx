@@ -440,15 +440,13 @@ export default function DesktopAdmin() {
               />
             </label>
             <label className="block min-w-[200px] flex-[1.2]">
-              <span className="block text-muted text-xs mb-1">Mô hình kinh doanh *</span>
+              <span className="block text-muted text-xs mb-1">Mô hình kinh doanh</span>
               <select
                 className="border border-line rounded-sm px-2 py-1.5 w-full bg-surface"
                 value={newGuest.business_model}
                 onChange={(e) => setNewGuest({ ...newGuest, business_model: e.target.value })}
               >
-                <option value="" disabled>
-                  — Chọn mô hình phù hợp —
-                </option>
+                <option value="">— Chọn mô hình phù hợp —</option>
                 {BUSINESS_MODEL_OPTIONS.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
@@ -457,13 +455,13 @@ export default function DesktopAdmin() {
               </select>
             </label>
             <label className="block min-w-[220px] flex-[1.2]">
-              <span className="block text-muted text-xs mb-1">Nguồn *</span>
+              <span className="block text-muted text-xs mb-1">Nguồn</span>
               <select
                 className="border border-line rounded-sm px-2 py-1.5 w-full bg-surface"
                 value={newGuest.source}
                 onChange={(e) => setNewGuest({ ...newGuest, source: e.target.value, source_detail: "" })}
               >
-                <option value="" disabled>— Chọn nguồn —</option>
+                <option value="">— Chọn nguồn —</option>
                 {GUEST_SOURCE_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             </label>
@@ -492,8 +490,6 @@ export default function DesktopAdmin() {
             disabled={
               !newGuest.full_name.trim() ||
               !newGuest.phone.trim() ||
-              !newGuest.business_model ||
-              !newGuest.source ||
               (newGuest.source === "Khác" && !newGuest.source_detail.trim()) ||
               !wid
             }

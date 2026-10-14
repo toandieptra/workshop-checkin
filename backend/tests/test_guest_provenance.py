@@ -1,6 +1,8 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.services import guest_provenance
@@ -20,6 +22,15 @@ def test_other_source_requires_detail():
 
 def test_non_other_source_discards_detail():
     assert normalize_guest_source("Đại lý giới thiệu", "ignored") == ("Đại lý giới thiệu", None)
+
+
+def test_source_is_optional_only_when_not_required():
+    assert normalize_guest_source(None, "ignored", required=False) == (None, None)
+    assert normalize_guest_source("  ", None, required=False) == (None, None)
+    with pytest.raises(HTTPException):
+        normalize_guest_source(None, None)
+    with pytest.raises(HTTPException):
+        normalize_guest_source("Khác", None, required=False)
 
 
 def test_client_ip_prefers_first_valid_forwarded_address():

@@ -311,8 +311,9 @@ export function useAdminGuests() {
     const source = newGuest.source.trim();
     const source_detail = newGuest.source_detail.trim();
     const party_size = Math.max(1, Math.floor(Number(newGuest.party_size)) || 1);
-    if (!full_name || !phone || !business_model || !source || (source === "Khác" && !source_detail)) {
-      setActionMsg("Vui lòng nhập đủ thông tin khách và chọn nguồn.");
+    // Mô hình kinh doanh và nguồn không bắt buộc khi thêm khách; chỉ cần ghi rõ nếu chọn nguồn "Khác".
+    if (!full_name || !phone || (source === "Khác" && !source_detail)) {
+      setActionMsg(source === "Khác" && !source_detail ? "Vui lòng ghi rõ nguồn." : "Vui lòng nhập Họ tên và Số điện thoại.");
       return false;
     }
     try {
@@ -323,10 +324,10 @@ export function useAdminGuests() {
         body: JSON.stringify({
           full_name,
           phone,
-          business_model,
+          business_model: business_model || null,
           party_size,
           guest_type: newGuest.is_vip ? "vip" : null,
-          source,
+          source: source || null,
           source_detail: source === "Khác" ? source_detail : undefined,
         }),
       });

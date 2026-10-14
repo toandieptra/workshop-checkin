@@ -785,7 +785,7 @@ async def create_guest(
         raise HTTPException(404, "workshop not found")
     values = body.model_dump()
     values["source"], values["source_detail"] = normalize_guest_source(
-        values.get("source"), values.get("source_detail")
+        values.get("source"), values.get("source_detail"), required=False,
     )
     values["creator_user_id"] = user.id
     values["creator_name"] = user.name or user.username or user.email

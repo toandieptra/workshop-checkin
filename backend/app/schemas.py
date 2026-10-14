@@ -134,7 +134,7 @@ class GuestCreate(BaseModel):
     role_title: str | None = None
     guest_type: str | None = None
     note: str | None = None
-    source: str
+    source: str | None = None
     source_detail: str | None = None
     party_size: int = 1
 
