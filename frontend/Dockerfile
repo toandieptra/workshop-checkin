@@ -3,12 +3,12 @@
 # Frontend (Next.js 14 standalone) — production image
 # ──────────────────────────────────────────────────────────────────
 
-FROM node:20-slim AS deps
+FROM node:24-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
-FROM node:20-slim AS builder
+FROM node:24-slim AS builder
 WORKDIR /app
 
 # These are inlined at build time (NEXT_PUBLIC_*) so the JS bundle
@@ -35,7 +35,7 @@ COPY . .
 RUN npm run build
 
 # Non-root runtime user
-FROM node:20-slim AS runner
+FROM node:24-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=4317 \
