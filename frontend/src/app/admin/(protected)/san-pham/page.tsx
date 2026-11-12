@@ -70,8 +70,8 @@ export default function CatalogPage() {
   const kindLabel = tab === "recipes" ? "công thức" : "sản phẩm";
 
   return (
-    <div className="px-3 py-3 pb-20 sm:p-6">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="px-3 py-3 pb-20 sm:p-6 md:flex md:h-[calc(var(--admin-vh)_-_3.5rem)] md:flex-col md:pb-px">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between md:shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-brand-teal">Sản phẩm &amp; công thức</h1>
           <p className="mt-1 text-sm text-muted">Danh mục dùng chung cho mọi workshop. Mỗi khảo sát chọn món từ đây — không tạo bản sao.</p>
@@ -81,7 +81,7 @@ export default function CatalogPage() {
         )}
       </div>
 
-      <div role="tablist" aria-label="Loại danh mục" className="mb-3 flex gap-1 border-b border-line">
+      <div role="tablist" aria-label="Loại danh mục" className="mb-3 flex gap-1 border-b border-line md:shrink-0">
         {([["products", "Sản phẩm"], ["recipes", "Công thức"], ["categories", "Danh mục"]] as const).map(([key, label]) => (
           <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => { setTab(key); setEditing(null); }}
             className={`min-h-11 px-4 text-sm font-semibold border-b-2 -mb-px ${tab === key ? "border-brand text-brand-teal" : "border-transparent text-muted hover:text-brand-teal"}`}>{label}</button>
@@ -89,7 +89,7 @@ export default function CatalogPage() {
       </div>
 
       {msg && (
-        <div role={msg.tone === "ok" ? "status" : "alert"} className={`mb-3 rounded-md border px-4 py-2 text-sm ${msg.tone === "ok" ? "border-success-border bg-success-soft text-success" : "border-red-200 bg-red-50 text-error"}`}>
+        <div role={msg.tone === "ok" ? "status" : "alert"} className={`mb-3 rounded-md border px-4 py-2 text-sm md:shrink-0 ${msg.tone === "ok" ? "border-success-border bg-success-soft text-success" : "border-red-200 bg-red-50 text-error"}`}>
           {msg.text} <button type="button" className="ml-2 underline" onClick={() => setMsg(null)}>Đóng</button>
         </div>
       )}
@@ -98,7 +98,7 @@ export default function CatalogPage() {
         <CategoryManager categories={categories} canManage={canManage} onChange={loadCategories} onMessage={setMsg} />
       ) : (
         <>
-          <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row md:shrink-0">
             <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Tìm ${kindLabel} (gõ không dấu được)`} aria-label="Tìm kiếm"
               className="min-h-11 flex-1 rounded-md border border-line bg-surface px-3 text-sm" />
             <select value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Lọc danh mục" className="min-h-11 rounded-md border border-line bg-surface px-3 text-sm">
@@ -112,7 +112,7 @@ export default function CatalogPage() {
               <option value="archived">Lưu trữ</option>
             </select>
           </div>
-          <div className="admin-table-scroll overflow-x-auto rounded-md border border-line bg-surface">
+          <div className="admin-table-scroll overflow-x-auto rounded-md border border-line bg-surface md:min-h-0 md:max-h-none md:flex-1">
             <table className="w-full min-w-[720px] text-sm">
               <thead className="bg-surface-muted text-left text-xs uppercase text-muted">
                 <tr>
@@ -198,7 +198,7 @@ function CategoryManager({ categories, canManage, onChange, onMessage }: {
     </li>
   );
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+    <div className="grid gap-4 lg:grid-cols-[1fr_340px] md:min-h-0 md:flex-1 md:overflow-y-auto md:content-start">
       <ul className="overflow-hidden rounded-md border border-line bg-surface text-sm">
         <li className="bg-surface-muted px-3 py-2 text-xs font-semibold uppercase text-muted">Cây danh mục (tối đa 2 cấp)</li>
         {tops.length === 0 && <li className="px-3 py-8 text-center text-muted">Chưa có danh mục.</li>}
