@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { GIFT_STATUS_LABEL } from "@/lib/survey-admin";
+import { apiPath, GIFT_STATUS_LABEL } from "@/lib/survey-admin";
 
 type GiftEvent = { action: string; result: string; actor: string | null; method: string | null; created_at: string };
 type GiftClaimLog = {
@@ -34,7 +34,7 @@ export default function GuestGiftLog({ guestId, workshopId }: { guestId: string;
     const id = ++request.current;
     setLoading(true); setError("");
     try {
-      const result = await api<GiftLog>(`/api/workshops/${workshopId}/gifts/guest/${guestId}`, { adminLoading: false });
+      const result = await api<GiftLog>(apiPath(`/api/workshops/${workshopId}/gifts/guest/${guestId}`), { adminLoading: false });
       if (id === request.current) setData(result);
     } catch (e) {
       if (id === request.current) { setData(null); setError("Không tải được log quà tặng: " + (e instanceof Error ? e.message : "không rõ lỗi")); }
