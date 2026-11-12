@@ -495,3 +495,218 @@ class ZaloDeliveryItem(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# =================================================================
+# PHASE 2 — Catalog, survey, gift redemption (migration 045)
+# =================================================================
+
+class CatalogCategory(Base):
+    __tablename__ = "catalog_categories"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("catalog_categories.id", ondelete="RESTRICT"))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CatalogProduct(Base):
+    __tablename__ = "catalog_products"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    category_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("catalog_categories.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    search_key: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    short_description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="active", nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CatalogRecipe(Base):
+    __tablename__ = "catalog_recipes"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    category_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("catalog_categories.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    search_key: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    short_description: Mapped[str | None] = mapped_column(Text)
+    instructions: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="active", nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CatalogRecipeProduct(Base):
+    __tablename__ = "catalog_recipe_products"
+    recipe_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("catalog_recipes.id", ondelete="CASCADE"), primary_key=True)
+    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("catalog_products.id", ondelete="CASCADE"), primary_key=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class CatalogImage(Base):
+    __tablename__ = "catalog_images"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    product_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("catalog_products.id", ondelete="CASCADE"))
+    recipe_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("catalog_recipes.id", ondelete="CASCADE"))
+    file_url: Mapped[str] = mapped_column(Text, nullable=False)
+    thumb_url: Mapped[str] = mapped_column(Text, nullable=False)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    alt: Mapped[str | None] = mapped_column(Text)
+    focus_y: Mapped[int] = mapped_column(Integer, default=35, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Survey(Base):
+    __tablename__ = "surveys"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    workshop_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"), unique=True, nullable=False)
+    slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="draft", nullable=False)
+    opens_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closes_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    content: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    current_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_versions.id", ondelete="SET NULL", use_alter=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SurveyGroup(Base):
+    __tablename__ = "survey_groups"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    survey_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("surveys.id", ondelete="CASCADE"), nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_groups.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    short_title: Mapped[str | None] = mapped_column(Text)
+    tint: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class SurveyItem(Base):
+    __tablename__ = "survey_items"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    survey_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("surveys.id", ondelete="CASCADE"), nullable=False)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_groups.id", ondelete="SET NULL"))
+    item_type: Mapped[str] = mapped_column(Text, nullable=False)
+    product_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("catalog_products.id", ondelete="RESTRICT"))
+    recipe_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("catalog_recipes.id", ondelete="RESTRICT"))
+    display_name: Mapped[str | None] = mapped_column(Text)
+    image_override_url: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SurveyVersion(Base):
+    __tablename__ = "survey_versions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    survey_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("surveys.id", ondelete="CASCADE"), nullable=False)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    published_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SurveySession(Base):
+    __tablename__ = "survey_sessions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    survey_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("surveys.id", ondelete="CASCADE"), nullable=False)
+    version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_versions.id", ondelete="SET NULL"))
+    token_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    full_name: Mapped[str] = mapped_column(Text, nullable=False)
+    phone: Mapped[str] = mapped_column(Text, nullable=False)
+    draft: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    draft_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="draft", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SurveyResponse(Base):
+    __tablename__ = "survey_responses"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    survey_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("surveys.id", ondelete="CASCADE"), nullable=False)
+    workshop_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"), nullable=False)
+    version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_versions.id", ondelete="RESTRICT"), nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_sessions.id", ondelete="CASCADE"), unique=True, nullable=False)
+    guest_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("guests.id", ondelete="SET NULL"))
+    full_name: Mapped[str] = mapped_column(Text, nullable=False)
+    phone: Mapped[str] = mapped_column(Text, nullable=False)
+    rating: Mapped[int | None] = mapped_column(Integer)
+    adjectives: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    custom_adjectives: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    discomfort: Mapped[str | None] = mapped_column(Text)
+    expectation: Mapped[str | None] = mapped_column(Text)
+    favorite_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_valid: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SurveyResponseItem(Base):
+    __tablename__ = "survey_response_items"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    response_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_responses.id", ondelete="CASCADE"), nullable=False)
+    item_key: Mapped[str] = mapped_column(Text, nullable=False)
+    item_type: Mapped[str] = mapped_column(Text, nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    name_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
+    group_snapshot: Mapped[str | None] = mapped_column(Text)
+    favorited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    note_tags: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    note_text: Mapped[str | None] = mapped_column(Text)
+
+
+class GiftConfig(Base):
+    __tablename__ = "gift_configs"
+    workshop_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    gift_name: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    instructions: Mapped[str | None] = mapped_column(Text)
+    eligibility: Mapped[str] = mapped_column(Text, default="registered", nullable=False)
+    redeem_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GiftClaim(Base):
+    __tablename__ = "gift_claims"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    workshop_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"), nullable=False)
+    survey_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("surveys.id", ondelete="CASCADE"), nullable=False)
+    response_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("survey_responses.id", ondelete="CASCADE"), unique=True, nullable=False)
+    guest_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("guests.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(Text, default="issued", nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    short_code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    gift_name_snapshot: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeemed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    revoke_reason: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GiftAuditLog(Base):
+    __tablename__ = "gift_audit_logs"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    workshop_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workshops.id", ondelete="CASCADE"))
+    claim_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("gift_claims.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    result: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    detail: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

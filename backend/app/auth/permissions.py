@@ -10,6 +10,9 @@ PERMISSIONS = frozenset({
     "zalo_templates.create", "zalo_templates.edit", "zalo_templates.delete",
     "zalo_messages.read", "zalo_messages.send", "zalo_messages.bulk_send",
     "reports.read", "reports.export",
+    "catalog.read", "catalog.manage",
+    "surveys.read", "surveys.manage",
+    "gifts.redeem", "gifts.manage",
     "users.manage",
 })
 
@@ -18,12 +21,14 @@ ROLE_PERMISSIONS = {
     "viewer": {
         "workshops.read", "guests.read", "checkin.read",
         "registration_forms.read", "reports.read",
+        "catalog.read", "surveys.read",
     },
     "editor": {
         "workshops.read", "guests.read", "guests.write",
         "checkin.read", "checkin.manage", "registration_forms.read",
         "registration_forms.write", "uploads.create",
         "reports.read", "reports.export",
+        "catalog.read", "surveys.read", "surveys.manage", "gifts.redeem",
     },
     "admin": PERMISSIONS - {"users.manage"},
     "super_admin": PERMISSIONS,

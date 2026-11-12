@@ -6,6 +6,7 @@ import GuestQr from "@/components/GuestQr";
 import GuestNotes from "@/components/GuestNotes";
 import type { Guest, ZbsDelivery } from "@/hooks/useAdminGuests";
 import GuestZaloMessageBlock from "@/components/GuestZaloMessageBlock";
+import GuestGiftLog from "@/components/GuestGiftLog";
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "—";
@@ -159,5 +160,6 @@ export default function GuestDetailContent({
 
     <GuestNotes key={guest.id} guestId={guest.id} workshopId={workshopId} onChanged={onNotesChanged} />
     <GuestZaloMessageBlock key={guest.id} guestId={guest.id} canRead={canReadZalo} canSend={canSendZalo} />
+    {(can(PERMISSIONS.guestsView) || can(PERMISSIONS.giftsRedeem) || can(PERMISSIONS.surveysView)) && <GuestGiftLog key={`gift-${guest.id}-${guest.gifts_redeemed || 0}`} guestId={guest.id} workshopId={workshopId} />}
   </div>;
 }

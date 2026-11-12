@@ -40,6 +40,8 @@ export interface Guest {
   creator_user_id?: string | null;
   local_updated_at?: string | null;
   notes_summary?: string | null;
+  /** Số quà khảo sát nhân viên đã quét hợp lệ và xác nhận trao. */
+  gifts_redeemed?: number;
   zbs?: {
     registration_confirmation?: ZbsDelivery;
     checkin_confirmation?: ZbsDelivery;

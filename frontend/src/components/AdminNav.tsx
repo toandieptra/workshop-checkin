@@ -13,6 +13,7 @@ const ITEMS = [
   { href: "/admin/workshop", label: "Workshop", permission: PERMISSIONS.workshopsView },
   { href: "/admin/forms", label: "Form đăng ký", permission: PERMISSIONS.formsView },
   { href: "/admin/thong-ke", label: "Thống kê", permission: PERMISSIONS.reportsView },
+  { href: "/admin/khao-sat", label: "Khảo sát", permission: PERMISSIONS.surveysView },
 ];
 
 function userDisplayName(user: AuthUser | null): string {
@@ -105,6 +106,7 @@ export default function AdminNav() {
   const { user, can, canInAnyWorkshop, logout } = useAuth();
   const items = [
     ...ITEMS.filter((item) => canInAnyWorkshop(item.permission) || (item.permission === PERMISSIONS.workshopsView && can(PERMISSIONS.workshopsCreate))),
+    ...(can(PERMISSIONS.catalogView) || can(PERMISSIONS.catalogManage) ? [{ href: "/admin/san-pham", label: "Sản phẩm", permission: PERMISSIONS.catalogView }] : []),
     ...(can(PERMISSIONS.usersView) || can(PERMISSIONS.connectionsView) || can(PERMISSIONS.zbsView) || can(PERMISSIONS.zaloTemplatesView)
       ? [{ href: "/admin/cai-dat", label: "Cài đặt", permission: PERMISSIONS.connectionsView }]
       : []),

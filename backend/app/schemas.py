@@ -164,6 +164,7 @@ class GuestOut(BaseModel):
     guest_type: str | None
     note: str | None
     notes_summary: str | None = None
+    gifts_redeemed: int = 0
     source: str | None = None
     source_detail: str | None = None
     creator_name: str | None = None

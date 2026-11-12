@@ -19,7 +19,7 @@ WORKSHOP_PERMISSIONS = frozenset(
     permission for permission in PERMISSIONS
     if permission.startswith((
         "workshops.", "guests.", "checkin.", "registration_forms.",
-        "reports.", "zbs.", "zalo_messages.",
+        "reports.", "zbs.", "zalo_messages.", "surveys.", "gifts.",
     )) or permission == "uploads.create"
 )
 

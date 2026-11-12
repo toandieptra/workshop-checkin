@@ -9,6 +9,7 @@ import { BUSINESS_MODEL_OPTIONS } from "@/lib/business-models";
 import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
 import GuestQr from "@/components/GuestQr";
 import GuestQrScanner from "@/components/GuestQrScanner";
+import GiftRedeemModal from "@/components/GiftRedeemModal";
 import { getClientOrigin, getPublicOrigin } from "@/lib/urls";
 import WorkshopPicker from "@/components/WorkshopPicker";
 import { formatEventDateTime, shortLocation } from "@/lib/date-format";
@@ -263,6 +264,7 @@ export default function MobileAdmin() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [showGiftRedeem, setShowGiftRedeem] = useState(false);
   const [checkinGuest, setCheckinGuest] = useState<Guest | null>(null);
   const [showEventTools, setShowEventTools] = useState(false);
   const [origin, setOrigin] = useState(getPublicOrigin);
@@ -433,6 +435,18 @@ export default function MobileAdmin() {
           </button>}
         </div>
 
+        {can(PERMISSIONS.giftsRedeem) && (
+          <button
+            type="button"
+            onClick={() => setShowGiftRedeem(true)}
+            disabled={!currentWorkshop}
+            className="mt-2 inline-flex w-full items-center justify-center gap-2 h-11 rounded-md text-[13px] font-bold border border-brand text-brand-teal bg-surface active:bg-cyan-pale disabled:opacity-40"
+          >
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="8" width="18" height="13" rx="2" /><path d="M3 12h18M12 8v13" /><path d="M12 8c-2-4-6-4-6-1.5S9.5 8 12 8zM12 8c2-4 6-4 6-1.5S14.5 8 12 8z" /></svg>
+            Trao quà khảo sát
+          </button>
+        )}
+
         {filterActive && (
           <p className="text-[11px] text-muted mt-2">
             Hiển thị <strong className="text-brand-teal">{visibleGuests.length}</strong>{" "}
@@ -518,6 +532,10 @@ export default function MobileAdmin() {
             }
           }}
         />
+      )}
+
+      {showGiftRedeem && currentWorkshop && can(PERMISSIONS.giftsRedeem) && (
+        <GiftRedeemModal workshopId={currentWorkshop.id} workshopName={currentWorkshop.name} onClose={() => setShowGiftRedeem(false)} onRedeemed={(guestId) => void refreshGuest(guestId)} />
       )}
 
       {showScanner && currentWorkshop && can(PERMISSIONS.guestsCheckin) && (
@@ -777,6 +795,12 @@ function GuestCard({
           {checked ? (g.actual_party_size ?? registered) : registered} khách
           {delta ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}
         </span>
+        {(checked || (g.gifts_redeemed || 0) > 0) && (
+          <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold rounded-md px-1.5 py-1 shrink-0 bg-surface-muted text-text-secondary"
+            title="Quà khảo sát đã trao / số khách đã check-in">
+            Quà {g.gifts_redeemed || 0}/{checked ? (g.actual_party_size ?? registered) : 0}
+          </span>
+        )}
       </div>
 
       {/* Row 2: phone chip | meta */}

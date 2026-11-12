@@ -11,13 +11,14 @@ import GuestDetailRow from "@/components/GuestDetailRow";
 import { useAuth } from "@/contexts/AuthContext";
 import { PERMISSIONS } from "@/lib/permissions";
 import WorkshopPicker from "@/components/WorkshopPicker";
+import GiftRedeemModal from "@/components/GiftRedeemModal";
 import { formatEventDateTime, formatTimestamp } from "@/lib/date-format";
 
-type ColumnKey = "name" | "phone" | "businessModel" | "source" | "note" | "creator" | "registered" | "checkedIn" | "qr" | "zbs" | "actions" | "registeredAt";
+type ColumnKey = "name" | "phone" | "businessModel" | "source" | "note" | "creator" | "registered" | "checkedIn" | "gifts" | "qr" | "zbs" | "actions" | "registeredAt";
 const TABLE_COLUMNS = [
   { key: "name", label: "Tên khách" }, { key: "phone", label: "SĐT" }, { key: "businessModel", label: "Mô hình kinh doanh" },
   { key: "source", label: "Nguồn" }, { key: "note", label: "Ghi chú" }, { key: "creator", label: "Người tạo" },
-  { key: "registered", label: "Đăng ký" }, { key: "checkedIn", label: "Check in" },
+  { key: "registered", label: "Đăng ký" }, { key: "checkedIn", label: "Check in" }, { key: "gifts", label: "Quà tặng" },
   { key: "qr", label: "QR" },
   { key: "zbs", label: "ZBS" },
   { key: "actions", label: "Thao tác" }, { key: "registeredAt", label: "Ngày đăng ký" },
@@ -142,7 +143,7 @@ export default function DesktopAdmin() {
   const accessKey = JSON.stringify(user?.workshop_access);
   const defaultVisibleColumns: ColumnKey[] = [
     "name", "phone", "businessModel", "source", "note", "creator",
-    "registered", "checkedIn", "actions", "registeredAt",
+    "registered", "checkedIn", "gifts", "actions", "registeredAt",
   ];
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, defaultVisibleColumns.includes(key)])) as Record<ColumnKey, boolean>);
@@ -301,6 +302,8 @@ export default function DesktopAdmin() {
     }
   };
 
+  const [showGiftRedeem, setShowGiftRedeem] = useState(false);
+
   // ----- Render -----
   return (
     <div className="min-h-[calc(100dvh-3.5rem)] p-6 md:pb-px">
@@ -313,12 +316,17 @@ export default function DesktopAdmin() {
           </div>
         )}
 
+        {showGiftRedeem && currentWorkshop && can(PERMISSIONS.giftsRedeem) && (
+          <GiftRedeemModal workshopId={currentWorkshop.id} workshopName={currentWorkshop.name} onClose={() => setShowGiftRedeem(false)} onRedeemed={(guestId) => void refreshGuest(guestId)} />
+        )}
+
         {/* Workshop info */}
         <section className="contents">
           <div className="order-1 bg-surface rounded-md border border-line p-4 mb-4 flex items-center gap-3 flex-wrap justify-between">
             <div className="w-full max-w-xl"><WorkshopPicker workshops={workshops} value={wid} onChange={setWid} /></div>
             <div className="flex items-center gap-2 flex-wrap">
               {(can(PERMISSIONS.guestsCreate) || can(PERMISSIONS.guestsCreateOnly)) && <button type="button" onClick={() => setShowAddGuest((value) => !value)} className="min-h-10 rounded-md border border-brand bg-brand px-4 text-sm font-semibold text-brand-teal">{showAddGuest ? "Đóng form thêm khách" : "Thêm khách"}</button>}
+              {currentWorkshop && can(PERMISSIONS.giftsRedeem) && <button type="button" onClick={() => setShowGiftRedeem(true)} className="min-h-10 rounded-md border border-brand px-4 text-sm font-semibold text-brand-teal">Trao quà</button>}
               <button type="button" aria-expanded={showAdminTools} onClick={() => setShowAdminTools((value) => !value)} className="min-h-10 rounded-md border border-line px-4 text-sm font-semibold text-brand-teal">{showAdminTools ? "Ẩn công cụ quản trị" : "Công cụ quản trị"}</button>
             </div>
             {showAdminTools && <div className="flex w-full items-center gap-2 flex-wrap border-t border-line pt-3">
@@ -569,6 +577,7 @@ export default function DesktopAdmin() {
                   {visibleColumns.creator && <th className="px-3 py-2 font-medium min-w-[130px]">Người tạo</th>}
                   {visibleColumns.registered && <th className="text-center px-3 py-2 font-medium whitespace-nowrap" title="Số khách đăng ký">Đăng ký</th>}
                   {visibleColumns.checkedIn && <th className="text-center px-3 py-2 font-medium whitespace-nowrap w-28" title="Số khách đã check-in">Check in</th>}
+                  {visibleColumns.gifts && <th className="text-center px-3 py-2 font-medium whitespace-nowrap" title="Số quà khảo sát đã trao / số khách đã check-in">Quà tặng</th>}
                    {visibleColumns.qr && <th className="text-center px-3 py-2 font-medium w-24">QR</th>}
                    {visibleColumns.zbs && <th className="text-center px-3 py-2 font-medium min-w-[130px]">ZBS</th>}
                   {visibleColumns.actions && <th className="text-right px-3 py-2 font-medium min-w-[160px]">Thao tác</th>}
@@ -666,6 +675,19 @@ export default function DesktopAdmin() {
                             >
                               Check-in
                             </button>
+                          );
+                        })()}
+                      </td>}
+                      {visibleColumns.gifts && <td className="px-3 py-2 align-top text-center">
+                        {(() => {
+                          const given = g.gifts_redeemed || 0;
+                          const slots = g.checkin_status === "checked_in" ? (g.actual_party_size ?? g.party_size ?? 1) : 0;
+                          if (!given && !slots) return <span className="text-muted">—</span>;
+                          return (
+                            <span title={`Đã trao ${given} quà · tối đa ${slots} (số khách đã check-in)`}
+                              className={`inline-flex min-w-[44px] justify-center rounded-sm px-2 py-1 text-xs font-semibold tabular-nums ${given >= slots && slots > 0 ? "bg-green-50 text-green-700" : given ? "bg-amber-50 text-warning" : "text-muted"}`}>
+                              {given}/{slots}
+                            </span>
                           );
                         })()}
                       </td>}

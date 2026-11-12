@@ -28,6 +28,9 @@ const GROUPS = [
   { key: "zbs", label: "Mẫu tin ZBS", description: "Xem mẫu tin, đồng bộ và cấu hình gửi tự động" },
   { key: "zalo_connections", label: "Kết nối Zalo", description: "Xem và quản lý Zalo OA, Zalo user" },
   { key: "zalo_messages", label: "Tin nhắn Zalo", description: "Quản lý mẫu tin và gửi hàng loạt" },
+  { key: "catalog", label: "Sản phẩm & công thức", description: "Danh mục sản phẩm, công thức và hình ảnh dùng chung" },
+  { key: "surveys", label: "Khảo sát workshop", description: "Cấu hình khảo sát, xuất bản và xem kết quả" },
+  { key: "gifts", label: "Quà tặng", description: "Quét mã và trao quà, cấu hình chương trình quà" },
   { key: "users", label: "Người dùng & phân quyền", description: "Quản lý người dùng và vai trò" },
 ];
 
@@ -44,6 +47,11 @@ const PERMISSION_LABELS: Record<string, string> = {
   "zalo_messages.read": "Xem lịch sử gửi",
   "zalo_messages.send": "Gửi tin nhắn (đơn/retry)",
   "zalo_messages.bulk_send": "Gửi hàng loạt",
+  "catalog.manage": "Thêm, sửa, lưu trữ sản phẩm/công thức",
+  "surveys.read": "Xem cấu hình & kết quả",
+  "surveys.manage": "Cấu hình, xuất bản, đóng khảo sát",
+  "gifts.redeem": "Quét mã & trao quà",
+  "gifts.manage": "Cấu hình quà, thu hồi mã",
 };
 
 function RoleIcon({ selected }: { selected: boolean }) {

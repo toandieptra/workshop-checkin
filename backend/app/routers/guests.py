@@ -16,6 +16,7 @@ from ..schemas import (
     SelfRegisterRequest, SelfRegisterResult,
 )
 from ..services.guest_notes import notes_summaries
+from ..services.gifts import redeemed_counts
 from ..services.registration_confirmation import confirm_registration
 from ..services.zbs import normalize_phone as normalize_zbs_phone, refresh_registration_recipient
 from ..redis_client import is_duplicate, mark_checked_in, clear_dedup
@@ -428,7 +429,8 @@ async def get_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db), use
     guest = await _load_guest(db, guest_id)
     # Kèm notes_summary như danh sách, để giao diện cập nhật một dòng mà không mất cột Ghi chú.
     summary = (await notes_summaries(db, [guest.id])).get(guest.id)
-    return GuestOut.model_validate(guest).model_copy(update={"notes_summary": summary})
+    gifts = (await redeemed_counts(db, [guest.id])).get(guest.id, 0)
+    return GuestOut.model_validate(guest).model_copy(update={"notes_summary": summary, "gifts_redeemed": gifts})
 
 
 @router.patch("/guests/{guest_id}", response_model=GuestUpdateResult)

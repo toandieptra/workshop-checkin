@@ -49,6 +49,7 @@ from ..schemas import (
 from ..auth.dependencies import current_user, require_permission
 from ..services.guest_provenance import normalize_guest_source
 from ..services.guest_notes import notes_summaries
+from ..services.gifts import redeemed_counts
 
 logger = logging.getLogger("workshops")
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -744,12 +745,16 @@ async def list_guests(
         return []
 
     summaries = await notes_summaries(db, [g.id for g in rows])
+    gifts = await redeemed_counts(db, [g.id for g in rows])
     result: list[GuestOut] = []
     for g in rows:
         out = GuestOut.model_validate(g)
+        update = {}
         if g.id in summaries:
-            out = out.model_copy(update={"notes_summary": summaries[g.id]})
-        result.append(out)
+            update["notes_summary"] = summaries[g.id]
+        if g.id in gifts:
+            update["gifts_redeemed"] = gifts[g.id]
+        result.append(out.model_copy(update=update) if update else out)
     return result
 
 
