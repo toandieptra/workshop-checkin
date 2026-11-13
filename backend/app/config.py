@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     ZBS_REFRESH_TOKEN: str | None = None
     ZBS_REGISTRATION_TEMPLATE_ID: str | None = None
     ZBS_WEBHOOK_SECRET: str | None = None
+    # OA Secret Key (Zalo for Developers → Webhook) để kiểm chữ ký X-ZEvent-Signature của webhook Zalo.
+    ZBS_OA_SECRET_KEY: str | None = None
     ZBS_WORKER_INTERVAL_SECONDS: int = 5
     ZBS_REQUEST_TIMEOUT_SECONDS: float = 10.0
 

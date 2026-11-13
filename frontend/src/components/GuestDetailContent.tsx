@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { useAuth } from "@/contexts/AuthContext";
 import { PERMISSIONS } from "@/lib/permissions";
 import GuestQr from "@/components/GuestQr";
@@ -35,6 +37,28 @@ function DetailField({ label, value, mono = false }: { label: string; value?: Re
   return <div className="min-w-0">
     <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</div>
     <div className={`mt-1 break-words text-sm text-ink ${mono ? "font-mono text-xs" : "font-medium"}`}>{value || "—"}</div>
+  </div>;
+}
+
+// UID Zalo nhận qua webhook ZNS (user_received_message) — dùng gửi thông báo / remarketing.
+function ZaloUidField({ uid, seenAt }: { uid?: string | null; seenAt?: string | null }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    if (!uid) return;
+    try { await navigator.clipboard.writeText(uid); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* trình duyệt chặn clipboard */ }
+  };
+  return <div className="min-w-0">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">UID Zalo</div>
+    {uid ? <>
+      <div className="mt-1 flex min-w-0 items-center gap-2">
+        <span className="truncate font-mono text-xs text-ink" title={uid}>{uid}</span>
+        <button type="button" onClick={(e) => { e.stopPropagation(); void copy(); }} data-row-action
+          className="shrink-0 rounded border border-line px-1.5 py-0.5 text-[11px] font-semibold text-text-secondary hover:border-brand hover:text-brand">
+          {copied ? "Đã chép" : "Chép"}
+        </button>
+      </div>
+      <div className="mt-0.5 text-[11px] text-muted">Nhận lúc {formatDateTime(seenAt)}</div>
+    </> : <div className="mt-1 text-sm text-muted" title="Có sau khi khách nhận tin ZNS và Zalo gửi xác nhận đã nhận">Chưa có</div>}
   </div>;
 }
 
@@ -127,11 +151,12 @@ export default function GuestDetailContent({
       </div>
     </div>
 
-    <div className="grid gap-4 rounded-md border border-line bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 rounded-md border border-line bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
       <DetailField label="Số điện thoại" value={guest.phone} mono />
       <DetailField label="Mô hình kinh doanh" value={guest.business_model} />
       <DetailField label="Nguồn" value={source} />
       <DetailField label="Người tạo" value={guest.creator_name} />
+      <ZaloUidField uid={guest.zalo_uid} seenAt={guest.zalo_uid_seen_at} />
     </div>
 
     <div className="grid gap-4">

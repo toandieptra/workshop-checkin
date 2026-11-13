@@ -50,6 +50,7 @@ from ..auth.dependencies import current_user, require_permission
 from ..services.guest_provenance import normalize_guest_source
 from ..services.guest_notes import notes_summaries
 from ..services.gifts import redeemed_counts
+from ..services.zalo_uid import uids_for_guests
 
 logger = logging.getLogger("workshops")
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -746,6 +747,7 @@ async def list_guests(
 
     summaries = await notes_summaries(db, [g.id for g in rows])
     gifts = await redeemed_counts(db, [g.id for g in rows])
+    uids = await uids_for_guests(db, list(rows))
     result: list[GuestOut] = []
     for g in rows:
         out = GuestOut.model_validate(g)
@@ -754,6 +756,8 @@ async def list_guests(
             update["notes_summary"] = summaries[g.id]
         if g.id in gifts:
             update["gifts_redeemed"] = gifts[g.id]
+        if g.id in uids:
+            update["zalo_uid"], update["zalo_uid_seen_at"] = uids[g.id]
         result.append(out.model_copy(update=update) if update else out)
     return result
 

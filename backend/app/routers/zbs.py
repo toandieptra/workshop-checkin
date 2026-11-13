@@ -1,7 +1,8 @@
+import json
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -11,8 +12,8 @@ from ..auth.dependencies import current_user, require_permission
 from ..config import settings
 from ..auth.workshop_access import WORKSHOP_PERMISSIONS, allowed_workshop_ids, is_global_workshop_admin, require_workshop_permission
 from ..db import get_db
-from ..models import Guest, Workshop, ZbsDelivery, ZbsTaskConfig, ZbsTemplate
-from ..services import zbs_bulk
+from ..models import Guest, Workshop, ZbsDelivery, ZbsTaskConfig, ZbsTemplate, ZbsWebhookEvent
+from ..services import zalo_uid, zbs_bulk
 from ..services.zbs import (
     BULK_TASK_KEY,
     CHECKIN_TASK_KEY,
@@ -593,33 +594,45 @@ async def bulk_retry_failed(bulk_id: uuid.UUID, db: AsyncSession = Depends(get_d
 
 @router.post("/webhooks/zbs")
 async def zbs_webhook(
-    body: dict,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     x_zbs_webhook_secret: str | None = Header(default=None),
+    x_zevent_signature: str | None = Header(default=None),
 ):
-    if settings.ZBS_WEBHOOK_SECRET and x_zbs_webhook_secret != settings.ZBS_WEBHOOK_SECRET:
-        raise HTTPException(401, "invalid webhook secret")
-    tracking_id = body.get("tracking_id")
-    msg_id = body.get("msg_id")
-    delivery = None
-    if tracking_id:
-        try:
-            delivery = await db.get(ZbsDelivery, uuid.UUID(str(tracking_id)))
-        except ValueError:
-            pass
-    if not delivery and msg_id:
-        delivery = await db.scalar(select(ZbsDelivery).where(ZbsDelivery.msg_id == str(msg_id)))
-    if not delivery:
-        return {"received": True}
-    timestamp = body.get("delivery_time") or body.get("timestamp")
+    """Webhook ZNS của Zalo (và định dạng phẳng cũ). Sự kiện user_received_message mang UID khách."""
+    raw = await request.body()
     try:
-        value = float(timestamp)
-        if value > 10_000_000_000:
-            value /= 1000
-        delivery.delivery_time = datetime.fromtimestamp(value, timezone.utc)
-    except (TypeError, ValueError, OSError):
-        delivery.delivery_time = datetime.now(timezone.utc)
-    delivery.status = "delivered"
-    delivery.updated_at = datetime.now(timezone.utc)
+        body = json.loads(raw or b"{}")
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, "invalid json")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "invalid payload")
+    signature_ok = zalo_uid.verify_signature(raw, body, x_zevent_signature, settings.ZBS_APP_ID, settings.ZBS_OA_SECRET_KEY)
+    legacy_ok = bool(settings.ZBS_WEBHOOK_SECRET) and x_zbs_webhook_secret == settings.ZBS_WEBHOOK_SECRET
+    if signature_ok is False and not legacy_ok:
+        raise HTTPException(401, "invalid webhook signature")
+    if signature_ok is None and settings.ZBS_WEBHOOK_SECRET and not legacy_ok:
+        raise HTTPException(401, "invalid webhook secret")
+
+    event = zalo_uid.parse_webhook(body)
+    delivery = None
+    if event.is_delivery:
+        if event.tracking_id:
+            try:
+                delivery = await db.get(ZbsDelivery, uuid.UUID(event.tracking_id))
+            except ValueError:
+                pass
+        if not delivery and event.msg_id:
+            delivery = await db.scalar(select(ZbsDelivery).where(ZbsDelivery.msg_id == event.msg_id))
+    db.add(ZbsWebhookEvent(event_name=event.event_name, msg_id=event.msg_id, tracking_id=event.tracking_id,
+                           matched=delivery is not None, signature_ok=signature_ok))
+    if delivery:
+        now = datetime.now(timezone.utc)
+        delivery.delivery_time = event.delivered_at or now
+        delivery.status = "delivered"
+        delivery.updated_at = now
+        if event.uid:
+            delivery.recipient_uid = event.uid
+            await zalo_uid.record_uid(db, delivery.phone, event.uid, event.msg_id or delivery.msg_id, event.delivered_at)
     await db.commit()
     return {"received": True}

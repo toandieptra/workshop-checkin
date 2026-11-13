@@ -119,6 +119,9 @@ echo "[4/5] Recreate containers"
 "$DOCKER_BIN" compose -p "$COMPOSE_PROJECT" exec -T postgres \
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/045_survey_catalog_gifts.sql
+"$DOCKER_BIN" compose -p "$COMPOSE_PROJECT" exec -T postgres \
+  sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/046_zalo_uid.sql
 
 # Backend được dựng lại trước khi migration chạy và có thể đã thoát vì thiếu cột mới;
 # khởi động lại để nó đọc schema sau migration.

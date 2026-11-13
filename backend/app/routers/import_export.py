@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.workshop_access import WORKSHOP_PERMISSIONS, allowed_workshop_ids, is_global_workshop_admin, require_workshop_permission
+from ..services.zalo_uid import uids_for_guests
 from ..db import get_db
 from ..models import AdminUser, Guest, GuestNote, Workshop
 from ..auth.dependencies import current_user, require_permission
@@ -205,8 +206,9 @@ async def export_guests(
         "workshop", "full_name", "phone", "email", "company", "business_model", "source",
         "role_title", "guest_type", "party_size", "note",
         "checkin_status", "checked_in_at",
-        "registered_at", "created_at",
+        "registered_at", "created_at", "zalo_uid",
     ]
+    uid_by_guest = await uids_for_guests(db, [g for g, _ in rows])
     body_rows = []
     for g, w_name in rows:
         notes = notes_by_guest.get(g.id)
@@ -226,6 +228,7 @@ async def export_guests(
             _fmt(g.checked_in_at),
             _fmt(g.registered_at),
             _fmt(g.created_at),
+            uid_by_guest.get(g.id, ("",))[0],
         ])
 
     wb = Workbook()

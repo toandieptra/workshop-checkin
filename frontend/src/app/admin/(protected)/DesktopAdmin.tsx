@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { PERMISSIONS } from "@/lib/permissions";
 import WorkshopPicker from "@/components/WorkshopPicker";
 import GiftRedeemModal from "@/components/GiftRedeemModal";
+import CheckinDialog from "@/components/CheckinDialog";
 import { formatEventDateTime, formatTimestamp } from "@/lib/date-format";
 
 type ColumnKey = "name" | "phone" | "businessModel" | "source" | "note" | "creator" | "registered" | "checkedIn" | "gifts" | "qr" | "zbs" | "actions" | "registeredAt";
@@ -303,6 +304,7 @@ export default function DesktopAdmin() {
   };
 
   const [showGiftRedeem, setShowGiftRedeem] = useState(false);
+  const [checkinGuest, setCheckinGuest] = useState<Guest | null>(null);
 
   // ----- Render -----
   return (
@@ -318,6 +320,11 @@ export default function DesktopAdmin() {
 
         {showGiftRedeem && currentWorkshop && can(PERMISSIONS.giftsRedeem) && (
           <GiftRedeemModal workshopId={currentWorkshop.id} workshopName={currentWorkshop.name} onClose={() => setShowGiftRedeem(false)} onRedeemed={(guestId) => void refreshGuest(guestId)} />
+        )}
+
+        {checkinGuest && can(PERMISSIONS.guestsCheckin) && (
+          <CheckinDialog guest={checkinGuest} onClose={() => setCheckinGuest(null)}
+            onConfirm={async (actual) => { await doCheckin(checkinGuest, actual); setCheckinGuest(null); }} />
         )}
 
         {/* Workshop info */}
@@ -670,7 +677,7 @@ export default function DesktopAdmin() {
                           ) : (
                             <button
                               type="button"
-                              onClick={(event) => { event.stopPropagation(); void doCheckin(g); }}
+                              onClick={(event) => { event.stopPropagation(); setCheckinGuest(g); }}
                               className="flex min-h-[32px] w-full items-center justify-center whitespace-nowrap rounded-sm border border-green-600 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-50"
                             >
                               Check-in
@@ -751,7 +758,7 @@ export default function DesktopAdmin() {
                        workshopId={currentWorkshop.id}
                        onRetryLoad={() => void loadGuestDetail(g.id, true)}
                        onEdit={openEdit}
-                        onCheckin={(guest) => void doCheckin(guest)}
+                        onCheckin={(guest) => setCheckinGuest(guest)}
                         onConfirmRegistration={(guest) => void confirmRegistration(guest)}
                        onUncheckin={(guest) => void doUncheckin(guest)}
                        onToggleVip={(guest) => void toggleVip(guest)}

@@ -42,6 +42,9 @@ export interface Guest {
   notes_summary?: string | null;
   /** Số quà khảo sát nhân viên đã quét hợp lệ và xác nhận trao. */
   gifts_redeemed?: number;
+  /** UID Zalo (theo SĐT) — có sau khi khách nhận tin ZNS và Zalo bắn webhook user_received_message */
+  zalo_uid?: string | null;
+  zalo_uid_seen_at?: string | null;
   zbs?: {
     registration_confirmation?: ZbsDelivery;
     checkin_confirmation?: ZbsDelivery;
@@ -434,17 +437,10 @@ export function useAdminGuests() {
   );
 
   const doCheckin = useCallback(
-    async (guest: Guest, actualPartySize?: number) => {
+    async (guest: Guest, actualPartySize: number) => {
       if (!allowed(PERMISSIONS.guestsCheckin, guest)) return;
-      let actual = actualPartySize;
-      if (actual === undefined) {
-        const input = prompt(
-          `Số khách check-in cho "${guest.full_name}" (số nguyên ≥ 1):`,
-          String(guest.party_size || 1),
-        );
-        if (input === null) return;
-        actual = parseInt(input, 10);
-      }
+      // Số khách lấy từ CheckinDialog; không dùng window.prompt (bị chặn ở một số trình duyệt nhúng).
+      const actual = actualPartySize;
       if (typeof actual !== "number" || !Number.isInteger(actual) || actual < 1) {
         setActionMsg("Số khách check-in phải là số nguyên lớn hơn hoặc bằng 1");
         return;

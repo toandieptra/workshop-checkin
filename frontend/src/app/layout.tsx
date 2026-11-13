@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   title: "Workshop - LerMao x Trà Phượng Hoàng",
   description: "Hệ thống quản lý Workshop của Hi Sweetie Việt Nam",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Check-in" },
-  other: { "mobile-web-app-capable": "yes" },
+  other: { "mobile-web-app-capable": "yes", "zalo-platform-site-verification": "R-7dS8ZGVqvEv-zmZ_9h9rhasn6saWzAD3Gp" },
 };
 
 export const viewport: Viewport = {

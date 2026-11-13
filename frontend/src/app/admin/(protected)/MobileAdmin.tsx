@@ -10,6 +10,7 @@ import { GUEST_SOURCE_OPTIONS } from "@/lib/guest-sources";
 import GuestQr from "@/components/GuestQr";
 import GuestQrScanner from "@/components/GuestQrScanner";
 import GiftRedeemModal from "@/components/GiftRedeemModal";
+import CheckinDialog from "@/components/CheckinDialog";
 import { getClientOrigin, getPublicOrigin } from "@/lib/urls";
 import WorkshopPicker from "@/components/WorkshopPicker";
 import { formatEventDateTime, shortLocation } from "@/lib/date-format";
@@ -551,7 +552,7 @@ export default function MobileAdmin() {
       )}
 
       {checkinGuest && can(PERMISSIONS.guestsCheckin) && (
-        <CheckinSheet
+        <CheckinDialog
           guest={checkinGuest}
           onClose={() => setCheckinGuest(null)}
           onConfirm={async (actual) => {
@@ -930,57 +931,6 @@ function EmptyStateAddCustomer({
         <IconPlus className="w-3.5 h-3.5" />
         Thêm khách
       </button>
-    </div>
-  );
-}
-
-function CheckinSheet({
-  guest,
-  onClose,
-  onConfirm,
-}: {
-  guest: Guest;
-  onClose: () => void;
-  onConfirm: (actual: number) => void | Promise<void>;
-}) {
-  const [actual, setActual] = useState(Math.max(1, guest.party_size || 1));
-  const [busy, setBusy] = useState(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useDialogFocus(true, dialogRef, "#checkin-actual");
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [busy, onClose]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true" aria-labelledby="checkin-sheet-title">
-      <button type="button" className="absolute inset-0 bg-black/60" onClick={onClose} aria-label="Đóng xác nhận check-in" />
-      <div ref={dialogRef} tabIndex={-1} className="relative w-full max-w-md rounded-t-2xl bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-xl animate-sheet-up">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Xác nhận check-in</p>
-            <h2 id="checkin-sheet-title" className="mt-1 font-heading text-xl font-bold text-brand-teal">{guest.full_name}</h2>
-            <p className="mt-1 text-sm text-text-secondary">Đã đăng ký {Math.max(1, guest.party_size || 1)} khách</p>
-          </div>
-          <button type="button" onClick={onClose} disabled={busy} className="grid h-11 w-11 place-items-center rounded-md border border-line text-brand-teal" aria-label="Đóng">
-            <IconClose className="h-4 w-4" />
-          </button>
-        </div>
-        <label htmlFor="checkin-actual" className="mt-5 block text-sm font-semibold text-brand-teal">Số người tham gia thực tế</label>
-        <div className="mt-2 grid h-12 grid-cols-[48px_1fr_48px] overflow-hidden rounded-md border border-line">
-          <button type="button" onClick={() => setActual((value) => Math.max(1, value - 1))} disabled={actual <= 1 || busy} className="grid place-items-center text-brand-teal disabled:opacity-40" aria-label="Giảm số khách"><IconMinus className="h-4 w-4" /></button>
-          <input id="checkin-actual" type="number" min={1} value={actual} onChange={(event) => setActual(Math.max(1, parseInt(event.target.value, 10) || 1))} className="border-x border-line bg-white text-center font-mono text-lg text-brand-teal focus:outline-none" />
-          <button type="button" onClick={() => setActual((value) => value + 1)} disabled={busy} className="grid place-items-center text-brand-teal disabled:opacity-40" aria-label="Tăng số khách"><IconPlus className="h-4 w-4" /></button>
-        </div>
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <button type="button" onClick={onClose} disabled={busy} className="h-12 rounded-md border border-line font-semibold text-brand-teal">Hủy</button>
-          <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { await onConfirm(actual); } finally { setBusy(false); } }} className="h-12 rounded-md bg-brand font-bold text-brand-teal disabled:opacity-50">{busy ? "Đang check-in..." : `Check-in · ${actual} khách`}</button>
-        </div>
-      </div>
     </div>
   );
 }
