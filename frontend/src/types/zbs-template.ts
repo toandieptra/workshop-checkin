@@ -112,6 +112,10 @@ export interface ZbsBulkRecipient {
   guest_id: string;
   full_name: string;
   phone: string | null;
+  /** UID Zalo (user_id theo OA) đã biết của khách. */
+  zalo_uid: string | null;
+  /** Kênh gửi dự kiến: UID nếu có, không thì SĐT (Zalo từ chối UID thì gửi lại qua SĐT). */
+  channel: "uid" | "phone";
   eligible: boolean;
   reason: string | null;
   template_data: Record<string, string | number>;
@@ -122,9 +126,12 @@ export interface ZbsBulkPreflight {
   eligible_count: number;
   ineligible_count: number;
   eligible_guest_ids: string[];
+  uid_count: number;
+  phone_count: number;
   mapping_errors: string[];
   system_enabled: boolean;
   price_per_message: number | null;
+  price_per_message_uid: number | null;
   estimated_cost: number | null;
   can_send: boolean;
   recipients: ZbsBulkRecipient[];
@@ -137,6 +144,9 @@ export interface ZbsBulkDeliveryItem {
   status: ZbsDeliveryStatus;
   phone: string | null;
   attempt_count: number;
+  /** Kênh đã gửi thực tế: "uid" hoặc "phone". */
+  sent_via?: "uid" | "phone" | null;
+  recipient_uid?: string | null;
   last_error: string | null;
   sent_time: string | null;
   delivery_time: string | null;
@@ -159,6 +169,7 @@ export interface ZbsBulkBatch {
 
 export interface ZbsGuestBulkStatus {
   status: ZbsDeliveryStatus;
+  sent_via?: "uid" | "phone" | null;
   last_error: string | null;
   sent_time: string | null;
   bulk_id: string | null;

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..models import Guest, Workshop, ZbsDelivery, ZbsTemplate
 from .zbs import BULK_TASK_KEY, _checkin_time, _registered_at, _workshop_time, normalize_phone, zbs_phone
 
@@ -170,30 +171,40 @@ async def evaluate_recipients(
     mapping: dict[str, dict],
     allow_resend: bool = False,
 ) -> list[dict]:
+    """Kênh gửi dự kiến: UID Zalo nếu khách đã có (rẻ hơn), không thì SĐT — worker vẫn gửi lại qua SĐT
+    khi Zalo từ chối UID (xem services/zbs._send)."""
+    from .zalo_uid import uids_for_guests
+
     params = template_params(template)
     previous = await previous_bulk_statuses(db, template.template_id, [guest.id for guest in guests])
-    seen_phones: set[str] = set()
+    uids = await uids_for_guests(db, guests) if settings.ZBS_SEND_VIA_UID else {}
+    seen: set[str] = set()
     results = []
     for guest in guests:
         phone = normalize_phone(guest.phone)
+        valid_phone = bool(phone) and bool(VALID_PHONE.fullmatch(phone))
+        uid = uids[guest.id][0] if guest.id in uids else None
         data, errors = render_template_data(params, mapping, guest, workshop)
+        key = f"phone:{phone}" if valid_phone else f"uid:{uid}" if uid else None
         reason = None
-        if not phone:
-            reason = "Khách chưa có số điện thoại"
-        elif not VALID_PHONE.fullmatch(phone):
+        if not phone and not uid:
+            reason = "Khách chưa có số điện thoại hoặc UID Zalo"
+        elif not valid_phone and not uid:
             reason = "Số điện thoại không hợp lệ"
-        elif phone in seen_phones:
-            reason = "Trùng số điện thoại với khách khác trong danh sách"
+        elif key in seen:
+            reason = "Trùng số điện thoại / UID với khách khác trong danh sách"
         elif errors:
             reason = errors[0]
         elif not allow_resend and guest.id in previous and previous[guest.id].status in ACTIVE_STATUSES:
             reason = "Đã gửi hoặc đang xếp hàng mẫu tin này"
-        if phone and reason is None:
-            seen_phones.add(phone)
+        if key and reason is None:
+            seen.add(key)
         results.append({
             "guest_id": guest.id,
             "full_name": guest.full_name,
-            "phone": phone or None,
+            "phone": phone if valid_phone else None,
+            "zalo_uid": uid,
+            "channel": "uid" if uid else "phone",
             "eligible": reason is None,
             "reason": reason,
             "template_data": data,
@@ -224,6 +235,8 @@ def enqueue_bulk(
                 "event_at": now.isoformat(),
                 "manual": True,
                 "bulk_id": str(bulk_id),
+                # UID lúc xếp hàng — dùng khi khách không có SĐT; còn lại worker tra UID mới nhất theo SĐT.
+                **({"uid": recipient["zalo_uid"]} if recipient.get("zalo_uid") else {}),
                 "created_by": str(created_by.id) if created_by else None,
                 "created_by_name": (created_by.name or created_by.email or created_by.username) if created_by else None,
             },

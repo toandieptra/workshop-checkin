@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircleIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { CheckCircleIcon, ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import {
   api,
   getZbsBulkBatch,
@@ -87,6 +87,7 @@ export default function ZbsBulkSendModal({
   const [sendFilter, setSendFilter] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [allowResend, setAllowResend] = useState(false);
+  const [showParams, setShowParams] = useState(false);
   const [preflight, setPreflight] = useState<ZbsBulkPreflight | null>(null);
   const [result, setResult] = useState<ZbsBulkBatch | null>(null);
   const [loadingGuests, setLoadingGuests] = useState(false);
@@ -175,7 +176,7 @@ export default function ZbsBulkSendModal({
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return guests.filter((guest) => {
-      if (term && !`${guest.full_name} ${guest.phone || ""}`.toLowerCase().includes(term)) return false;
+      if (term && !`${guest.full_name} ${guest.phone || ""} ${guest.zalo_uid || ""}`.toLowerCase().includes(term)) return false;
       if (registrationFilter && guest.registration_status !== registrationFilter) return false;
       if (checkinFilter === "checked_in" && guest.checkin_status !== "checked_in") return false;
       if (checkinFilter === "not_checked_in" && guest.checkin_status === "checked_in") return false;
@@ -201,7 +202,10 @@ export default function ZbsBulkSendModal({
     setSubmitting(true);
     setError("");
     try {
-      setPreflight(await preflightZbsBulk(requestBody()));
+      const checked = await preflightZbsBulk(requestBody());
+      setPreflight(checked);
+      // Tham số cố định chưa hợp lệ → mở phần tham số để sửa.
+      if (checked.mapping_errors.length) setShowParams(true);
     } catch (preflightError) {
       setError("Kiểm tra trước khi gửi thất bại: " + errorMessage(preflightError));
     } finally {
@@ -331,12 +335,24 @@ export default function ZbsBulkSendModal({
 
               {template && (
                 <section className="mt-5 rounded-lg border border-line">
-                  <div className="flex flex-col gap-1 border-b border-line bg-surface-muted px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                    <h3 className="text-sm font-semibold text-ink">Tham số mẫu tin ({params.length})</h3>
-                    <span className="text-xs text-muted">Đơn giá: {formatMoney(template.price_sdt ? Number(template.price_sdt) : null)} / tin</span>
+                  <div className={`flex flex-col gap-1 bg-surface-muted px-3 py-2 sm:flex-row sm:items-center sm:justify-between ${showParams ? "border-b border-line" : ""}`}>
+                    <button
+                      type="button"
+                      onClick={() => setShowParams((value) => !value)}
+                      aria-expanded={showParams}
+                      aria-controls="zbs-bulk-params"
+                      className="inline-flex min-h-8 items-center gap-1.5 rounded-md text-left text-sm font-semibold text-ink transition hover:text-brand-teal"
+                    >
+                      <ChevronDownIcon className={`h-4 w-4 transition-transform ${showParams ? "" : "-rotate-90"}`} aria-hidden />
+                      Tham số mẫu tin ({params.length})
+                      <span className="text-xs font-normal text-muted">· {showParams ? "Ẩn" : "Hiện"}</span>
+                    </button>
+                    <span className="text-xs text-muted">
+                      Đơn giá / tin: qua UID {formatMoney(template.price_uid ? Number(template.price_uid) : null)} · qua SĐT {formatMoney(template.price_sdt ? Number(template.price_sdt) : null)}
+                    </span>
                   </div>
-                  {params.length ? (
-                    <div className="divide-y divide-line">
+                  {!showParams ? null : params.length ? (
+                    <div id="zbs-bulk-params" className="divide-y divide-line">
                       {params.map((param) => {
                         const entry = mapping[param.name] || { source: FIXED_SOURCE, value: "" };
                         return (
@@ -369,13 +385,13 @@ export default function ZbsBulkSendModal({
                         );
                       })}
                     </div>
-                  ) : <p className="px-3 py-4 text-center text-sm text-muted">Mẫu tin không có tham số động.</p>}
+                  ) : <p id="zbs-bulk-params" className="px-3 py-4 text-center text-sm text-muted">Mẫu tin không có tham số động.</p>}
                 </section>
               )}
 
               <div className="mt-5 overflow-hidden rounded-lg border border-line">
                 <div className="flex flex-col gap-2 border-b border-line bg-surface-muted p-3 lg:flex-row lg:items-center">
-                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm tên hoặc số điện thoại" aria-label="Tìm khách" className="min-h-10 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-brand lg:w-60" />
+                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm tên, SĐT hoặc UID" aria-label="Tìm khách" className="min-h-10 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-brand lg:w-60" />
                   <div className="grid grid-cols-3 gap-2 lg:flex">
                     <select aria-label="Lọc theo đăng ký" value={registrationFilter} onChange={(event) => setRegistrationFilter(event.target.value)} className="min-h-10 rounded-md border border-line bg-white px-2 text-sm">
                       <option value="">Mọi đăng ký</option>
@@ -398,7 +414,7 @@ export default function ZbsBulkSendModal({
                   <div className="text-xs text-muted lg:ml-auto">Đã chọn <strong className="text-ink">{selected.length}</strong>/{guests.length} khách</div>
                 </div>
                 <div className="max-h-80 overflow-auto">
-                  <table className="w-full min-w-[720px] text-sm">
+                  <table className="w-full min-w-[880px] text-sm">
                     <thead className="sticky top-0 bg-white text-left text-xs text-muted">
                       <tr>
                         <th className="w-12 px-3 py-2">
@@ -406,6 +422,7 @@ export default function ZbsBulkSendModal({
                         </th>
                         <th className="px-3 py-2">Khách</th>
                         <th className="px-3 py-2">Số điện thoại</th>
+                        <th className="px-3 py-2" title="UID Zalo theo OA — ưu tiên gửi qua UID, không có hoặc Zalo từ chối thì gửi qua SĐT">UID Zalo</th>
                         <th className="px-3 py-2">Đăng ký</th>
                         <th className="px-3 py-2">Check-in</th>
                         <th className="px-3 py-2">Mẫu tin này</th>
@@ -413,7 +430,7 @@ export default function ZbsBulkSendModal({
                     </thead>
                     <tbody className="divide-y divide-line">
                       {loadingGuests ? (
-                        <tr><td colSpan={6} className="p-8 text-center text-muted">Đang tải...</td></tr>
+                        <tr><td colSpan={7} className="p-8 text-center text-muted">Đang tải...</td></tr>
                       ) : filtered.map((guest) => {
                         const status = statuses[guest.id];
                         return (
@@ -423,17 +440,30 @@ export default function ZbsBulkSendModal({
                             </td>
                             <td className="px-3 py-2 font-semibold text-ink">{guest.full_name}</td>
                             <td className="px-3 py-2 font-mono text-xs">{guest.phone || "—"}</td>
+                            <td className="max-w-[170px] px-3 py-2 font-mono text-xs">
+                              {guest.zalo_uid
+                                ? <span className="block truncate text-brand-teal" title={`UID ${guest.zalo_uid}${guest.zalo_uid_source ? ` · nguồn ${guest.zalo_uid_source}` : ""}`}>{guest.zalo_uid}</span>
+                                : <span className="text-muted">—</span>}
+                            </td>
                             <td className="px-3 py-2 text-xs">{guest.registration_status === "confirmed" ? "Đã xác nhận" : "Chờ xác nhận"}</td>
                             <td className="px-3 py-2 text-xs">{guest.checkin_status === "checked_in" ? "Đã check-in" : "Chưa"}</td>
-                            <td className="px-3 py-2" title={status?.last_error || undefined}>{status ? <StatusBadge status={status.status} /> : <span className="text-xs text-muted">Chưa gửi</span>}</td>
+                            <td className="px-3 py-2" title={status?.last_error || undefined}>
+                              {status ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                  <StatusBadge status={status.status} />
+                                  {status.sent_via && <span className="text-[11px] text-muted">qua {status.sent_via === "uid" ? "UID" : "SĐT"}</span>}
+                                </span>
+                              ) : <span className="text-xs text-muted">Chưa gửi</span>}
+                            </td>
                           </tr>
                         );
                       })}
-                      {!loadingGuests && !filtered.length && <tr><td colSpan={6} className="p-8 text-center text-muted">{workshopId ? "Không có khách phù hợp." : "Chọn workshop để xem khách mời."}</td></tr>}
+                      {!loadingGuests && !filtered.length && <tr><td colSpan={7} className="p-8 text-center text-muted">{workshopId ? "Không có khách phù hợp." : "Chọn workshop để xem khách mời."}</td></tr>}
                     </tbody>
                   </table>
                 </div>
               </div>
+              <p className="mt-2 text-xs text-muted">Thứ tự gửi: <strong className="text-ink">UID Zalo</strong> (nếu khách đã có) → <strong className="text-ink">Số điện thoại</strong>. Zalo từ chối gửi qua UID (vd. mẫu tin chưa hỗ trợ UID) thì tự gửi lại qua SĐT.</p>
               <label className="mt-3 flex w-fit cursor-pointer items-center gap-2 text-sm text-text-secondary">
                 <input type="checkbox" checked={allowResend} disabled={submitting} onChange={(event) => { resetPreflight(); setAllowResend(event.target.checked); }} />
                 Gửi lại cho khách đã nhận hoặc đang chờ gửi mẫu tin này
@@ -442,10 +472,11 @@ export default function ZbsBulkSendModal({
               {preflight && (
                 <div className={`mt-4 rounded-md border p-4 ${preflight.can_send ? "border-success-border bg-success-soft" : "border-amber-200 bg-amber-50"}`}>
                   <div className="font-semibold text-ink">Kết quả kiểm tra trước khi gửi</div>
-                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
                     {([
                       ["Tổng chọn", preflight.total],
                       ["Đủ điều kiện", preflight.eligible_count],
+                      ["Qua UID / qua SĐT", `${preflight.uid_count} / ${preflight.phone_count}`],
                       ["Không hợp lệ", preflight.ineligible_count],
                       ["Chi phí ước tính", formatMoney(preflight.estimated_cost)],
                     ] as const).map(([label, value]) => (

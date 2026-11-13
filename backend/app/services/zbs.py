@@ -8,7 +8,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import Guest, Workshop, ZbsDelivery, ZbsTaskConfig, ZbsTemplate
+from ..models import Guest, Workshop, ZaloContactUid, ZbsDelivery, ZbsTaskConfig, ZbsTemplate
 from .zbs_auth import request_with_token
 
 logger = logging.getLogger("zbs")
@@ -258,37 +258,75 @@ def _payload_error(delivery: ZbsDelivery) -> str | None:
     return None
 
 
+async def recipient_uid(db: AsyncSession, phone: str | None) -> str | None:
+    """UID Zalo (user_id theo OA) đã biết của SĐT — xem services/zalo_uid.py."""
+    key = normalize_phone(phone)
+    if len(key) < 9:
+        return None
+    return await db.scalar(select(ZaloContactUid.zalo_uid).where(ZaloContactUid.phone == key))
+
+
+async def _post(db: AsyncSession, url: str, request: dict) -> tuple[bool, bool, dict, str | None]:
+    async with httpx.AsyncClient(timeout=settings.ZBS_REQUEST_TIMEOUT_SECONDS) as client:
+        response = await request_with_token(db, client, "POST", url, json=request)
+    try:
+        data = response.json() if response.content else {}
+    except ValueError:
+        data = {}
+    data = data if isinstance(data, dict) else {}
+    error = data.get("error")
+    if response.is_success and error in (None, 0):
+        return True, False, data, None
+    message = data.get("message") or f"HTTP {response.status_code}"
+    return False, _retryable(response.status_code, error), data, message
+
+
+def _mark_channel(delivery: ZbsDelivery, channel: str, **extra) -> None:
+    payload = {key: value for key, value in (delivery.payload or {}).items() if key not in ("sent_via", "uid_error")}
+    delivery.payload = {**payload, "sent_via": channel, **{k: v for k, v in extra.items() if v}}
+
+
 async def _send(db: AsyncSession, delivery: ZbsDelivery) -> tuple[bool, bool, dict, str | None]:
+    """Thứ tự ưu tiên: UID Zalo (nếu khách đã có) → SĐT.
+
+    Zalo từ chối gửi qua UID (mẫu tin chưa hỗ trợ UID, UID không nhận được tin…) thì gửi lại qua SĐT
+    ngay trong lượt này. Lỗi tạm thời (5xx/429/timeout) khi gửi UID thì để lượt sau thử lại — không
+    gửi tiếp qua SĐT để tránh khách nhận hai tin."""
     if not settings.ZBS_ENABLED:
         return False, False, {}, "ZBS is disabled"
-    if not delivery.phone:
-        return False, False, {}, "missing phone"
     template_id = delivery.template_id or settings.ZBS_REGISTRATION_TEMPLATE_ID
     if not template_id:
         return False, False, {}, "missing ZBS template id"
     payload_error = _payload_error(delivery)
     if payload_error:
         return False, False, {}, payload_error
-    request = {
+    template_data = delivery.payload.get("template_data") or {}
+    uid = await recipient_uid(db, delivery.phone) if settings.ZBS_SEND_VIA_UID else None
+    uid = uid or (delivery.payload.get("uid") if settings.ZBS_SEND_VIA_UID else None)
+    if not delivery.phone and not uid:
+        return False, False, {}, "missing phone"
+    uid_error = None
+    if uid:
+        ok, retryable, data, error = await _post(db, settings.ZBS_UID_API_URL,
+                                                 {"user_id": uid, "template_id": template_id, "template_data": template_data})
+        if ok:
+            delivery.recipient_uid = uid
+            _mark_channel(delivery, "uid")
+            return True, False, data, None
+        if retryable or not delivery.phone:
+            _mark_channel(delivery, "uid")
+            return False, retryable, data, f"UID: {error}"
+        uid_error = error
+    ok, retryable, data, error = await _post(db, settings.ZBS_API_URL, {
         "phone": zbs_phone(delivery.phone),
         "template_id": template_id,
-        "template_data": delivery.payload.get("template_data") or {},
+        "template_data": template_data,
         "tracking_id": str(delivery.id),
-    }
-    async with httpx.AsyncClient(timeout=settings.ZBS_REQUEST_TIMEOUT_SECONDS) as client:
-        response = await request_with_token(
-            db,
-            client,
-            "POST",
-            settings.ZBS_API_URL,
-            json=request,
-        )
-    data = response.json() if response.content else {}
-    error = data.get("error")
-    if response.is_success and error in (None, 0):
-        return True, False, data, None
-    message = data.get("message") or f"HTTP {response.status_code}"
-    return False, _retryable(response.status_code, error), data, message
+    })
+    _mark_channel(delivery, "phone", uid_error=uid_error)
+    if not ok and uid_error:
+        error = f"{error} (UID: {uid_error})"
+    return ok, retryable, data, error
 
 
 async def process_once(db: AsyncSession) -> bool:
@@ -341,7 +379,9 @@ async def process_once(db: AsyncSession) -> bool:
     if ok:
         delivery.status = "sent"
         delivery.sent_time = datetime.now(timezone.utc)
-        delivery.msg_id = ((response.get("data") or {}).get("msg_id") if isinstance(response, dict) else None)
+        data = (response.get("data") or {}) if isinstance(response, dict) else {}
+        # Gửi qua SĐT trả msg_id; gửi qua UID trả message_id.
+        delivery.msg_id = (data.get("msg_id") or data.get("message_id")) if isinstance(data, dict) else None
         delivery.last_error = None
     else:
         delivery.status = "failed"

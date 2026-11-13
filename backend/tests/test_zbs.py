@@ -144,3 +144,107 @@ def test_bulk_payload_skips_registration_parameter_rules():
         payload={"template_data": {"order_code": "A1"}},
     )
     assert _payload_error(delivery) is None
+
+
+# ───── Thứ tự ưu tiên gửi: UID Zalo (nếu có) → SĐT ─────
+import asyncio
+import uuid
+
+import httpx
+
+from app.services import zbs as zbs_service
+
+
+def _bulk_delivery(phone="0909123456", **payload):
+    return ZbsDelivery(
+        id=uuid.uuid4(), event_type="bulk_campaign", event_key="bulk_campaign:x", phone=phone, template_id="555",
+        payload={"template_data": {"name": "A"}, **payload},
+    )
+
+
+def _run_send(monkeypatch, delivery, uid, responses):
+    calls = []
+
+    async def fake_request(db, client, method, url, **kwargs):
+        calls.append((url, kwargs["json"]))
+        status, body = responses[len(calls) - 1]
+        return httpx.Response(status, json=body)
+
+    async def fake_uid(db, phone):
+        return uid
+
+    monkeypatch.setattr(zbs_service.settings, "ZBS_ENABLED", True)
+    monkeypatch.setattr(zbs_service.settings, "ZBS_SEND_VIA_UID", True)
+    monkeypatch.setattr(zbs_service, "request_with_token", fake_request)
+    monkeypatch.setattr(zbs_service, "recipient_uid", fake_uid)
+    result = asyncio.run(zbs_service._send(None, delivery))
+    return result, calls
+
+
+def test_send_prefers_uid_when_known(monkeypatch):
+    delivery = _bulk_delivery()
+    (ok, _, data, error), calls = _run_send(monkeypatch, delivery, "uid-1", [(200, {"error": 0, "data": {"message_id": "m1"}})])
+    assert ok and error is None
+    assert len(calls) == 1
+    url, body = calls[0]
+    assert url == zbs_service.settings.ZBS_UID_API_URL
+    assert body == {"user_id": "uid-1", "template_id": "555", "template_data": {"name": "A"}}
+    assert delivery.payload["sent_via"] == "uid" and delivery.recipient_uid == "uid-1"
+
+
+def test_send_falls_back_to_phone_when_uid_rejected(monkeypatch):
+    delivery = _bulk_delivery()
+    (ok, _, _, error), calls = _run_send(monkeypatch, delivery, "uid-1", [
+        (200, {"error": -1124, "message": "template not support uid"}),
+        (200, {"error": 0, "data": {"msg_id": "p1"}}),
+    ])
+    assert ok and error is None
+    assert [url for url, _ in calls] == [zbs_service.settings.ZBS_UID_API_URL, zbs_service.settings.ZBS_API_URL]
+    assert calls[1][1]["phone"] == "84909123456" and calls[1][1]["tracking_id"] == str(delivery.id)
+    assert delivery.payload["sent_via"] == "phone"
+    assert delivery.payload["uid_error"] == "template not support uid"
+
+
+def test_send_does_not_fall_back_on_transient_uid_error(monkeypatch):
+    delivery = _bulk_delivery()
+    (ok, retryable, _, error), calls = _run_send(monkeypatch, delivery, "uid-1", [(503, {"error": -1, "message": "busy"})])
+    assert not ok and retryable
+    assert len(calls) == 1 and error == "UID: busy"
+
+
+def test_send_uses_phone_without_uid(monkeypatch):
+    delivery = _bulk_delivery()
+    (ok, _, _, _), calls = _run_send(monkeypatch, delivery, None, [(200, {"error": 0, "data": {"msg_id": "p1"}})])
+    assert ok and [url for url, _ in calls] == [zbs_service.settings.ZBS_API_URL]
+    assert delivery.payload["sent_via"] == "phone" and "uid_error" not in delivery.payload
+
+
+def test_send_uid_only_guest_uses_uid_from_payload(monkeypatch):
+    delivery = _bulk_delivery(phone=None, uid="uid-9")
+    (ok, _, _, _), calls = _run_send(monkeypatch, delivery, None, [(200, {"error": 0, "data": {"message_id": "m9"}})])
+    assert ok and calls[0][1]["user_id"] == "uid-9"
+
+
+def test_evaluate_recipients_marks_uid_channel(monkeypatch):
+    from app.models import ZbsTemplate
+    from app.services import zalo_uid, zbs_bulk
+
+    a = _bulk_guest(id=uuid.uuid4())
+    b = Guest(id=uuid.uuid4(), full_name="B", phone="917096809", party_size=1)  # SĐT thiếu số 0 nhưng có UID
+    c = Guest(id=uuid.uuid4(), full_name="C", phone="0911222333", party_size=1)
+
+    async def fake_previous(db, template_id, guest_ids):
+        return {}
+
+    async def fake_uids(db, guests):
+        return {a.id: ("uid-a", None, None, "oa"), b.id: ("uid-b", None, None, "oa")}
+
+    monkeypatch.setattr(zbs_bulk, "previous_bulk_statuses", fake_previous)
+    monkeypatch.setattr(zalo_uid, "uids_for_guests", fake_uids)
+    monkeypatch.setattr(zbs_bulk.settings, "ZBS_SEND_VIA_UID", True)
+    template = ZbsTemplate(template_id="555", detail={"listParams": [{"name": "name", "type": "STRING", "maxLength": 30}]})
+    rows = asyncio.run(zbs_bulk.evaluate_recipients(None, template, _bulk_workshop(), [a, b, c], {"name": {"source": "guest.full_name"}}))
+    by = {row["full_name"]: row for row in rows}
+    assert by["Nguyễn Văn A"]["channel"] == "uid" and by["Nguyễn Văn A"]["eligible"]
+    assert by["B"]["channel"] == "uid" and by["B"]["eligible"] and by["B"]["phone"] is None
+    assert by["C"]["channel"] == "phone" and by["C"]["zalo_uid"] is None

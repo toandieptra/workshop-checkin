@@ -119,6 +119,8 @@ def _out(delivery: ZbsDelivery) -> dict:
         "phone": delivery.phone,
         "attempt_count": delivery.attempt_count,
         "msg_id": delivery.msg_id,
+        "sent_via": (delivery.payload or {}).get("sent_via"),
+        "recipient_uid": delivery.recipient_uid,
         "last_error": delivery.last_error,
         "sent_time": delivery.sent_time,
         "delivery_time": delivery.delivery_time,
@@ -355,11 +357,25 @@ def _bulk_id_column():
     return ZbsDelivery.payload["bulk_id"].astext
 
 
-def _price(template: ZbsTemplate) -> float | None:
+def _price(template: ZbsTemplate, channel: str = "phone") -> float | None:
+    raw = template.price_uid if channel == "uid" else template.price_sdt
     try:
-        return float(template.price_sdt) if template.price_sdt not in (None, "") else None
+        return float(raw) if raw not in (None, "") else None
     except (TypeError, ValueError):
         return None
+
+
+def _estimated_cost(template: ZbsTemplate, eligible: list[dict]) -> float | None:
+    """Theo kênh dự kiến; tin UID bị Zalo từ chối sẽ gửi lại qua SĐT (tính giá SĐT)."""
+    total = 0.0
+    for item in eligible:
+        price = _price(template, item["channel"])
+        if price is None and item["channel"] == "uid":
+            price = _price(template)
+        if price is None:
+            return None
+        total += price
+    return total
 
 
 async def _bulk_context(db: AsyncSession, user, body: ZbsBulkRequest):
@@ -436,16 +452,18 @@ async def bulk_preflight(body: ZbsBulkRequest, db: AsyncSession = Depends(get_db
     workshop, template, guests, _, mapping, mapping_errors = await _bulk_context(db, user, body)
     recipients = await zbs_bulk.evaluate_recipients(db, template, workshop, guests, mapping, body.allow_resend)
     eligible = [item for item in recipients if item["eligible"]]
-    price = _price(template)
     return {
         "total": len(recipients),
         "eligible_count": len(eligible),
         "ineligible_count": len(recipients) - len(eligible),
         "eligible_guest_ids": [str(item["guest_id"]) for item in eligible],
+        "uid_count": sum(1 for item in eligible if item["channel"] == "uid"),
+        "phone_count": sum(1 for item in eligible if item["channel"] == "phone"),
         "mapping_errors": mapping_errors,
         "system_enabled": settings.ZBS_ENABLED,
-        "price_per_message": price,
-        "estimated_cost": price * len(eligible) if price is not None else None,
+        "price_per_message": _price(template),
+        "price_per_message_uid": _price(template, "uid"),
+        "estimated_cost": _estimated_cost(template, eligible),
         "can_send": settings.ZBS_ENABLED and not mapping_errors and bool(eligible),
         "recipients": [{**item, "guest_id": str(item["guest_id"])} for item in recipients],
     }

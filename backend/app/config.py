@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # ===== Zalo Business Solutions / ZBS =====
     ZBS_ENABLED: bool = False
     ZBS_API_URL: str = "https://business.openapi.zalo.me/message/template"
+    # Gửi ZBS Template Message qua UID (user_id theo OA) — tài liệu "Gửi tin Template UID → API gửi tin qua UID".
+    # Ưu tiên khi khách đã có UID; Zalo từ chối (vd. mẫu duyệt trước 10/12/2025) thì gửi lại qua SĐT.
+    ZBS_UID_API_URL: str = "https://openapi.zalo.me/v3.0/oa/message/template"
+    ZBS_SEND_VIA_UID: bool = True
     ZBS_APP_ID: str | None = None
     ZBS_APP_SECRET: str | None = None
     ZBS_ACCESS_TOKEN: str | None = None
