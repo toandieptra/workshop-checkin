@@ -375,8 +375,32 @@ class ZaloOaUser(Base):
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     detail_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     detail_error: Mapped[str | None] = mapped_column(Text)
+    avatar: Mapped[str | None] = mapped_column(Text)
+    match_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ZaloNameLookup(Base):
+    __tablename__ = "zalo_name_lookups"
+    guest_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("guests.id", ondelete="CASCADE"), primary_key=True)
+    found: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ZaloUidSuggestion(Base):
+    __tablename__ = "zalo_uid_suggestions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    oa_user_id: Mapped[str] = mapped_column(Text, ForeignKey("zalo_oa_users.user_id", ondelete="CASCADE"), nullable=False)
+    guest_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("guests.id", ondelete="CASCADE"), nullable=False)
+    phone: Mapped[str] = mapped_column(Text, nullable=False)
+    score: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    reasons: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="pending", nullable=False)
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ZbsWebhookEvent(Base):

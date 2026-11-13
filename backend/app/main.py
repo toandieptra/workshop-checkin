@@ -22,7 +22,7 @@ from .db import engine
 from .ws import manager
 from .routers import workshops, guests, checkin, search, import_export, registration_forms, auth, admin_users, zbs, zalo_agent, zalo_messages, admin_api_keys, public_api
 from .routers import admin_workshops
-from .routers import catalog, surveys as surveys_router, survey_public, gifts as gifts_router
+from .routers import catalog, surveys as surveys_router, survey_public, gifts as gifts_router, zalo_uid_admin
 from .auth.bootstrap import bootstrap_super_admin
 from .services import admin_directory_sync
 from .db import async_session_maker
@@ -31,6 +31,7 @@ log = logging.getLogger("app.lifespan")
 _directory_sync_task: asyncio.Task | None = None
 _zbs_task: asyncio.Task | None = None
 _zalo_messages_task: asyncio.Task | None = None
+_name_match_task: asyncio.Task | None = None
 
 
 async def _directory_sync_loop():
@@ -79,6 +80,10 @@ async def lifespan(app: FastAPI):
     if settings.ZALO_MESSAGES_ENABLED:
         from .services import zalo_messages
         _zalo_messages_task = asyncio.create_task(zalo_messages.worker_loop(async_session_maker))
+    global _name_match_task
+    if settings.ZALO_UID_NAME_MATCH_ENABLED and settings.ZALO_AGENT_ACCOUNT_OWNER_ID:
+        from .services import zalo_name_match
+        _name_match_task = asyncio.create_task(zalo_name_match.worker_loop(async_session_maker))
 
     yield
 
@@ -89,6 +94,8 @@ async def lifespan(app: FastAPI):
         _zbs_task.cancel()
     if _zalo_messages_task:
         _zalo_messages_task.cancel()
+    if _name_match_task:
+        _name_match_task.cancel()
 
 
 app = FastAPI(title="workshop-checkin-backend", lifespan=lifespan)
@@ -120,6 +127,7 @@ app.include_router(catalog.router)
 app.include_router(surveys_router.router)
 app.include_router(survey_public.router)
 app.include_router(gifts_router.router)
+app.include_router(zalo_uid_admin.router)
 
 
 @app.exception_handler(HTTPException)

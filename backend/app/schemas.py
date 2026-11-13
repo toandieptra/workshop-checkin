@@ -168,6 +168,7 @@ class GuestOut(BaseModel):
     zalo_uid: str | None = None
     zalo_uid_by_app: str | None = None
     zalo_uid_seen_at: datetime | None = None
+    zalo_uid_source: str | None = None
     source: str | None = None
     source_detail: str | None = None
     creator_name: str | None = None

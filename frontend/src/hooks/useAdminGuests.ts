@@ -46,6 +46,7 @@ export interface Guest {
   zalo_uid?: string | null;
   zalo_uid_by_app?: string | null;
   zalo_uid_seen_at?: string | null;
+  zalo_uid_source?: string | null;
   zbs?: {
     registration_confirmation?: ZbsDelivery;
     checkin_confirmation?: ZbsDelivery;

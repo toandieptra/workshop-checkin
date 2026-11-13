@@ -757,7 +757,7 @@ async def list_guests(
         if g.id in gifts:
             update["gifts_redeemed"] = gifts[g.id]
         if g.id in uids:
-            update["zalo_uid"], update["zalo_uid_seen_at"], update["zalo_uid_by_app"] = uids[g.id]
+            update["zalo_uid"], update["zalo_uid_seen_at"], update["zalo_uid_by_app"], update["zalo_uid_source"] = uids[g.id]
         result.append(out.model_copy(update=update) if update else out)
     return result
 

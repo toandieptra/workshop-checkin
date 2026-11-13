@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     ZBS_OA_API_URL: str = "https://openapi.zalo.me/v3.0/oa"
     # Gọi lại API thông tin người dùng OA tối đa 1 lần / khoảng này (trừ follow / user_submit_info)
     ZBS_OA_DETAIL_REFRESH_HOURS: int = 6
+    # Ghép UID theo tên Zalo (tra tên khách qua bridge Zalo cá nhân — chậm rãi, có giới hạn)
+    ZALO_UID_NAME_MATCH_ENABLED: bool = False
+    ZALO_UID_NAME_MATCH_INTERVAL_SECONDS: int = 120
+    ZALO_UID_NAME_LOOKUPS_PER_RUN: int = 2
+    ZALO_UID_NAME_LOOKUP_DAILY_CAP: int = 150
+    ZALO_UID_MATCH_WINDOW_DAYS: int = 14
     ZBS_WORKER_INTERVAL_SECONDS: int = 5
     ZBS_REQUEST_TIMEOUT_SECONDS: float = 10.0
 

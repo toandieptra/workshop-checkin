@@ -10,6 +10,7 @@ import ConnectionsSettingsPanel from "@/components/settings/ConnectionsSettingsP
 import ZbsTemplateSettingsPanel from "@/components/settings/ZbsTemplateSettingsPanel";
 import ZaloMessageSettingsPanel from "@/components/settings/ZaloMessageSettingsPanel";
 import PublicApiSettingsPanel from "@/components/settings/PublicApiSettingsPanel";
+import ZaloUidMatchPanel from "@/components/settings/ZaloUidMatchPanel";
 
 const TABS = [
   { key: "nguoi-dung", label: "Người dùng", description: "Tài khoản và quyền truy cập", permission: PERMISSIONS.usersView },
@@ -17,6 +18,7 @@ const TABS = [
   { key: "ket-noi", label: "Kết nối", description: "Zalo OA và Zalo user", permission: PERMISSIONS.connectionsView },
   { key: "mau-tin-zbs", label: "Mẫu tin ZBS", description: "Mẫu tin và gửi tự động", permission: PERMISSIONS.zbsView },
   { key: "tin-nhan-zalo", label: "Tin nhắn Zalo", description: "Mẫu tin và gửi hàng loạt", permission: PERMISSIONS.zaloTemplatesView },
+  { key: "uid-zalo", label: "Ghép UID Zalo", description: "Ghép người dùng OA với khách", permission: PERMISSIONS.zbsView },
   { key: "public-api", label: "Public API", description: "API key và tài liệu tích hợp", permission: PERMISSIONS.publicApiManage },
 ] as const;
 
@@ -64,6 +66,7 @@ export default function SettingsPage() {
           {activeTab.key === "mau-tin-zbs" && <ZbsTemplateSettingsPanel />}
           {activeTab.key === "tin-nhan-zalo" && <ZaloMessageSettingsPanel />}
           {activeTab.key === "public-api" && <PublicApiSettingsPanel />}
+          {activeTab.key === "uid-zalo" && <ZaloUidMatchPanel />}
         </section>
       </div>
     </div>

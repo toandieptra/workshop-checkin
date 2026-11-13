@@ -229,7 +229,7 @@ async def export_guests(
             _fmt(g.registered_at),
             _fmt(g.created_at),
             uid_by_guest.get(g.id, ("",))[0],
-            (uid_by_guest.get(g.id) or ("", None, None))[2] or "",
+            (uid_by_guest.get(g.id) or ("", None, None, ""))[2] or "",
         ])
 
     wb = Workbook()

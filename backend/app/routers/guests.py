@@ -435,7 +435,7 @@ async def get_guest(guest_id: uuid.UUID, db: AsyncSession = Depends(get_db), use
     return GuestOut.model_validate(guest).model_copy(update={
         "notes_summary": summary, "gifts_redeemed": gifts,
         "zalo_uid": uid[0] if uid else None, "zalo_uid_seen_at": uid[1] if uid else None,
-        "zalo_uid_by_app": uid[2] if uid else None,
+        "zalo_uid_by_app": uid[2] if uid else None, "zalo_uid_source": uid[3] if uid else None,
     })
 
 

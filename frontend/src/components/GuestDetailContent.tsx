@@ -41,7 +41,12 @@ function DetailField({ label, value, mono = false }: { label: string; value?: Re
 }
 
 // UID Zalo nhận qua webhook ZNS (user_received_message) — dùng gửi thông báo / remarketing.
-function ZaloUidField({ uid, uidByApp, seenAt }: { uid?: string | null; uidByApp?: string | null; seenAt?: string | null }) {
+const UID_SOURCE: Record<string, string> = {
+  oa_submit_info: "khách chia sẻ thông tin", oa_user_detail: "thông tin OA", name_match_auto: "tự ghép theo tên Zalo",
+  name_match_confirmed: "nhân viên xác nhận", manual: "ghép tay",
+};
+
+function ZaloUidField({ uid, uidByApp, seenAt, source }: { uid?: string | null; uidByApp?: string | null; seenAt?: string | null; source?: string | null }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     if (!uid) return;
@@ -58,7 +63,7 @@ function ZaloUidField({ uid, uidByApp, seenAt }: { uid?: string | null; uidByApp
         </button>
       </div>
       {uidByApp && <div className="mt-1 truncate font-mono text-[11px] text-text-secondary" title={`user_id_by_app: ${uidByApp}`}>By app: {uidByApp}</div>}
-      <div className="mt-0.5 text-[11px] text-muted">Nhận lúc {formatDateTime(seenAt)}</div>
+      <div className="mt-0.5 text-[11px] text-muted">Nhận lúc {formatDateTime(seenAt)}{source && UID_SOURCE[source] ? ` · ${UID_SOURCE[source]}` : ""}</div>
     </> : <div className="mt-1 text-sm text-muted" title="Zalo không trả UID qua tin ZNS gửi bằng SĐT; UID chỉ có khi khách tương tác với OA (quan tâm, nhắn tin, chia sẻ thông tin)">Chưa có</div>}
   </div>;
 }
@@ -157,7 +162,7 @@ export default function GuestDetailContent({
       <DetailField label="Mô hình kinh doanh" value={guest.business_model} />
       <DetailField label="Nguồn" value={source} />
       <DetailField label="Người tạo" value={guest.creator_name} />
-      <ZaloUidField uid={guest.zalo_uid} uidByApp={guest.zalo_uid_by_app} seenAt={guest.zalo_uid_seen_at} />
+      <ZaloUidField uid={guest.zalo_uid} uidByApp={guest.zalo_uid_by_app} seenAt={guest.zalo_uid_seen_at} source={guest.zalo_uid_source} />
     </div>
 
     <div className="grid gap-4">

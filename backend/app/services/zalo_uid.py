@@ -149,7 +149,8 @@ async def record_uid(db: AsyncSession, phone: str | None, uid: str, msg_id: str 
     return True
 
 
-async def uids_for_guests(db: AsyncSession, guests: list[Guest]) -> dict[uuid.UUID, tuple[str, datetime, str | None]]:
+async def uids_for_guests(db: AsyncSession, guests: list[Guest]) -> dict[uuid.UUID, tuple[str, datetime, str | None, str]]:
+    """guest_id → (uid, last_seen_at, uid_by_app, source)."""
     by_phone: dict[str, list[uuid.UUID]] = {}
     for g in guests:
         key = normalize_phone(g.phone)
@@ -158,11 +159,12 @@ async def uids_for_guests(db: AsyncSession, guests: list[Guest]) -> dict[uuid.UU
     if not by_phone:
         return {}
     rows = (await db.execute(
-        select(ZaloContactUid.phone, ZaloContactUid.zalo_uid, ZaloContactUid.last_seen_at, ZaloContactUid.zalo_uid_by_app)
+        select(ZaloContactUid.phone, ZaloContactUid.zalo_uid, ZaloContactUid.last_seen_at, ZaloContactUid.zalo_uid_by_app,
+               ZaloContactUid.source)
         .where(ZaloContactUid.phone.in_(list(by_phone)))
     )).all()
-    out: dict[uuid.UUID, tuple[str, datetime, str | None]] = {}
-    for phone, uid, seen, by_app in rows:
+    out: dict[uuid.UUID, tuple[str, datetime, str | None, str]] = {}
+    for phone, uid, seen, by_app, source in rows:
         for gid in by_phone.get(phone, []):
-            out[gid] = (uid, seen, by_app)
+            out[gid] = (uid, seen, by_app, source)
     return out

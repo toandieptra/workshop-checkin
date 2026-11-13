@@ -81,7 +81,7 @@ def extract_user_event(body: dict, server: str | None) -> OaUserEvent | None:
                        phone=phone, name=name_, follow=follow)
 
 
-async def _link_phone(db: AsyncSession, user: ZaloOaUser, phone: str | None, source: str) -> bool:
+async def link_phone(db: AsyncSession, user: ZaloOaUser, phone: str | None, source: str) -> bool:
     key = normalize_phone(phone)
     if len(key) < 9:
         return False
@@ -105,7 +105,7 @@ async def record_event(db: AsyncSession, ev: OaUserEvent) -> tuple[ZaloOaUser, b
     if ev.name and not user.display_name:
         user.display_name = ev.name
     if ev.phone:
-        await _link_phone(db, user, ev.phone, "oa_submit_info")
+        await link_phone(db, user, ev.phone, "oa_submit_info")
     stale = user.detail_checked_at is None or user.detail_checked_at < now - timedelta(hours=settings.ZBS_OA_DETAIL_REFRESH_HOURS)
     need_detail = ev.event_name in DETAIL_NOW_EVENTS or (stale and not user.phone)
     if ev.event_name == "unfollow":
@@ -138,12 +138,13 @@ async def fetch_user_detail(db: AsyncSession, user_id: str) -> dict:
     data = payload.get("data") or {}
     user.detail_error = None
     user.display_name = _s(data.get("display_name")) or user.display_name
+    user.avatar = _s(data.get("avatar")) or user.avatar
     user.user_id_by_app = _s(data.get("user_id_by_app")) or user.user_id_by_app
     if data.get("user_is_follower") is not None:
         user.is_follower = bool(data.get("user_is_follower"))
     shared = data.get("shared_info") if isinstance(data.get("shared_info"), dict) else {}
     if shared.get("phone"):
-        await _link_phone(db, user, shared.get("phone"), "oa_user_detail")
+        await link_phone(db, user, shared.get("phone"), "oa_user_detail")
     user.updated_at = now
     await db.commit()
     return data

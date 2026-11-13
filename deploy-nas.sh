@@ -128,6 +128,9 @@ echo "[4/5] Recreate containers"
 "$DOCKER_BIN" compose -p "$COMPOSE_PROJECT" exec -T postgres \
   sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/048_zalo_oa_users.sql
+"$DOCKER_BIN" compose -p "$COMPOSE_PROJECT" exec -T postgres \
+  sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/049_zalo_uid_name_match.sql
 
 # Backend được dựng lại trước khi migration chạy và có thể đã thoát vì thiếu cột mới;
 # khởi động lại để nó đọc schema sau migration.
