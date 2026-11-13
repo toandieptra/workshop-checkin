@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -24,6 +25,7 @@ from ..services.zbs import (
 from ..services.zbs_auth import ZbsAuthError, oauth_status, refresh_access_token, test_connection
 
 router = APIRouter(prefix="/api", tags=["zbs"])
+log = logging.getLogger("app.zbs.webhook")
 
 
 class ZbsTaskConfigUpdate(BaseModel):
@@ -607,7 +609,13 @@ async def zbs_webhook(
         raise HTTPException(400, "invalid json")
     if not isinstance(body, dict):
         raise HTTPException(400, "invalid payload")
-    signature_ok = zalo_uid.verify_signature(raw, body, x_zevent_signature, settings.ZBS_APP_ID, settings.ZBS_OA_SECRET_KEY)
+    header_ts = request.headers.get("x-zevent-timestamp") or request.headers.get("x-timestamp")
+    variant = zalo_uid.signature_variant(raw, body, x_zevent_signature, settings.ZBS_APP_ID, settings.ZBS_OA_SECRET_KEY, header_ts)
+    signature_ok = None if not settings.ZBS_OA_SECRET_KEY else variant is not None
+    if settings.ZBS_OA_SECRET_KEY:
+        # Chỉ ghi tên header và biến thể khớp — không ghi khoá, chữ ký hay nội dung.
+        log.warning("zbs webhook signature: variant=%s has_sig=%s headers=%s", variant, bool(x_zevent_signature),
+                 sorted(h for h in request.headers.keys() if h.startswith("x-")))
     legacy_ok = bool(settings.ZBS_WEBHOOK_SECRET) and x_zbs_webhook_secret == settings.ZBS_WEBHOOK_SECRET
     if signature_ok is False and not legacy_ok:
         raise HTTPException(401, "invalid webhook signature")

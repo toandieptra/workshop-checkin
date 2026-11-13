@@ -75,19 +75,35 @@ def parse_webhook(body: dict) -> WebhookEvent:
     )
 
 
-def verify_signature(raw: bytes, body: dict, header: str | None, app_id: str | None, oa_secret: str | None) -> bool | None:
-    """Chữ ký Zalo: X-ZEvent-Signature = "mac=" + sha256(appId + data + timeStamp + OAsecretKey).
+def signature_variant(raw: bytes, body: dict, header: str | None, app_id: str | None, oa_secret: str | None,
+                      header_ts: str | None = None) -> str | None:
+    """Trả tên biến thể chữ ký khớp (mọi biến thể đều cần OA secret), None nếu không khớp."""
+    if not oa_secret or not header:
+        return None
+    given = (header.split("=", 1)[1] if header.lower().startswith("mac=") else header).strip().lower()
+    data = raw.decode("utf-8")
+    apps = [a for a in {_str(body.get("app_id")), app_id} if a]
+    stamps = [t for t in {str(body.get("timestamp", "")), header_ts or ""}]
+    cands: list[tuple[str, str]] = []
+    for app in apps:
+        for ts in stamps:
+            cands.append((f"sha256(app+data+ts+secret)[ts={'hdr' if ts == header_ts and ts else 'body'}]",
+                          hashlib.sha256(f"{app}{data}{ts}{oa_secret}".encode()).hexdigest()))
+            cands.append(("hmac(secret, app+data+ts)", hmac.new(oa_secret.encode(), f"{app}{data}{ts}".encode(), hashlib.sha256).hexdigest()))
+    cands.append(("hmac(secret, data)", hmac.new(oa_secret.encode(), raw, hashlib.sha256).hexdigest()))
+    cands.append(("sha256(data+secret)", hashlib.sha256(raw + oa_secret.encode()).hexdigest()))
+    for name, mac in cands:
+        if hmac.compare_digest(given, mac):
+            return name
+    return None
 
-    Trả None khi chưa cấu hình OA secret (không kiểm được), True/False khi đã kiểm.
-    """
+
+def verify_signature(raw: bytes, body: dict, header: str | None, app_id: str | None, oa_secret: str | None,
+                     header_ts: str | None = None) -> bool | None:
+    """Chữ ký Zalo (X-ZEvent-Signature, dạng "mac=<hex>"). None khi chưa cấu hình OA secret."""
     if not oa_secret:
         return None
-    if not header:
-        return False
-    given = header.split("=", 1)[1] if header.lower().startswith("mac=") else header
-    app = _str(body.get("app_id")) or (app_id or "")
-    expected = hashlib.sha256(f"{app}{raw.decode('utf-8')}{body.get('timestamp', '')}{oa_secret}".encode("utf-8")).hexdigest()
-    return hmac.compare_digest(given.strip().lower(), expected)
+    return signature_variant(raw, body, header, app_id, oa_secret, header_ts) is not None
 
 
 async def record_uid(db: AsyncSession, phone: str | None, uid: str, msg_id: str | None, seen_at: datetime | None = None) -> bool:
