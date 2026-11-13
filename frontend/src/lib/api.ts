@@ -27,7 +27,7 @@ import type {
   ZaloDeliveryItem,
   ZaloGuestSendStatus,
 } from "@/types/zalo-message";
-import { beginAdminPending } from "@/contexts/AdminLoadingContext";
+import { beginRequest, dedupeRequest } from "@/lib/pending-actions";
 
 // Mặc định dùng relative path để tận dụng Next.js rewrite (xem next.config.js).
 // Khi dev local nếu muốn trỏ thẳng backend, set NEXT_PUBLIC_API_URL="http://localhost:8427/api".
@@ -46,13 +46,15 @@ function authHeaders(init?: RequestInit): Headers {
 }
 
 export interface ApiRequestInit extends RequestInit {
+  /** false: không bật con trỏ chờ toàn trang khi tải (vẫn khoá nút nếu request do người dùng bấm). */
   adminLoading?: boolean;
+  /** true: request nền (polling, autosave) — không khoá phần tử, không đổi con trỏ. */
+  background?: boolean;
 }
 
 function requestInit(init?: ApiRequestInit): [RequestInit | undefined, () => void] {
-  if (!init) return [init, beginAdminPending()];
-  const { adminLoading = true, ...fetchInit } = init;
-  return [fetchInit, adminLoading ? beginAdminPending() : () => {}];
+  const { adminLoading = true, background = false, ...fetchInit } = init ?? {};
+  return [init ? fetchInit : undefined, beginRequest({ global: adminLoading, background, method: fetchInit.method ?? "GET" })];
 }
 
 async function throwApiError(res: Response): Promise<never> {
@@ -77,26 +79,29 @@ async function throwApiError(res: Response): Promise<never> {
 
 export async function api<T = any>(path: string, init?: ApiRequestInit): Promise<T> {
   const [fetchInit, endPending] = requestInit(init);
+  const url = `${API_URL}${path}`;
   const hasBody = fetchInit?.body !== undefined && fetchInit.body !== null && fetchInit.body !== "";
   const headers = authHeaders(fetchInit);
   if (hasBody && !headers.has("Content-Type") && !(init?.body instanceof FormData)) headers.set("Content-Type", "application/json");
   try {
-    const res = await fetch(`${API_URL}${path}`, {
-      ...fetchInit,
-      headers,
-      cache: "no-store",
-      credentials: "include",
+    return await dedupeRequest(fetchInit?.method ?? "GET", url, fetchInit, async () => {
+      const res = await fetch(url, {
+        ...fetchInit,
+        headers,
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!res.ok) await throwApiError(res);
+      if (res.status === 204) return undefined as T;
+      return res.json() as Promise<T>;
     });
-    if (!res.ok) await throwApiError(res);
-    if (res.status === 204) return undefined as T;
-    return res.json();
   } finally {
     endPending();
   }
 }
 
 export async function apiForm<T = any>(path: string, form: FormData): Promise<T> {
-  const endPending = beginAdminPending();
+  const endPending = beginRequest({ global: true, method: "POST" });
   try {
     const res = await fetch(`${API_URL}${path}`, { method: "POST", body: form, cache: "no-store", credentials: "include", headers: authHeaders({ method: "POST" }) });
     if (!res.ok) await throwApiError(res);
@@ -113,21 +118,24 @@ export async function apiForm<T = any>(path: string, form: FormData): Promise<T>
 export async function adminApi<T = any>(path: string, init?: ApiRequestInit): Promise<T> {
   const [fetchInit, endPending] = requestInit(init);
   const prefix = API_URL.endsWith("/api") ? `${API_URL}/admin` : "/api/admin";
+  const url = `${prefix}${path}`;
   const hasBody = fetchInit?.body !== undefined && fetchInit.body !== null && fetchInit.body !== "";
   const headers = authHeaders(fetchInit);
   if (hasBody && !headers.has("Content-Type") && !(fetchInit?.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
   try {
-    const res = await fetch(`${prefix}${path}`, {
-      ...fetchInit,
-      headers,
-      cache: "no-store",
-      credentials: "include",
+    return await dedupeRequest(fetchInit?.method ?? "GET", url, fetchInit, async () => {
+      const res = await fetch(url, {
+        ...fetchInit,
+        headers,
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!res.ok) await throwApiError(res);
+      if (res.status === 204) return undefined as T;
+      return res.json() as Promise<T>;
     });
-    if (!res.ok) await throwApiError(res);
-    if (res.status === 204) return undefined as T;
-    return res.json();
   } finally {
     endPending();
   }
@@ -148,7 +156,7 @@ export async function downloadGuestsXlsx(params: {
   source?: string;
   filename?: string;
 }): Promise<void> {
-  const endPending = beginAdminPending();
+  const endPending = beginRequest({ global: true });
   try {
   const qs = new URLSearchParams();
   qs.set("export_context", params.context ?? "guests");

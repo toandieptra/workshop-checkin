@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { usePathname, useRouter } from "next/navigation";
 import { hasPermission, type Permission } from "@/lib/permissions";
 import { useAdminLoading } from "@/contexts/AdminLoadingContext";
+import { trackedFetch } from "@/lib/pending-actions";
 
 export interface WorkshopAccess {
   workshop_id: string;
@@ -39,7 +40,7 @@ interface AuthValue {
   can: (permission: Permission) => boolean;
   canForWorkshop: (permission: Permission, workshopId?: string | null) => boolean;
   canInAnyWorkshop: (permission: Permission) => boolean;
-  refresh: () => Promise<void>;
+  refresh: (background?: boolean) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -68,10 +69,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const lastBackgroundRefresh = useRef(0);
   const initialized = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (background = false) => {
     if (refreshing.current) return;
     refreshing.current = true;
-    const endPending = begin();
+    // Kiểm tra phiên định kỳ / khi focus lại tab là việc nền: không bật con trỏ chờ toàn trang.
+    const endPending = background ? () => {} : begin();
     if (!initialized.current) setStatus("loading");
     setError(null);
     try {
@@ -99,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const update = () => {
       if (document.visibilityState === "hidden" || Date.now() - lastBackgroundRefresh.current < 1500) return;
       lastBackgroundRefresh.current = Date.now();
-      void refresh();
+      void refresh(true);
     };
     window.addEventListener("focus", update);
     window.addEventListener("auth:forbidden", update);
@@ -133,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     const endPending = begin();
     try {
-      await fetch("/api/auth/logout", {
+      await trackedFetch("/api/auth/logout", {
         method: "POST", credentials: "include",
       });
     } finally {

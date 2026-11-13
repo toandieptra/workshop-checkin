@@ -96,7 +96,7 @@ function WelcomeInner() {
     let isInitial = true;
     const poll = async () => {
       try {
-        const res = await api<any>(`/checkin/welcome/latest?workshop_id=${encodeURIComponent(wid)}`);
+        const res = await api<any>(`/checkin/welcome/latest?workshop_id=${encodeURIComponent(wid)}`, { background: true });
         if (res && res.id) {
           if (isInitial) {
             isInitial = false;

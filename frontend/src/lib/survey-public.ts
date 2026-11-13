@@ -1,5 +1,7 @@
 /** Public survey client: types, API calls (no cookies — session token header) and local cache. */
 
+import { beginRequest, dedupeRequest } from "@/lib/pending-actions";
+
 export type SurveyImage = { src: string; thumb: string; w: number | null; h: number | null; focus_y: number; alt: string };
 export type SurveyItem = {
   key: string; type: "product" | "recipe"; source_id: string; name: string; search: string;
@@ -48,20 +50,30 @@ export class SurveyApiError extends Error {
   constructor(public status: number, public code: string) { super(code); }
 }
 
-async function call<T>(path: string, init: RequestInit & { token?: string | null } = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body) headers.set("Content-Type", "application/json");
-  if (init.token) headers.set("X-Survey-Session", init.token);
-  const res = await fetch(`/public/surveys/${path}`, { ...init, headers, credentials: "omit", cache: "no-store" });
-  if (!res.ok) {
-    let code = String(res.status);
-    try {
-      const body = await res.json();
-      if (typeof body.detail === "string") code = body.detail;
-    } catch { /* body không phải JSON */ }
-    throw new SurveyApiError(res.status, code);
+async function call<T>(path: string, init: RequestInit & { token?: string | null; background?: boolean } = {}): Promise<T> {
+  const { token, background, ...fetchInit } = init;
+  const headers = new Headers(fetchInit.headers);
+  if (fetchInit.body) headers.set("Content-Type", "application/json");
+  if (token) headers.set("X-Survey-Session", token);
+  const url = `/public/surveys/${path}`;
+  // Trang khảo sát công khai: chỉ khoá nút / đổi con trỏ khi request do người dùng thao tác.
+  const endPending = beginRequest({ global: false, background, method: fetchInit.method ?? "GET" });
+  try {
+    return await dedupeRequest(fetchInit.method ?? "GET", url, fetchInit, async () => {
+      const res = await fetch(url, { ...fetchInit, headers, credentials: "omit", cache: "no-store" });
+      if (!res.ok) {
+        let code = String(res.status);
+        try {
+          const body = await res.json();
+          if (typeof body.detail === "string") code = body.detail;
+        } catch { /* body không phải JSON */ }
+        throw new SurveyApiError(res.status, code);
+      }
+      return res.status === 204 ? (undefined as T) : (res.json() as Promise<T>);
+    });
+  } finally {
+    endPending();
   }
-  return res.status === 204 ? (undefined as T) : res.json();
 }
 
 const enc = encodeURIComponent;
@@ -71,7 +83,7 @@ export const surveyApi = {
     call<{ token: string; session: SessionState }>(`${enc(slug)}/sessions`, { method: "POST", body: JSON.stringify({ full_name, phone }) }),
   session: (slug: string, token: string) => call<SessionState>(`${enc(slug)}/session`, { token }),
   save: (slug: string, token: string, draft: Draft) =>
-    call<{ revision: number; saved_at: string }>(`${enc(slug)}/session`, { method: "PUT", token, body: JSON.stringify({ draft }), keepalive: true }),
+    call<{ revision: number; saved_at: string }>(`${enc(slug)}/session`, { method: "PUT", token, body: JSON.stringify({ draft }), keepalive: true, background: true }),
   discard: (slug: string, token: string) => call<void>(`${enc(slug)}/session`, { method: "DELETE", token }),
   submit: (slug: string, token: string, draft: Draft) =>
     call<{ status: string; submission: Submission; duplicate?: boolean }>(`${enc(slug)}/submit`, { method: "POST", token, body: JSON.stringify({ draft }) }),

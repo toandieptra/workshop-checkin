@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, adminApi, apiForm, API_URL } from "@/lib/api";
+import { trackedFetch } from "@/lib/pending-actions";
 import { useAuth } from "@/contexts/AuthContext";
 import { PERMISSIONS } from "@/lib/permissions";
 
@@ -231,7 +232,7 @@ export function useAdminGuests() {
     const id = live.current.wid;
     if (!current(snapshot, id)) return;
     try {
-      const guest = await api<Guest>("/guests/" + guestId, { adminLoading: false });
+      const guest = await api<Guest>("/guests/" + guestId, { background: true });
       if (!current(snapshot, id)) return;
       if (guest.workshop_id === id) upsertGuest(guest);
       else setAllGuests((list) => list.filter((item) => item.id !== guestId));
@@ -247,7 +248,7 @@ export function useAdminGuests() {
     if (!current(snapshot, id, PERMISSIONS.zbsView)) return;
     const request = ++zbsRequest.current;
     try {
-      const data = await api<Record<string, Record<string, ZbsDelivery>>>("/workshops/" + id + "/zbs-status", { adminLoading: false });
+      const data = await api<Record<string, Record<string, ZbsDelivery>>>("/workshops/" + id + "/zbs-status", { background: true });
       if (current(snapshot, id, PERMISSIONS.zbsView) && request === zbsRequest.current) setZbsStatus(data);
     } catch {
       if (current(snapshot, id) && request === zbsRequest.current) setZbsStatus({});
@@ -323,13 +324,13 @@ export function useAdminGuests() {
       if (pending) return;
       pending = true;
       try {
-        const event = await adminApi<{ id?: string } | null>(`/workshops/${wid}/welcome/latest`, { adminLoading: false });
+        const event = await adminApi<{ id?: string } | null>(`/workshops/${wid}/welcome/latest`, { background: true });
         if (!active || !current(scope, wid)) return;
         const eventId = event?.id || null;
         if (initialized && eventId && eventId !== lastEventId) {
           // Chỉ tải lại những khách vừa check-in kể từ lần kiểm tra trước; quá nhiều thì tải lại cả danh sách.
           const query = lastEventId ? `?after=${encodeURIComponent(lastEventId)}` : "";
-          const changes = await adminApi<{ guest_ids: string[]; overflow: boolean }>(`/workshops/${wid}/welcome/since${query}`, { adminLoading: false });
+          const changes = await adminApi<{ guest_ids: string[]; overflow: boolean }>(`/workshops/${wid}/welcome/since${query}`, { background: true });
           if (!active || !current(scope, wid)) return;
           if (changes.overflow) void loadGuests(wid, false);
           else await Promise.all(changes.guest_ids.map((guestId) => refreshGuest(guestId)));
@@ -370,7 +371,7 @@ export function useAdminGuests() {
       return false;
     }
     try {
-      const res = await fetch(`${API_URL}/workshops/${wid}/guests`, {
+      const res = await trackedFetch(`${API_URL}/workshops/${wid}/guests`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

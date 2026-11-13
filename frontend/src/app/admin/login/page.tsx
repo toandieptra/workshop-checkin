@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminLoading } from "@/contexts/AdminLoadingContext";
+import { trackedFetch } from "@/lib/pending-actions";
 
 function safeRedirect(value: string | null): string {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\") || /[\u0000-\u001f\u007f]/.test(value)) return "/admin";
@@ -41,7 +42,7 @@ function AdminLoginForm() {
     setLoginError("");
     const endPending = begin();
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await trackedFetch("/api/auth/login", {
         method: "POST", credentials: "include", cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: identifier.trim(), password }),

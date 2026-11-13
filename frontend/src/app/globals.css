@@ -27,9 +27,76 @@ html, body {
   :root { --admin-vh: calc(100dvh / 0.9); }
 }
 
-.admin-loading,
-.admin-loading * {
+/* ============================================================
+   Loading state & duplicate action prevention (lib/pending-actions.ts)
+   - html[data-app-busy]: có tác vụ đang chạy → con trỏ progress toàn trang.
+   - [data-action-pending="<variant>"]: phần tử đang xử lý → khoá + spinner.
+     Khoá thật nằm ở bộ lắng nghe capture (chặn click/submit/Enter), CSS chỉ là phản hồi.
+   ============================================================ */
+html[data-app-busy],
+html[data-app-busy] * {
   cursor: progress !important;
+}
+
+/* "html " tăng độ ưu tiên để thắng rule progress toàn trang ở trên. */
+html [data-action-pending],
+html [data-action-pending] * {
+  cursor: wait !important;
+}
+
+[data-action-pending] {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* Nút thường: ẩn nội dung (giữ nguyên kích thước, không nhảy layout), spinner ở giữa. */
+[data-action-pending-rel] { position: relative !important; }
+[data-action-pending="overlay"] { color: transparent !important; }
+[data-action-pending="overlay"] > * { visibility: hidden !important; }
+[data-action-pending="overlay"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 1.05em;
+  height: 1.05em;
+  min-width: 14px;
+  min-height: 14px;
+  max-width: 22px;
+  max-height: 22px;
+  border-radius: 9999px;
+  border: 2px solid var(--ap-color, currentColor);
+  border-right-color: transparent;
+  visibility: visible;
+  animation: ap-spin 0.7s linear infinite;
+  pointer-events: none;
+}
+
+/* Nút đã tự disabled (component tự đổi nhãn "Đang lưu..."): thêm spinner nhỏ phía trước, giữ nhãn. */
+[data-action-pending="inline"]::before {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 0.9em;
+  height: 0.9em;
+  margin-inline-end: 0.4em;
+  vertical-align: -0.125em;
+  border-radius: 9999px;
+  border: 2px solid var(--ap-color, currentColor);
+  border-right-color: transparent;
+  animation: ap-spin 0.7s linear infinite;
+}
+
+/* Vùng lớn / ô chọn / checkbox / select: làm mờ và chặn con trỏ. */
+[data-action-pending="dim"] { opacity: 0.6; }
+select[data-action-pending],
+input[data-action-pending] { pointer-events: none; opacity: 0.6; }
+
+@keyframes ap-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-action-pending="overlay"]::after,
+  [data-action-pending="inline"]::before { animation-duration: 1.6s; }
 }
 
 .font-heading {

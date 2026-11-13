@@ -2,19 +2,10 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import { beginGlobalPending, isGlobalPending, subscribeGlobalPending } from "@/lib/pending-actions";
 
-const PENDING_EVENT = "admin:pending";
-
-export function beginAdminPending(): () => void {
-  if (typeof window === "undefined" || !window.location.pathname.startsWith("/admin")) return () => {};
-  window.dispatchEvent(new CustomEvent(PENDING_EVENT, { detail: 1 }));
-  let active = true;
-  return () => {
-    if (!active) return;
-    active = false;
-    window.dispatchEvent(new CustomEvent(PENDING_EVENT, { detail: -1 }));
-  };
-}
+/** Giữ tên cũ cho tương thích: con trỏ chờ toàn trang (giờ áp dụng mọi trang, không chỉ /admin). */
+export const beginAdminPending = beginGlobalPending;
 
 interface AdminLoadingValue {
   pending: boolean;
@@ -24,7 +15,7 @@ interface AdminLoadingValue {
 const AdminLoadingContext = createContext<AdminLoadingValue | null>(null);
 
 export function AdminLoadingProvider({ children }: { children: React.ReactNode }) {
-  const [pendingCount, setPendingCount] = useState(0);
+  const [pending, setPending] = useState(false);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const navigationEndRef = useRef<(() => void) | null>(null);
@@ -33,12 +24,8 @@ export function AdminLoadingProvider({ children }: { children: React.ReactNode }
   const begin = useCallback(() => beginAdminPending(), []);
 
   useEffect(() => {
-    const onPending = (event: Event) => {
-      const delta = (event as CustomEvent<number>).detail;
-      setPendingCount((current) => Math.max(0, current + delta));
-    };
-    window.addEventListener(PENDING_EVENT, onPending);
-    return () => window.removeEventListener(PENDING_EVENT, onPending);
+    setPending(isGlobalPending());
+    return subscribeGlobalPending(setPending);
   }, []);
 
   const finishNavigation = useCallback(() => {
@@ -66,10 +53,9 @@ export function AdminLoadingProvider({ children }: { children: React.ReactNode }
     navigationTimerRef.current = setTimeout(finishNavigation, 15000);
   };
 
-  const pending = pendingCount > 0;
   return (
     <AdminLoadingContext.Provider value={{ pending, begin }}>
-      <div className={pending ? "admin-loading min-h-screen" : "min-h-screen"} aria-busy={pending} onClickCapture={onClickCapture}>
+      <div className="min-h-screen" aria-busy={pending} onClickCapture={onClickCapture}>
         {children}
       </div>
     </AdminLoadingContext.Provider>

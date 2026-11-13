@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import PendingActionsRoot from "@/components/PendingActionsRoot";
 
 export const metadata: Metadata = {
   title: "Workshop - LerMao x Trà Phượng Hoàng",
@@ -24,7 +25,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <PendingActionsRoot />
+        {children}
+      </body>
     </html>
   );
 }
