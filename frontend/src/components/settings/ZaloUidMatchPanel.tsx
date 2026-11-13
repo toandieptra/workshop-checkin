@@ -4,6 +4,7 @@
 // ghép tay theo SĐT, hoặc gỡ ghép (vd. tự ghép sai).
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { apiPath } from "@/lib/survey-admin";
 import { useAuth } from "@/contexts/AuthContext";
 import { PERMISSIONS } from "@/lib/permissions";
 
@@ -35,14 +36,14 @@ export default function ZaloUidMatchPanel() {
   const [phones, setPhones] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
-    try { setData(await api<Data>("/api/zalo-uid/pending", { adminLoading: false })); setError(null); }
+    try { setData(await api<Data>(apiPath("/api/zalo-uid/pending"), { adminLoading: false })); setError(null); }
     catch (e) { setError(e instanceof Error ? e.message : "Không tải được dữ liệu"); }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
   const act = async (path: string, body?: unknown) => {
     try {
-      await api(path, { method: "POST", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+      await api(apiPath(path), { method: "POST", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : "Thao tác thất bại"); }
   };
