@@ -345,6 +345,7 @@ class ZbsDelivery(Base):
     provider_response: Mapped[dict | None] = mapped_column(JSONB)
     sending_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recipient_uid: Mapped[str | None] = mapped_column(Text)
+    recipient_uid_by_app: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -354,6 +355,7 @@ class ZaloContactUid(Base):
     __tablename__ = "zalo_contact_uids"
     phone: Mapped[str] = mapped_column(Text, primary_key=True)
     zalo_uid: Mapped[str] = mapped_column(Text, nullable=False)
+    zalo_uid_by_app: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(Text, default="zns_webhook", nullable=False)
     last_msg_id: Mapped[str | None] = mapped_column(Text)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

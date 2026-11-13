@@ -41,7 +41,7 @@ function DetailField({ label, value, mono = false }: { label: string; value?: Re
 }
 
 // UID Zalo nhận qua webhook ZNS (user_received_message) — dùng gửi thông báo / remarketing.
-function ZaloUidField({ uid, seenAt }: { uid?: string | null; seenAt?: string | null }) {
+function ZaloUidField({ uid, uidByApp, seenAt }: { uid?: string | null; uidByApp?: string | null; seenAt?: string | null }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     if (!uid) return;
@@ -57,6 +57,7 @@ function ZaloUidField({ uid, seenAt }: { uid?: string | null; seenAt?: string | 
           {copied ? "Đã chép" : "Chép"}
         </button>
       </div>
+      {uidByApp && <div className="mt-1 truncate font-mono text-[11px] text-text-secondary" title={`user_id_by_app: ${uidByApp}`}>By app: {uidByApp}</div>}
       <div className="mt-0.5 text-[11px] text-muted">Nhận lúc {formatDateTime(seenAt)}</div>
     </> : <div className="mt-1 text-sm text-muted" title="Có sau khi khách nhận tin ZNS và Zalo gửi xác nhận đã nhận">Chưa có</div>}
   </div>;
@@ -156,7 +157,7 @@ export default function GuestDetailContent({
       <DetailField label="Mô hình kinh doanh" value={guest.business_model} />
       <DetailField label="Nguồn" value={source} />
       <DetailField label="Người tạo" value={guest.creator_name} />
-      <ZaloUidField uid={guest.zalo_uid} seenAt={guest.zalo_uid_seen_at} />
+      <ZaloUidField uid={guest.zalo_uid} uidByApp={guest.zalo_uid_by_app} seenAt={guest.zalo_uid_seen_at} />
     </div>
 
     <div className="grid gap-4">

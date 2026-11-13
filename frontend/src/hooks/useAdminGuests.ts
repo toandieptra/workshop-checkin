@@ -44,6 +44,7 @@ export interface Guest {
   gifts_redeemed?: number;
   /** UID Zalo (theo SĐT) — có sau khi khách nhận tin ZNS và Zalo bắn webhook user_received_message */
   zalo_uid?: string | null;
+  zalo_uid_by_app?: string | null;
   zalo_uid_seen_at?: string | null;
   zbs?: {
     registration_confirmation?: ZbsDelivery;

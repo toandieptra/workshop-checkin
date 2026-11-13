@@ -166,6 +166,7 @@ class GuestOut(BaseModel):
     notes_summary: str | None = None
     gifts_redeemed: int = 0
     zalo_uid: str | None = None
+    zalo_uid_by_app: str | None = None
     zalo_uid_seen_at: datetime | None = None
     source: str | None = None
     source_detail: str | None = None

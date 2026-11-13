@@ -4,7 +4,7 @@ import json
 from app.services.zalo_uid import parse_webhook, verify_signature
 
 ZALO_EVENT = {
-    "app_id": "123", "event_name": "user_received_message", "timestamp": "1794541700000",
+    "app_id": "123", "user_id_by_app": "7221", "event_name": "user_received_message", "timestamp": "1794541700000",
     "sender": {"id": "oa1"}, "recipient": {"id": "8812345678901234567"},
     "message": {"msg_id": "abc", "tracking_id": "6f1c0d7e-0000-4000-8000-000000000001", "delivery_time": "1794541699000"},
 }
@@ -12,7 +12,7 @@ ZALO_EVENT = {
 
 def test_parse_zalo_nested_event_extracts_uid_and_ids():
     ev = parse_webhook(ZALO_EVENT)
-    assert ev.is_delivery and ev.uid == "8812345678901234567"
+    assert ev.is_delivery and ev.uid == "8812345678901234567" and ev.uid_by_app == "7221"
     assert ev.msg_id == "abc" and ev.tracking_id.endswith("0001")
     assert ev.delivered_at is not None and ev.delivered_at.year == 2026
 

@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,7 @@ class WebhookEvent:
     tracking_id: str | None
     delivered_at: datetime | None
     uid: str | None
+    uid_by_app: str | None = None
 
     @property
     def is_delivery(self) -> bool:
@@ -72,6 +73,7 @@ def parse_webhook(body: dict) -> WebhookEvent:
         delivered_at=_ts(msg.get("delivery_time") or body.get("delivery_time") or body.get("timestamp")),
         # UID chỉ lấy từ sự kiện nhận tin; recipient.id ở sự kiện khác có thể là đối tượng khác.
         uid=_str(recipient.get("id") or body.get("user_id")) if event_name == "user_received_message" or not event_name else None,
+        uid_by_app=_str(body.get("user_id_by_app")) if event_name == "user_received_message" or not event_name else None,
     )
 
 
@@ -106,23 +108,28 @@ def verify_signature(raw: bytes, body: dict, header: str | None, app_id: str | N
     return signature_variant(raw, body, header, app_id, oa_secret, header_ts) is not None
 
 
-async def record_uid(db: AsyncSession, phone: str | None, uid: str, msg_id: str | None, seen_at: datetime | None = None) -> bool:
+async def record_uid(db: AsyncSession, phone: str | None, uid: str, msg_id: str | None, seen_at: datetime | None = None,
+                     uid_by_app: str | None = None) -> bool:
     """Lưu/cập nhật UID cho SĐT. Trả False nếu SĐT không hợp lệ."""
     key = normalize_phone(phone)
     if len(key) < 9:
         return False
     now = seen_at or datetime.now(timezone.utc)
-    stmt = insert(ZaloContactUid).values(
-        phone=key, zalo_uid=uid, source="zns_webhook", last_msg_id=msg_id, first_seen_at=now, last_seen_at=now,
-    ).on_conflict_do_update(
+    ins = insert(ZaloContactUid).values(
+        phone=key, zalo_uid=uid, zalo_uid_by_app=uid_by_app, source="zns_webhook", last_msg_id=msg_id,
+        first_seen_at=now, last_seen_at=now,
+    )
+    stmt = ins.on_conflict_do_update(
         index_elements=[ZaloContactUid.phone],
-        set_={"zalo_uid": uid, "last_msg_id": msg_id, "last_seen_at": now},
+        set_={"zalo_uid": uid, "last_msg_id": msg_id, "last_seen_at": now,
+              # giữ giá trị cũ nếu sự kiện mới không kèm user_id_by_app
+              "zalo_uid_by_app": func.coalesce(ins.excluded.zalo_uid_by_app, ZaloContactUid.zalo_uid_by_app)},
     )
     await db.execute(stmt)
     return True
 
 
-async def uids_for_guests(db: AsyncSession, guests: list[Guest]) -> dict[uuid.UUID, tuple[str, datetime]]:
+async def uids_for_guests(db: AsyncSession, guests: list[Guest]) -> dict[uuid.UUID, tuple[str, datetime, str | None]]:
     by_phone: dict[str, list[uuid.UUID]] = {}
     for g in guests:
         key = normalize_phone(g.phone)
@@ -131,11 +138,11 @@ async def uids_for_guests(db: AsyncSession, guests: list[Guest]) -> dict[uuid.UU
     if not by_phone:
         return {}
     rows = (await db.execute(
-        select(ZaloContactUid.phone, ZaloContactUid.zalo_uid, ZaloContactUid.last_seen_at)
+        select(ZaloContactUid.phone, ZaloContactUid.zalo_uid, ZaloContactUid.last_seen_at, ZaloContactUid.zalo_uid_by_app)
         .where(ZaloContactUid.phone.in_(list(by_phone)))
     )).all()
-    out: dict[uuid.UUID, tuple[str, datetime]] = {}
-    for phone, uid, seen in rows:
+    out: dict[uuid.UUID, tuple[str, datetime, str | None]] = {}
+    for phone, uid, seen, by_app in rows:
         for gid in by_phone.get(phone, []):
-            out[gid] = (uid, seen)
+            out[gid] = (uid, seen, by_app)
     return out

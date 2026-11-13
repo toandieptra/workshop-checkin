@@ -206,7 +206,7 @@ async def export_guests(
         "workshop", "full_name", "phone", "email", "company", "business_model", "source",
         "role_title", "guest_type", "party_size", "note",
         "checkin_status", "checked_in_at",
-        "registered_at", "created_at", "zalo_uid",
+        "registered_at", "created_at", "zalo_uid", "zalo_uid_by_app",
     ]
     uid_by_guest = await uids_for_guests(db, [g for g, _ in rows])
     body_rows = []
@@ -229,6 +229,7 @@ async def export_guests(
             _fmt(g.registered_at),
             _fmt(g.created_at),
             uid_by_guest.get(g.id, ("",))[0],
+            (uid_by_guest.get(g.id) or ("", None, None))[2] or "",
         ])
 
     wb = Workbook()

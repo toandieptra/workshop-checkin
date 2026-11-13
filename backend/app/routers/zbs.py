@@ -641,6 +641,8 @@ async def zbs_webhook(
         delivery.updated_at = now
         if event.uid:
             delivery.recipient_uid = event.uid
-            await zalo_uid.record_uid(db, delivery.phone, event.uid, event.msg_id or delivery.msg_id, event.delivered_at)
+            delivery.recipient_uid_by_app = event.uid_by_app
+            await zalo_uid.record_uid(db, delivery.phone, event.uid, event.msg_id or delivery.msg_id, event.delivered_at,
+                                      uid_by_app=event.uid_by_app)
     await db.commit()
     return {"received": True}
