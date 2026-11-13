@@ -266,6 +266,7 @@ export default function MobileAdmin() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [showGiftRedeem, setShowGiftRedeem] = useState(false);
+  const [giftCode, setGiftCode] = useState<string | null>(null);
   const [checkinGuest, setCheckinGuest] = useState<Guest | null>(null);
   const [showEventTools, setShowEventTools] = useState(false);
   const [origin, setOrigin] = useState(getPublicOrigin);
@@ -419,7 +420,7 @@ export default function MobileAdmin() {
               </button>
             ))}
           </div>
-          {can(PERMISSIONS.guestsCheckin) && <button
+          {(can(PERMISSIONS.guestsCheckin) || can(PERMISSIONS.giftsRedeem)) && <button
             onClick={() => setShowScanner(true)}
             disabled={!currentWorkshop}
             className="inline-flex items-center justify-center gap-1 h-11 px-3 rounded-md text-[13px] font-bold border border-brand text-brand-teal bg-surface active:bg-cyan-pale shrink-0 disabled:opacity-40"
@@ -436,17 +437,6 @@ export default function MobileAdmin() {
           </button>}
         </div>
 
-        {can(PERMISSIONS.giftsRedeem) && (
-          <button
-            type="button"
-            onClick={() => setShowGiftRedeem(true)}
-            disabled={!currentWorkshop}
-            className="mt-2 inline-flex w-full items-center justify-center gap-2 h-11 rounded-md text-[13px] font-bold border border-brand text-brand-teal bg-surface active:bg-cyan-pale disabled:opacity-40"
-          >
-            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="8" width="18" height="13" rx="2" /><path d="M3 12h18M12 8v13" /><path d="M12 8c-2-4-6-4-6-1.5S9.5 8 12 8zM12 8c2-4 6-4 6-1.5S14.5 8 12 8z" /></svg>
-            Trao quà khảo sát
-          </button>
-        )}
 
         {filterActive && (
           <p className="text-[11px] text-muted mt-2">
@@ -536,14 +526,16 @@ export default function MobileAdmin() {
       )}
 
       {showGiftRedeem && currentWorkshop && can(PERMISSIONS.giftsRedeem) && (
-        <GiftRedeemModal workshopId={currentWorkshop.id} workshopName={currentWorkshop.name} onClose={() => setShowGiftRedeem(false)} onRedeemed={(guestId) => void refreshGuest(guestId)} />
+        <GiftRedeemModal workshopId={currentWorkshop.id} workshopName={currentWorkshop.name} initialCode={giftCode}
+          onClose={() => { setShowGiftRedeem(false); setGiftCode(null); }} onRedeemed={(guestId) => void refreshGuest(guestId)} />
       )}
 
-      {showScanner && currentWorkshop && can(PERMISSIONS.guestsCheckin) && (
+      {showScanner && currentWorkshop && (can(PERMISSIONS.guestsCheckin) || can(PERMISSIONS.giftsRedeem)) && (
         <GuestQrScanner
           workshopId={currentWorkshop.id}
           workshopSlug={currentWorkshop.slug}
           onClose={() => setShowScanner(false)}
+          onGiftCode={can(PERMISSIONS.giftsRedeem) ? (code) => { setShowScanner(false); setGiftCode(code); setShowGiftRedeem(true); } : undefined}
           onCheckedIn={async (guestName, actualPartySize) => {
             setMsg(`Đã check-in ${guestName} (${actualPartySize} khách)`);
             await reload();

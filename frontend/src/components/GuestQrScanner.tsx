@@ -11,7 +11,11 @@ interface GuestQrScannerProps {
   workshopSlug: string;
   onClose: () => void;
   onCheckedIn: (guestName: string, actualPartySize: number) => void | Promise<void>;
+  /** Có quyền trao quà: QR quà khảo sát (LMG1:…) → chuyển sang màn trao quà; null = nhập mã tay. */
+  onGiftCode?: (code: string | null) => void;
 }
+
+const GIFT_QR = /^LMG1:/i;
 
 type ScannerStep = "camera" | "confirm" | "success" | "error";
 
@@ -27,9 +31,16 @@ export default function GuestQrScanner({
   workshopSlug,
   onClose,
   onCheckedIn,
+  onGiftCode,
 }: GuestQrScannerProps) {
   const { canForWorkshop } = useAuth();
   const canCheckin = canForWorkshop(PERMISSIONS.guestsCheckin, workshopId);
+  const canGift = Boolean(onGiftCode);
+  // Giữ callback mới nhất trong ref: trang cha render lại liên tục (polling) — không được khởi động lại camera.
+  const giftRef = useRef(onGiftCode);
+  giftRef.current = onGiftCode;
+  const idleMessage = canCheckin && canGift ? "Đưa QR khách mời hoặc QR quà khảo sát vào khung hình"
+    : canGift ? "Đưa QR quà khảo sát vào khung hình" : "Đưa mã QR khách mời vào khung hình";
   const rawId = useId();
   const readerId = `guest-qr-reader-${rawId.replace(/:/g, "")}`;
   const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
@@ -37,7 +48,7 @@ export default function GuestQrScanner({
   const [step, setStep] = useState<ScannerStep>("camera");
   const [guest, setGuest] = useState<GuestQrInfo | null>(null);
   const [actual, setActual] = useState(1);
-  const [message, setMessage] = useState("Đưa mã QR khách mời vào khung hình");
+  const [message, setMessage] = useState(idleMessage);
   const [busy, setBusy] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   useDialogFocus(true, dialogRef);
@@ -63,7 +74,7 @@ export default function GuestQrScanner({
   };
 
   useEffect(() => {
-    if (step !== "camera" || !canCheckin) return;
+    if (step !== "camera" || (!canCheckin && !canGift)) return;
     let cancelled = false;
 
     const start = async () => {
@@ -78,9 +89,21 @@ export default function GuestQrScanner({
           async (decodedText) => {
             if (handlingRef.current) return;
             handlingRef.current = true;
+            if (GIFT_QR.test(decodedText.trim())) {
+              if (canGift) {
+                await stopScanner();
+                giftRef.current?.(decodedText.trim());
+                return;
+              }
+              setMessage("Đây là QR quà khảo sát — bạn chưa có quyền trao quà.");
+              handlingRef.current = false;
+              return;
+            }
             const parsed = parseGuestQr(decodedText);
-            if (!parsed) {
-              setMessage("QR không hợp lệ. Vui lòng quét QR khách mời.");
+            if (!parsed || !canCheckin) {
+              setMessage(!parsed
+                ? (canGift ? "QR không hợp lệ. Quét QR khách mời hoặc QR quà khảo sát." : "QR không hợp lệ. Vui lòng quét QR khách mời.")
+                : "Bạn chưa có quyền check-in khách.");
               handlingRef.current = false;
               return;
             }
@@ -123,12 +146,12 @@ export default function GuestQrScanner({
       cancelled = true;
       void stopScanner();
     };
-  }, [readerId, step, workshopId, workshopSlug, canCheckin]);
+  }, [readerId, step, workshopId, workshopSlug, canCheckin, canGift]);
 
   const scanAgain = () => {
     handlingRef.current = false;
     setGuest(null);
-    setMessage("Đưa mã QR khách mời vào khung hình");
+    setMessage(idleMessage);
     setStep("camera");
   };
 
@@ -148,14 +171,14 @@ export default function GuestQrScanner({
     }
   };
 
-  if (!canCheckin) return null;
+  if (!canCheckin && !canGift) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" role="dialog" aria-modal="true" aria-label="Quét QR check-in">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" role="dialog" aria-modal="true" aria-label={canGift ? "Quét QR check-in hoặc quà khảo sát" : "Quét QR check-in"}>
       <div ref={dialogRef} tabIndex={-1} className="w-full max-w-md bg-surface rounded-t-2xl overflow-hidden pb-[env(safe-area-inset-bottom)]">
         <div className="px-4 py-3 flex items-center justify-between border-b border-line">
           <div>
-            <h2 className="font-heading font-bold text-brand-teal">Quét QR check-in</h2>
+            <h2 className="font-heading font-bold text-brand-teal">{canGift ? (canCheckin ? "Quét QR check-in / trao quà" : "Quét QR trao quà") : "Quét QR check-in"}</h2>
             <p className="text-[11px] text-muted">{message}</p>
           </div>
           <button type="button" onClick={onClose} className="w-11 h-11 rounded-md border border-line text-brand-teal" aria-label="Đóng">×</button>
@@ -164,6 +187,12 @@ export default function GuestQrScanner({
         {step === "camera" && (
           <div className="p-4 bg-black">
             <div id={readerId} className="overflow-hidden rounded-lg bg-black min-h-[300px]" />
+            {canGift && (
+              <button type="button" onClick={() => { void stopScanner(); onGiftCode?.(null); }}
+                className="mt-3 h-11 w-full rounded-md border border-white/30 text-sm font-semibold text-white">
+                Nhập mã quà tay
+              </button>
+            )}
           </div>
         )}
 
@@ -244,6 +273,11 @@ export default function GuestQrScanner({
               <button type="button" onClick={onClose} className="h-11 rounded-md border border-line text-brand-teal font-semibold">Đóng</button>
               <button type="button" onClick={scanAgain} className="h-11 rounded-md border border-brand bg-brand text-brand-teal font-bold">Thử lại</button>
             </div>
+            {canGift && (
+              <button type="button" onClick={() => giftRef.current?.(null)} className="mt-2 h-11 w-full rounded-md border border-line text-sm font-semibold text-brand-teal">
+                Nhập mã quà tay
+              </button>
+            )}
           </div>
         )}
       </div>

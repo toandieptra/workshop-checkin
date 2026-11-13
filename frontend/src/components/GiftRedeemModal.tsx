@@ -32,8 +32,10 @@ function uuid(): string {
  * Trao quà khảo sát cho workshop đang chọn ở trang Khách mời.
  * Quét/nhập mã chỉ tra cứu; quà chỉ được ghi nhận khi bấm “Xác nhận đã trao quà”.
  */
-export default function GiftRedeemModal({ workshopId, workshopName, onClose, onRedeemed }: {
+export default function GiftRedeemModal({ workshopId, workshopName, onClose, onRedeemed, initialCode }: {
   workshopId: string; workshopName: string; onClose: () => void; onRedeemed?: (guestId: string) => void;
+  /** Mã QR đã quét ở màn "Quét QR" chung → kiểm tra ngay khi mở. */
+  initialCode?: string | null;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useDialogFocus(true, dialogRef);
@@ -105,6 +107,14 @@ export default function GiftRedeemModal({ workshopId, workshopName, onClose, onR
     })();
     return () => { cancelled = true; void stopCamera(); };
   }, [camera, step, readerId, check, stopCamera]);
+
+  const initialChecked = useRef(false);
+  useEffect(() => {
+    if (!initialCode || initialChecked.current) return;
+    initialChecked.current = true;
+    handling.current = true;
+    void check(initialCode, "qr");
+  }, [initialCode, check]);
 
   const redeem = async () => {
     if (!pending || !lookup?.claim || step === "redeeming") return;
