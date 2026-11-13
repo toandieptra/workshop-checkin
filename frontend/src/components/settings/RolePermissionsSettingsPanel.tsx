@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { PlusIcon } from "@heroicons/react/24/outline";
 import { adminApi } from "@/lib/api";
 import { PERMISSIONS } from "@/lib/permissions";
 import { useAuth } from "@/contexts/AuthContext";
@@ -113,7 +114,9 @@ function RolePermissionsPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolea
 
   const currentRole = catalog?.roles.find((role) => role.key === selectedRole);
   const original = new Set(currentRole?.permissions || []);
-  const dirty = draft.size !== original.size || [...draft].some((permission) => !original.has(permission));
+  const changeCount = [...draft].filter((permission) => !original.has(permission)).length
+    + [...original].filter((permission) => !draft.has(permission)).length;
+  const dirty = changeCount > 0;
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   const disabled = selectedRole === "user";
 
@@ -124,6 +127,25 @@ function RolePermissionsPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolea
       next.has(permission) ? next.delete(permission) : next.add(permission);
       return next;
     });
+  };
+
+  const isLocked = (permission: string) => disabled || (selectedRole === "super_admin" && permission === "users.manage");
+
+  // Bật/tắt cả nhóm: nếu nhóm đã bật hết thì tắt hết, ngược lại bật hết (bỏ qua quyền bị khoá).
+  const toggleGroup = (permissions: string[]) => {
+    const editable = permissions.filter((permission) => !isLocked(permission));
+    if (!editable.length) return;
+    const allOn = editable.every((permission) => draft.has(permission));
+    setDraft((current) => {
+      const next = new Set(current);
+      editable.forEach((permission) => (allOn ? next.delete(permission) : next.add(permission)));
+      return next;
+    });
+  };
+
+  const revert = () => {
+    setDraft(new Set(currentRole?.permissions || []));
+    setMessage("");
   };
 
   const save = async () => {
@@ -182,12 +204,15 @@ function RolePermissionsPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolea
         <p className="mt-1 text-sm text-muted">Chọn một vai trò và thiết lập quyền truy cập chi tiết cho các chức năng workshop.</p>
       </div>
 
-      <div className="grid min-h-[650px] overflow-hidden rounded-lg border border-line bg-white shadow-sm lg:min-h-0 lg:flex-1 lg:grid-cols-[300px_1fr] lg:overflow-y-auto lg:items-start">
-        <aside className="border-b border-line bg-[#f8fbfb] lg:border-b-0 lg:border-r">
+      <div className="grid rounded-lg border border-line bg-white shadow-sm lg:min-h-0 lg:overflow-hidden lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1">
+        {/* Hai cột cuộn độc lập: danh sách vai trò luôn nằm trong tầm mắt khi cuộn danh sách quyền. */}
+        <aside className="rounded-t-lg border-b border-line bg-[#f8fbfb] lg:min-h-0 lg:rounded-l-lg lg:rounded-tr-none lg:overflow-y-auto lg:border-b-0 lg:border-r">
           <div className="border-b border-line px-5 py-4">
             <div className="flex items-center justify-between">
               <h2 className="font-heading font-bold text-ink">Danh sách vai trò</h2>
-              <button type="button" onClick={() => setShowCreateForm((current) => !current)} className="grid h-8 w-8 place-items-center rounded-full border border-line bg-white text-lg font-semibold text-brand-accent transition hover:bg-brand hover:text-white" aria-label="Tạo vai trò mới" title="Tạo vai trò mới">+</button>
+              <button type="button" onClick={() => setShowCreateForm((current) => !current)} aria-expanded={showCreateForm} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-line bg-white px-2.5 text-xs font-semibold text-brand-teal transition hover:border-brand hover:bg-brand/10" title="Tạo vai trò mới">
+                <PlusIcon className="h-4 w-4" aria-hidden />Thêm
+              </button>
             </div>
             <p className="mt-1 text-xs text-muted">Tổng số: {catalog?.roles.length || 0} vai trò</p>
           </div>
@@ -226,23 +251,32 @@ function RolePermissionsPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolea
           </div>
         </aside>
 
-        <section className="min-w-0">
-          <div className="flex flex-col gap-4 border-b border-line px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+        <section className="min-w-0 lg:min-h-0 lg:overflow-y-auto">
+          {/* Thanh tiêu đề dính: nút Lưu và số thay đổi chưa lưu luôn hiện khi cuộn. */}
+          <div className="sticky top-14 z-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line bg-white/95 px-4 py-3 backdrop-blur sm:px-5 sm:py-4 lg:top-0">
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="font-heading text-xl font-bold text-ink">{currentRole?.label || selectedRole}</h2>
                 {disabled && <span className="rounded-full bg-surface-muted px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Mặc định</span>}
               </div>
-              <p className="mt-1 text-sm text-muted">{currentRole?.description || "Thiết lập quyền truy cập cho vai trò này."}</p>
+              <p className="mt-1 hidden text-sm text-muted sm:block">{currentRole?.description || "Thiết lập quyền truy cập cho vai trò này."}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={!dirty || disabled || saving}
-              className="min-h-10 rounded-md bg-brand px-5 text-sm font-semibold text-brand-teal transition hover:bg-brand-accent disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {saving ? "Đang lưu..." : "Lưu thay đổi"}
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {dirty && (
+                <>
+                  <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800" aria-live="polite">{changeCount} thay đổi chưa lưu</span>
+                  <button type="button" onClick={revert} disabled={saving} className="min-h-10 rounded-md border border-line px-3 text-sm font-semibold text-text-secondary transition hover:bg-surface-muted disabled:opacity-40">Hoàn tác</button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={!dirty || disabled || saving}
+                className="min-h-10 rounded-md bg-brand px-5 text-sm font-semibold text-brand-teal transition hover:bg-brand-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {saving ? "Đang lưu..." : "Lưu thay đổi"}
+              </button>
+            </div>
           </div>
 
           {message && <div role={message.startsWith("Đã") ? "status" : "alert"} aria-live="polite" className={`mx-5 mt-4 rounded-md border px-4 py-3 text-sm ${message.startsWith("Đã") ? "border-success-border bg-success-soft text-success" : "border-red-200 bg-red-50 text-error"}`}>{message}</div>}
@@ -253,19 +287,33 @@ function RolePermissionsPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolea
               <div className="py-16 text-center text-sm text-muted">Đang tải danh sách quyền...</div>
             ) : (
               <div className="space-y-4">
-                {groupedPermissions.map((group) => (
+                {groupedPermissions.map((group) => {
+                  const onCount = group.permissions.filter((permission) => draft.has(permission)).length;
+                  const editable = group.permissions.filter((permission) => !isLocked(permission));
+                  const allOn = editable.length > 0 && editable.every((permission) => draft.has(permission));
+                  return (
                   <div key={group.key} className="overflow-hidden rounded-md border border-line">
-                    <div className="border-b border-line bg-[#f7fafb] px-4 py-3">
-                      <h3 className="text-sm font-bold text-ink">{group.label}</h3>
-                      <p className="mt-0.5 text-xs text-muted">{group.description}</p>
+                    <div className="flex items-start justify-between gap-3 border-b border-line bg-[#f7fafb] px-4 py-3">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold text-ink">
+                          {group.label}
+                          <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-semibold ${onCount ? "bg-brand/15 text-brand-teal" : "bg-white text-muted"}`}>{onCount}/{group.permissions.length}</span>
+                        </h3>
+                        <p className="mt-0.5 text-xs text-muted">{group.description}</p>
+                      </div>
+                      {editable.length > 1 && (
+                        <button type="button" onClick={() => toggleGroup(group.permissions)} className="min-h-8 shrink-0 rounded-md px-2.5 text-xs font-semibold text-brand-teal transition hover:bg-brand/10">
+                          {allOn ? "Tắt cả nhóm" : "Bật cả nhóm"}
+                        </button>
+                      )}
                     </div>
                     <div className="grid sm:grid-cols-2 xl:grid-cols-3">
                       {group.permissions.map((permission) => {
                         const action = permission.split(".").pop() || permission;
                         const checked = draft.has(permission);
-                        const locked = disabled || (selectedRole === "super_admin" && permission === "users.manage");
+                        const locked = isLocked(permission);
                         return (
-                          <label key={permission} className={`flex min-h-[66px] items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 sm:border-r ${locked ? "cursor-not-allowed bg-gray-50/70" : "cursor-pointer hover:bg-surface-muted/50"}`}>
+                          <label key={permission} className={`relative flex min-h-[66px] items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 sm:border-r ${locked ? "cursor-not-allowed bg-gray-50/70" : "cursor-pointer hover:bg-surface-muted/50"}`}>
                             <input type="checkbox" checked={checked} disabled={locked} onChange={() => toggle(permission)} className="peer sr-only" />
                             <span className={`relative h-5 w-9 shrink-0 rounded-full transition peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand-teal ${checked ? "bg-brand" : "bg-[#cbd9db]"} ${locked ? "opacity-55" : ""}`}>
                               <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${checked ? "left-[18px]" : "left-0.5"}`} />
@@ -279,7 +327,8 @@ function RolePermissionsPanel({ onDirtyChange }: { onDirtyChange: (dirty: boolea
                       })}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

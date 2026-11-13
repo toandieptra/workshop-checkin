@@ -348,7 +348,7 @@ export default function ZbsTemplateSettingsPanel() {
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted">Tác vụ</div>
                   <div className="mt-1 font-semibold text-ink">{taskConfig.task_label}</div>
-                  <label className={`mt-4 flex w-fit items-center gap-3 ${canManage ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                  <label className={`relative mt-4 flex w-fit items-center gap-3 ${canManage ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
                     <input type="checkbox" className="peer sr-only" checked={draft.enabled} disabled={!canManage || !taskConfig.system_enabled} onChange={(event) => setTaskDrafts((current) => ({ ...current, [taskConfig.task_key]: { ...draft, enabled: event.target.checked } }))} />
                     <span className={`relative h-6 w-11 rounded-full transition peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand-teal ${draft.enabled ? "bg-brand" : "bg-gray-300"}`}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${draft.enabled ? "left-[22px]" : "left-0.5"}`} /></span>
                     <span className="text-sm font-medium text-text-primary">Tự động gửi ZBS khi tác vụ hoàn tất</span>

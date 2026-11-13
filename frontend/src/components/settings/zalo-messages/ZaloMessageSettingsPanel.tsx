@@ -428,7 +428,7 @@ export default function ZaloMessageSettingsPanel() {
                         </td>
                         <td className="px-4 py-3">
                           <label
-                            className={`inline-flex items-center gap-2 ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
+                            className={`relative inline-flex items-center gap-2 ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
                           >
                             <input
                               type="checkbox"
@@ -463,7 +463,7 @@ export default function ZaloMessageSettingsPanel() {
                         </td>
                         <td className="px-4 py-3">
                           <label
-                            className={`inline-flex items-center gap-2 ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
+                            className={`relative inline-flex items-center gap-2 ${canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
                           >
                             <input
                               type="checkbox"
