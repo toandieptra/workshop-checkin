@@ -59,7 +59,7 @@ function ZaloUidField({ uid, uidByApp, seenAt }: { uid?: string | null; uidByApp
       </div>
       {uidByApp && <div className="mt-1 truncate font-mono text-[11px] text-text-secondary" title={`user_id_by_app: ${uidByApp}`}>By app: {uidByApp}</div>}
       <div className="mt-0.5 text-[11px] text-muted">Nhận lúc {formatDateTime(seenAt)}</div>
-    </> : <div className="mt-1 text-sm text-muted" title="Có sau khi khách nhận tin ZNS và Zalo gửi xác nhận đã nhận">Chưa có</div>}
+    </> : <div className="mt-1 text-sm text-muted" title="Zalo không trả UID qua tin ZNS gửi bằng SĐT; UID chỉ có khi khách tương tác với OA (quan tâm, nhắn tin, chia sẻ thông tin)">Chưa có</div>}
   </div>;
 }
 

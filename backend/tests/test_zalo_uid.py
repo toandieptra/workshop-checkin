@@ -34,3 +34,45 @@ def test_signature_matches_zalo_formula():
     assert verify_signature(raw, ZALO_EVENT, "mac=deadbeef", None, "secret") is False
     assert verify_signature(raw, ZALO_EVENT, None, None, "secret") is False
     assert verify_signature(raw, ZALO_EVENT, None, None, None) is None  # chưa cấu hình → không kiểm
+
+
+def test_zns_phone_receipt_never_yields_uid():
+    # Webhook "tin qua SĐT" (X-ZEvent-Server: ZNS): recipient.id là SĐT, không phải UID.
+    zns = {**ZALO_EVENT, "recipient": {"id": "84973123230"}}
+    ev = parse_webhook(zns, "ZNS")
+    assert ev.is_delivery and ev.uid is None and ev.uid_by_app is None and ev.msg_id == "abc"
+    assert parse_webhook(zns).uid is None  # thiếu header vẫn nhận ra dạng SĐT
+    hashed = {**ZALO_EVENT, "recipient": {"id": "a" * 64}}
+    assert parse_webhook(hashed).uid is None
+
+
+def test_oa_event_keeps_uid():
+    ev = parse_webhook(ZALO_EVENT, "OA")
+    assert ev.uid == "8812345678901234567"
+
+
+from app.services.zalo_oa import extract_user_event
+
+
+def test_oa_follow_and_send_events_yield_user_id():
+    f = extract_user_event({"event_name": "follow", "oa_id": "oa1", "user_id_by_app": "app9", "timestamp": "1794541700000",
+                            "follower": {"id": "5551"}}, "OA")
+    assert f.user_id == "5551" and f.follow is True and f.user_id_by_app == "app9"
+    t = extract_user_event({"event_name": "user_send_text", "sender": {"id": "5552"}, "recipient": {"id": "oa1"},
+                            "message": {"text": "xin chào", "msg_id": "m"}}, "OA")
+    assert t.user_id == "5552" and t.phone is None
+
+
+def test_oa_submit_info_carries_phone():
+    ev = extract_user_event({"event_name": "user_submit_info", "sender": {"id": "5553"}, "recipient": {"id": "oa1"},
+                             "info": {"phone": "84973123230", "name": "A"}}, "OA")
+    assert ev.user_id == "5553" and ev.phone == "84973123230"
+
+
+def test_oa_message_to_user_uses_recipient_and_skips_zns():
+    ev = extract_user_event({"event_name": "user_received_message", "sender": {"id": "oa1"}, "recipient": {"id": "5554"},
+                             "message": {"msg_id": "m"}}, "OA")
+    assert ev.user_id == "5554"
+    assert extract_user_event({"event_name": "user_received_message", "recipient": {"id": "84973123230"},
+                               "message": {"msg_id": "m", "tracking_id": "t"}}, "ZNS") is None
+    assert extract_user_event({"event_name": "ping"}, "OA") is None

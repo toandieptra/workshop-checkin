@@ -3,7 +3,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -14,7 +14,7 @@ from ..config import settings
 from ..auth.workshop_access import WORKSHOP_PERMISSIONS, allowed_workshop_ids, is_global_workshop_admin, require_workshop_permission
 from ..db import get_db
 from ..models import Guest, Workshop, ZbsDelivery, ZbsTaskConfig, ZbsTemplate, ZbsWebhookEvent
-from ..services import zalo_uid, zbs_bulk
+from ..services import zalo_oa, zalo_uid, zbs_bulk
 from ..services.zbs import (
     BULK_TASK_KEY,
     CHECKIN_TASK_KEY,
@@ -597,6 +597,7 @@ async def bulk_retry_failed(bulk_id: uuid.UUID, db: AsyncSession = Depends(get_d
 @router.post("/webhooks/zbs")
 async def zbs_webhook(
     request: Request,
+    background: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     x_zbs_webhook_secret: str | None = Header(default=None),
     x_zevent_signature: str | None = Header(default=None),
@@ -614,7 +615,8 @@ async def zbs_webhook(
     signature_ok = None if not settings.ZBS_OA_SECRET_KEY else variant is not None
     if settings.ZBS_OA_SECRET_KEY:
         # Chỉ ghi tên header và biến thể khớp — không ghi khoá, chữ ký hay nội dung.
-        log.warning("zbs webhook signature: variant=%s has_sig=%s headers=%s", variant, bool(x_zevent_signature),
+        log.warning("zbs webhook signature: variant=%s has_sig=%s server=%s event=%s headers=%s", variant, bool(x_zevent_signature),
+                    request.headers.get("x-zevent-server"), body.get("event_name"),
                  sorted(h for h in request.headers.keys() if h.startswith("x-")))
     legacy_ok = bool(settings.ZBS_WEBHOOK_SECRET) and x_zbs_webhook_secret == settings.ZBS_WEBHOOK_SECRET
     if signature_ok is False and not legacy_ok:
@@ -622,7 +624,8 @@ async def zbs_webhook(
     if signature_ok is None and settings.ZBS_WEBHOOK_SECRET and not legacy_ok:
         raise HTTPException(401, "invalid webhook secret")
 
-    event = zalo_uid.parse_webhook(body)
+    server = request.headers.get("x-zevent-server")
+    event = zalo_uid.parse_webhook(body, server)
     delivery = None
     if event.is_delivery:
         if event.tracking_id:
@@ -632,8 +635,14 @@ async def zbs_webhook(
                 pass
         if not delivery and event.msg_id:
             delivery = await db.scalar(select(ZbsDelivery).where(ZbsDelivery.msg_id == event.msg_id))
+    oa_event = zalo_oa.extract_user_event(body, server)
     db.add(ZbsWebhookEvent(event_name=event.event_name, msg_id=event.msg_id, tracking_id=event.tracking_id,
-                           matched=delivery is not None, signature_ok=signature_ok))
+                           matched=delivery is not None, signature_ok=signature_ok, server=server,
+                           user_id=oa_event.user_id if oa_event else None))
+    if oa_event:
+        _, need_detail = await zalo_oa.record_event(db, oa_event)
+        if need_detail:
+            background.add_task(zalo_oa.refresh_detail_task, oa_event.user_id)
     if delivery:
         now = datetime.now(timezone.utc)
         delivery.delivery_time = event.delivered_at or now

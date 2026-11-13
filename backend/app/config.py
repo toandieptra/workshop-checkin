@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     ZBS_WEBHOOK_SECRET: str | None = None
     # OA Secret Key (Zalo for Developers → Webhook) để kiểm chữ ký X-ZEvent-Signature của webhook Zalo.
     ZBS_OA_SECRET_KEY: str | None = None
+    ZBS_OA_API_URL: str = "https://openapi.zalo.me/v3.0/oa"
+    # Gọi lại API thông tin người dùng OA tối đa 1 lần / khoảng này (trừ follow / user_submit_info)
+    ZBS_OA_DETAIL_REFRESH_HOURS: int = 6
     ZBS_WORKER_INTERVAL_SECONDS: int = 5
     ZBS_REQUEST_TIMEOUT_SECONDS: float = 10.0
 

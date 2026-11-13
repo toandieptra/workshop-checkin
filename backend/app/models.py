@@ -362,6 +362,23 @@ class ZaloContactUid(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ZaloOaUser(Base):
+    """Người dùng OA (UID theo OA) — từ webhook sự kiện OA; phone có khi khách đã chia sẻ thông tin."""
+    __tablename__ = "zalo_oa_users"
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id_by_app: Mapped[str | None] = mapped_column(Text)
+    display_name: Mapped[str | None] = mapped_column(Text)
+    is_follower: Mapped[bool | None] = mapped_column(Boolean)
+    phone: Mapped[str | None] = mapped_column(Text)
+    phone_source: Mapped[str | None] = mapped_column(Text)
+    last_event: Mapped[str | None] = mapped_column(Text)
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    detail_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    detail_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ZbsWebhookEvent(Base):
     __tablename__ = "zbs_webhook_events"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -370,6 +387,8 @@ class ZbsWebhookEvent(Base):
     tracking_id: Mapped[str | None] = mapped_column(Text)
     matched: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     signature_ok: Mapped[bool | None] = mapped_column(Boolean)
+    server: Mapped[str | None] = mapped_column(Text)
+    user_id: Mapped[str | None] = mapped_column(Text)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

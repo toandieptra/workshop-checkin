@@ -13,6 +13,7 @@ Vẫn nhận định dạng phẳng cũ {"msg_id", "tracking_id", "delivery_time
 from __future__ import annotations
 
 import hashlib
+import re
 import hmac
 import uuid
 from dataclasses import dataclass
@@ -62,19 +63,37 @@ def _str(value) -> str | None:
     return s or None
 
 
-def parse_webhook(body: dict) -> WebhookEvent:
+_PHONE_LIKE = re.compile(r"^(84|0)\d{8,10}$")
+_SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def looks_like_phone(value: str | None) -> bool:
+    """recipient.id của webhook ZNS/tin qua SĐT là SĐT (84xxxxxxxxx) hoặc SHA-256 của SĐT — không phải UID."""
+    return bool(value) and bool(_PHONE_LIKE.match(value) or _SHA256.match(value))
+
+
+def parse_webhook(body: dict, server: str | None = None) -> WebhookEvent:
+    """server = header X-ZEvent-Server. Zalo ghi "ZNS" cho sự kiện tin qua SĐT: khi đó recipient.id là SĐT,
+    KHÔNG có UID (tài liệu ZBS Template Message → Webhook gửi tin qua SĐT)."""
     msg = body.get("message") if isinstance(body.get("message"), dict) else {}
     recipient = body.get("recipient") if isinstance(body.get("recipient"), dict) else {}
     event_name = _str(body.get("event_name"))
+    from_zns = (server or "").strip().upper() == "ZNS"
     return WebhookEvent(
         event_name=event_name,
         msg_id=_str(msg.get("msg_id") or body.get("msg_id")),
         tracking_id=_str(msg.get("tracking_id") or body.get("tracking_id")),
         delivered_at=_ts(msg.get("delivery_time") or body.get("delivery_time") or body.get("timestamp")),
         # UID chỉ lấy từ sự kiện nhận tin; recipient.id ở sự kiện khác có thể là đối tượng khác.
-        uid=_str(recipient.get("id") or body.get("user_id")) if event_name == "user_received_message" or not event_name else None,
-        uid_by_app=_str(body.get("user_id_by_app")) if event_name == "user_received_message" or not event_name else None,
+        uid=None if from_zns else _uid_candidate(_str(recipient.get("id") or body.get("user_id")), event_name),
+        uid_by_app=None if from_zns else (_str(body.get("user_id_by_app")) if event_name == "user_received_message" or not event_name else None),
     )
+
+
+def _uid_candidate(value: str | None, event_name: str | None) -> str | None:
+    if event_name not in ("user_received_message", None, ""):
+        return None
+    return None if looks_like_phone(value) else value
 
 
 def signature_variant(raw: bytes, body: dict, header: str | None, app_id: str | None, oa_secret: str | None,
@@ -109,19 +128,20 @@ def verify_signature(raw: bytes, body: dict, header: str | None, app_id: str | N
 
 
 async def record_uid(db: AsyncSession, phone: str | None, uid: str, msg_id: str | None, seen_at: datetime | None = None,
-                     uid_by_app: str | None = None) -> bool:
+                     uid_by_app: str | None = None, source: str = "zns_webhook") -> bool:
     """Lưu/cập nhật UID cho SĐT. Trả False nếu SĐT không hợp lệ."""
     key = normalize_phone(phone)
     if len(key) < 9:
         return False
     now = seen_at or datetime.now(timezone.utc)
     ins = insert(ZaloContactUid).values(
-        phone=key, zalo_uid=uid, zalo_uid_by_app=uid_by_app, source="zns_webhook", last_msg_id=msg_id,
+        phone=key, zalo_uid=uid, zalo_uid_by_app=uid_by_app, source=source, last_msg_id=msg_id,
         first_seen_at=now, last_seen_at=now,
     )
     stmt = ins.on_conflict_do_update(
         index_elements=[ZaloContactUid.phone],
-        set_={"zalo_uid": uid, "last_msg_id": msg_id, "last_seen_at": now,
+        set_={"zalo_uid": uid, "source": source, "last_seen_at": now,
+              "last_msg_id": func.coalesce(ins.excluded.last_msg_id, ZaloContactUid.last_msg_id),
               # giữ giá trị cũ nếu sự kiện mới không kèm user_id_by_app
               "zalo_uid_by_app": func.coalesce(ins.excluded.zalo_uid_by_app, ZaloContactUid.zalo_uid_by_app)},
     )
