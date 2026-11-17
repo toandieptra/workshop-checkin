@@ -12,10 +12,11 @@ from ..auth.dependencies import current_user, require_any_permission, require_pe
 from ..auth.workshop_access import allowed_workshop_ids, require_workshop_permission
 from ..db import get_db
 from ..models import Guest, Workshop, ZaloDelivery, ZaloDeliveryBatch, ZaloDeliveryItem, ZaloTemplate
-from ..schemas import (ZaloBatchSendRequest, ZaloDeliveryItemOut, ZaloDeliveryOut,
+from ..schemas import (ZaloBatchSendRequest, ZaloBroadcastRequest, ZaloDeliveryItemOut, ZaloDeliveryOut,
                        ZaloGuestSendStatusOut, ZaloPreflightRequest, ZaloSendRequest, ZaloTemplateCreate,
                        ZaloTemplateOut, ZaloTemplateToggleRequest, ZaloTemplateUpdate)
-from ..services.zalo_messages import (cache_remote_media, create_delivery, quota_usage,
+from ..services.zalo_sender import current_sender
+from ..services.zalo_messages import (create_smax_broadcast, cache_remote_media, create_delivery, quota_usage,
                                           guest_send_status, reopen_quota, resolve_recipient, resolve_recipients, save_media,
                                           selected_guests, TEMPLATE_VARIABLES,
                                           validate_blocks)
@@ -227,7 +228,11 @@ async def _preflight(body, db, user):
     eligible = []
     ineligible = []
     try:
-        mappings = await resolve_recipients(db, guests, refresh=body.refresh_recipients)
+        sender = await current_sender(db, getattr(body, "page_pid", None))
+    except ValueError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    try:
+        mappings = await resolve_recipients(db, guests, refresh=body.refresh_recipients, sender=sender)
     except ValueError as exc:
         status_code = 503 if "account_owner_id" in str(exc) else 429
         raise HTTPException(status_code, str(exc)) from exc
@@ -240,7 +245,7 @@ async def _preflight(body, db, user):
         else:
             ineligible.append({**detail, "reason": "Không tìm thấy recipient Zalo"})
     await db.commit()
-    usage = await quota_usage(db, "message")
+    usage = await quota_usage(db, "message", owner_id=sender.quota_owner)
     remaining = max(0, usage.daily_limit - usage.used_count - usage.reserved_count)
     calls = len(blocks)
     required = calls * len(eligible)
@@ -248,7 +253,8 @@ async def _preflight(body, db, user):
             "resolved_count": len(eligible), "unresolved_count": len(ineligible),
             "calls_per_guest": calls, "required": required, "remaining": remaining,
             "quota_required": required, "can_send": bool(eligible) and required <= remaining,
-            "eligible": eligible, "ineligible": ineligible}
+            "eligible": eligible, "ineligible": ineligible,
+            "sender": {"provider": sender.provider, "page_pid": sender.page_pid, "name": sender.name}}
 
 
 @router.post("/preflight")
@@ -257,9 +263,9 @@ async def preflight(body: ZaloPreflightRequest, db: AsyncSession = Depends(get_d
 
 
 @router.get("/quota", dependencies=[Depends(require_permission("zalo_messages.read"))])
-async def quota(db: AsyncSession = Depends(get_db)):
+async def quota(page_pid: str | None = None, db: AsyncSession = Depends(get_db)):
     try:
-        usage = await quota_usage(db, "message")
+        usage = await quota_usage(db, "message", owner_id=(await current_sender(db, page_pid)).quota_owner)
     except ValueError as exc:
         raise HTTPException(503, str(exc)) from exc
     await db.commit()
@@ -280,7 +286,7 @@ async def send_one(body: ZaloSendRequest, user=Depends(current_user), db: AsyncS
     if existing:
         await _authorize_delivery(db, user, existing.id, permission="zalo_messages.send")
         return await _with_item_scopes(db, await _delivery(db, existing.id))
-    try: delivery = await create_delivery(db, template, [guest], user.id, idempotency_key=body.idempotency_key)
+    try: delivery = await create_delivery(db, template, [guest], user.id, idempotency_key=body.idempotency_key, page_pid=body.page_pid)
     except ValueError as exc: await db.rollback(); raise HTTPException(409, str(exc)) from exc
     await _authorize_delivery(db, user, delivery.id, permission="zalo_messages.send")
     await db.commit()
@@ -301,8 +307,32 @@ async def send_batch(body: ZaloBatchSendRequest, user=Depends(current_user), db:
                               selection={"guest_ids": [str(x) for x in body.guest_ids], "workshop_id": str(body.workshop_id) if body.workshop_id else None},
                               created_by=user.id)
     db.add(batch); await db.flush()
-    try: delivery = await create_delivery(db, template, guests, user.id, batch.id, idempotency_key=body.idempotency_key)
+    try: delivery = await create_delivery(db, template, guests, user.id, batch.id, idempotency_key=body.idempotency_key, page_pid=body.page_pid)
     except ValueError as exc: await db.rollback(); raise HTTPException(409, str(exc)) from exc
+    await _authorize_delivery(db, user, delivery.id, bulk=True)
+    await db.commit()
+    return await _with_item_scopes(db, await _delivery(db, delivery.id))
+
+
+@router.post("/broadcasts", response_model=ZaloDeliveryOut, status_code=201)
+async def send_broadcast(body: ZaloBroadcastRequest, user=Depends(current_user), db: AsyncSession = Depends(get_db)):
+    """Broadcast block Smax cho khách được chọn ở /admin (giống Broadcast & Re-marketing của Smax)."""
+    guests = await _selected_for_user(db, user, body)
+    existing = await db.scalar(select(ZaloDelivery).where(ZaloDelivery.idempotency_key == str(body.idempotency_key)))
+    if existing:
+        await _authorize_delivery(db, user, existing.id, bulk=True)
+        return await _with_item_scopes(db, await _delivery(db, existing.id))
+    batch = ZaloDeliveryBatch(name=f"Broadcast block {body.block_id}", template_id=None,
+                              selection={"guest_ids": [str(x) for x in body.guest_ids], "workshop_id": str(body.workshop_id) if body.workshop_id else None,
+                                         "smax_block_id": body.block_id},
+                              created_by=user.id)
+    db.add(batch); await db.flush()
+    try:
+        delivery = await create_smax_broadcast(db, body.block_id, guests, created_by=user.id, batch_id=batch.id,
+                                               page_pid=body.page_pid, rate_per_minute=body.rate_per_minute,
+                                               idempotency_key=body.idempotency_key)
+    except ValueError as exc:
+        await db.rollback(); raise HTTPException(409, str(exc)) from exc
     await _authorize_delivery(db, user, delivery.id, bulk=True)
     await db.commit()
     return await _with_item_scopes(db, await _delivery(db, delivery.id))
@@ -426,7 +456,12 @@ async def refresh(item_id: uuid.UUID, db: AsyncSession = Depends(get_db), user=D
     await _authorize_delivery(db, user, item.delivery_id, permission="zalo_messages.send")
     guest = await db.get(Guest, item.guest_id)
     if not guest: raise HTTPException(404, "Không tìm thấy khách")
-    mapping = await resolve_recipient(db, guest, refresh=True)
+    delivery = await db.get(ZaloDelivery, item.delivery_id)
+    try:
+        sender = await current_sender(db, delivery.sender_page_pid if delivery else None)
+        mapping = await resolve_recipient(db, guest, refresh=True, sender=sender)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not mapping: raise HTTPException(404, "Không resolve được recipient")
     item.recipient_id, item.recipient_name = mapping.recipient_id, mapping.recipient_name
     await db.commit(); await db.refresh(item)

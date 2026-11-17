@@ -8,7 +8,7 @@ import UserAccessTable from "@/components/settings/UserAccessTable";
 import RolePermissionsSettingsPanel from "@/components/settings/RolePermissionsSettingsPanel";
 import ConnectionsSettingsPanel from "@/components/settings/ConnectionsSettingsPanel";
 import ZbsTemplateSettingsPanel from "@/components/settings/ZbsTemplateSettingsPanel";
-import ZaloMessageSettingsPanel from "@/components/settings/ZaloMessageSettingsPanel";
+import ZaloMessagesTab from "@/components/settings/zalo-messages/ZaloMessagesTab";
 import PublicApiSettingsPanel from "@/components/settings/PublicApiSettingsPanel";
 import ZaloUidMatchPanel from "@/components/settings/ZaloUidMatchPanel";
 
@@ -64,7 +64,7 @@ export default function SettingsPage() {
           {activeTab.key === "phan-quyen" && <RolePermissionsSettingsPanel />}
           {activeTab.key === "ket-noi" && <ConnectionsSettingsPanel />}
           {activeTab.key === "mau-tin-zbs" && <ZbsTemplateSettingsPanel />}
-          {activeTab.key === "tin-nhan-zalo" && <ZaloMessageSettingsPanel />}
+          {activeTab.key === "tin-nhan-zalo" && <ZaloMessagesTab />}
           {activeTab.key === "public-api" && <PublicApiSettingsPanel />}
           {activeTab.key === "uid-zalo" && <ZaloUidMatchPanel />}
         </section>

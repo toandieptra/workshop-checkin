@@ -828,8 +828,8 @@ export function toggleZaloMessageTemplate(id: string, status: "active" | "archiv
   }).then(normalizeZaloTemplate);
 }
 
-export async function getZaloMessageQuota(): Promise<ZaloMessageQuota> {
-  const quota = await api<{ daily_limit: number; used_count: number; reserved_count: number; available_count: number }>("/zalo/quota");
+export async function getZaloMessageQuota(pagePid?: string): Promise<ZaloMessageQuota> {
+  const quota = await api<{ daily_limit: number; used_count: number; reserved_count: number; available_count: number }>(`/zalo/quota${pagePid ? `?page_pid=${encodeURIComponent(pagePid)}` : ""}`);
   const reset = new Date();
   reset.setDate(reset.getDate() + 1);
   reset.setHours(0, 0, 0, 0);
@@ -840,10 +840,12 @@ export async function preflightZaloBulkMessage(body: {
   template_id: string;
   workshop_id: string;
   guest_ids: string[];
+  /** Kênh Zalo cá nhân (Smax); bỏ trống = kênh mặc định */
+  page_pid?: string;
 }): Promise<ZaloBulkPreflight> {
   const [result, quota] = await Promise.all([
     api<{ template_id: string; recipient_count: number; resolved_count: number; unresolved_count: number; quota_required: number; can_send: boolean; eligible: Array<{ guest_id: string }> }>("/zalo/preflight", { method: "POST", body: JSON.stringify({ ...body, refresh_recipients: false }) }),
-    getZaloMessageQuota(),
+    getZaloMessageQuota(body.page_pid),
   ]);
   return {
     template_id: result.template_id,
@@ -859,6 +861,7 @@ export async function preflightZaloBulkMessage(body: {
 export async function sendZaloBulkMessage(body: {
   template_id: string;
   guest_ids: string[];
+  page_pid?: string;
 }): Promise<ZaloBulkSendResult> {
   const delivery = await api<{
     id: string; status: string; recipient_count: number; sent_count: number; failed_count: number;

@@ -184,13 +184,13 @@ def test_create_delivery_renders_each_guest_item_snapshot(monkeypatch):
         async def get(self, model, key):
             return workshop if model is Workshop and key == workshop_id else None
 
-    async def resolve_recipients(db, selected, *, refresh=False):
+    async def resolve_recipients(db, selected, *, refresh=False, **_kw):
         return {
             guest.id: SimpleNamespace(recipient_id=str(guest.id), recipient_name=guest.full_name)
             for guest in selected
         }
 
-    async def reserve_quota(db, amount, delivery_id):
+    async def reserve_quota(db, amount, delivery_id, **_kw):
         return None
 
     monkeypatch.setattr(settings, "ZALO_MESSAGES_ENABLED", True)
@@ -227,14 +227,14 @@ def test_create_delivery_skips_unresolved_guests(monkeypatch):
         async def get(self, *_args):
             return None
 
-    async def resolve_recipients(_db, _guests, *, refresh=False):
+    async def resolve_recipients(_db, _guests, *, refresh=False, **_kw):
         return {
             resolved_guest.id: SimpleNamespace(
                 recipient_id=str(resolved_guest.id), recipient_name=resolved_guest.full_name,
             ),
         }
 
-    async def reserve_quota(_db, amount, _delivery_id):
+    async def reserve_quota(_db, amount, _delivery_id, **_kw):
         assert amount == 1
 
     monkeypatch.setattr(settings, "ZALO_MESSAGES_ENABLED", True)
@@ -294,7 +294,7 @@ def test_resolve_recipients_uses_one_bulk_request_and_keeps_not_found_ineligible
             ],
         }
 
-    async def fake_consume_quota(_db, kind, amount):
+    async def fake_consume_quota(_db, kind, amount, **_kw):
         assert (kind, amount) == ("friend_lookup", 2)
 
     monkeypatch.setattr(settings, "ZALO_AGENT_ACCOUNT_OWNER_ID", "627379924046177199")

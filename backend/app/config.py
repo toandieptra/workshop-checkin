@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     ZALO_MESSAGES_ENABLED: bool = False
     ZALO_MESSAGES_DAILY_QUOTA: int = 200
     ZALO_FRIEND_LOOKUP_DAILY_QUOTA: int = 1000
+    # Zalo cá nhân qua Smax (thay zalo-agent bridge). "auto": dùng Smax khi có token; "bridge": ép dùng bridge cũ.
+    ZALO_USER_PROVIDER: str = "auto"
+    SMAX_API_URL: str = "https://api.smax.ai"
+    SMAX_BIZ_ALIAS: str | None = "dieptra"
+    SMAX_API_TOKEN: str | None = None
+    # Token đăng nhập web Smax (JWT có hạn) cho API nội bộ tạo/sửa block; có thể dán ở Cài đặt (ưu tiên hơn .env)
+    SMAX_USER_TOKEN: str | None = None
     ZALO_MESSAGES_WORKER_INTERVAL_SECONDS: int = 2
     ZALO_MESSAGES_MAX_ATTEMPTS: int = 3
     ZALO_MESSAGES_RESERVATION_TTL_SECONDS: int = 3600

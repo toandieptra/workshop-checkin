@@ -484,6 +484,29 @@ class GuestZaloMapping(Base):
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class SmaxCredential(Base):
+    __tablename__ = "smax_credentials"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    user_token: Mapped[str | None] = mapped_column(Text)
+    api_token: Mapped[str | None] = mapped_column(Text)
+    api_token_updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    api_token_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ZaloUserChannel(Base):
+    """Kênh Zalo cá nhân (Smax zaloweb) admin cho phép dùng; tối đa một kênh mặc định."""
+    __tablename__ = "zalo_user_channels"
+    page_pid: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    connection_error: Mapped[str | None] = mapped_column(Text)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ZaloDeliveryBatch(Base):
     __tablename__ = "zalo_delivery_batches"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
@@ -512,6 +535,10 @@ class ZaloDelivery(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sender_page_pid: Mapped[str | None] = mapped_column(Text)
+    rate_per_minute: Mapped[int | None] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(Text, default="template", nullable=False)
+    smax_block_id: Mapped[str | None] = mapped_column(Text)
     items: Mapped[list["ZaloDeliveryItem"]] = relationship("ZaloDeliveryItem", cascade="all, delete-orphan", order_by="ZaloDeliveryItem.created_at", lazy="selectin")
 
 

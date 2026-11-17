@@ -22,7 +22,7 @@ from .db import engine
 from .ws import manager
 from .routers import workshops, guests, checkin, search, import_export, registration_forms, auth, admin_users, zbs, zalo_agent, zalo_messages, admin_api_keys, public_api
 from .routers import admin_workshops
-from .routers import catalog, surveys as surveys_router, survey_public, gifts as gifts_router, zalo_uid_admin
+from .routers import catalog, surveys as surveys_router, survey_public, gifts as gifts_router, zalo_uid_admin, zalo_user_channels, smax_blocks as smax_blocks_router
 from .auth.bootstrap import bootstrap_super_admin
 from .services import admin_directory_sync
 from .db import async_session_maker
@@ -81,7 +81,13 @@ async def lifespan(app: FastAPI):
         from .services import zalo_messages
         _zalo_messages_task = asyncio.create_task(zalo_messages.worker_loop(async_session_maker))
     global _name_match_task
-    if settings.ZALO_UID_NAME_MATCH_ENABLED and settings.ZALO_AGENT_ACCOUNT_OWNER_ID:
+    from .services import smax as _smax
+    try:
+        async with async_session_maker() as _db:
+            await _smax.load_db_tokens(_db)
+    except Exception:
+        log.warning("Không nạp được token Smax từ DB", exc_info=True)
+    if settings.ZALO_UID_NAME_MATCH_ENABLED and (_smax.configured() or settings.ZALO_AGENT_ACCOUNT_OWNER_ID):
         from .services import zalo_name_match
         _name_match_task = asyncio.create_task(zalo_name_match.worker_loop(async_session_maker))
 
@@ -128,6 +134,8 @@ app.include_router(surveys_router.router)
 app.include_router(survey_public.router)
 app.include_router(gifts_router.router)
 app.include_router(zalo_uid_admin.router)
+app.include_router(zalo_user_channels.router)
+app.include_router(smax_blocks_router.router)
 
 
 @app.exception_handler(HTTPException)

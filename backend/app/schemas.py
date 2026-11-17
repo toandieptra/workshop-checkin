@@ -388,11 +388,21 @@ class ZaloRecipientSelection(BaseModel):
 class ZaloPreflightRequest(ZaloRecipientSelection):
     template_id: uuid.UUID
     refresh_recipients: bool = False
+    page_pid: str | None = None  # kênh Zalo (Smax); mặc định = kênh mặc định
 
 
 class ZaloSendRequest(BaseModel):
     template_id: uuid.UUID
     guest_id: uuid.UUID
+    idempotency_key: uuid.UUID
+    page_pid: str | None = None
+
+
+class ZaloBroadcastRequest(ZaloRecipientSelection):
+    """Gửi block Smax (Zalo User) cho khách được chọn, giãn nhịp rate_per_minute tin/phút."""
+    block_id: str = Field(min_length=1, max_length=64)
+    page_pid: str | None = None
+    rate_per_minute: int = Field(default=60, ge=1, le=120)
     idempotency_key: uuid.UUID
 
 
@@ -400,6 +410,7 @@ class ZaloBatchSendRequest(ZaloRecipientSelection):
     template_id: uuid.UUID
     name: str | None = Field(default=None, max_length=120)
     idempotency_key: uuid.UUID
+    page_pid: str | None = None
 
 
 class ZaloDeliveryItemOut(BaseModel):
@@ -447,6 +458,10 @@ class ZaloDeliveryOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None
+    source: str = "template"
+    rate_per_minute: int | None = None
+    sender_page_pid: str | None = None
+    smax_block_id: str | None = None
     items: list[ZaloDeliveryItemOut] = Field(default_factory=list)
 
 

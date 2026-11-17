@@ -21,6 +21,9 @@ import type {
   ZaloMessageTemplate,
 } from "@/types/zalo-message";
 import { useModalDismiss } from "./useModalDismiss";
+import { apiPath } from "@/lib/survey-admin";
+
+type ZaloUserChannel = { page_pid: string; name: string; is_default: boolean; connection_error: string | null };
 import { errorMessage } from "./utils";
 
 export default function BulkSendModal({
@@ -49,6 +52,17 @@ export default function BulkSendModal({
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [channels, setChannels] = useState<ZaloUserChannel[]>([]);
+  const [pagePid, setPagePid] = useState("");
+  useEffect(() => {
+    // Kênh Zalo cá nhân (Smax) admin đã bật; rỗng = đang dùng bridge cũ
+    void api<{ channels: ZaloUserChannel[] }>(apiPath("/api/zalo-user/channels/enabled"), { adminLoading: false })
+      .then((res) => {
+        setChannels(res.channels);
+        setPagePid((cur) => cur || res.channels.find((c) => c.is_default)?.page_pid || res.channels[0]?.page_pid || "");
+      })
+      .catch(() => setChannels([]));
+  }, []);
 
   const handleClose = useCallback(() => {
     if (submitting) return;
@@ -63,7 +77,7 @@ export default function BulkSendModal({
   }, [onClose, result, selected.length, submitting]);
   useModalDismiss(handleClose);
 
-  const requestScope = JSON.stringify([workshopId, templateId, accessKey, selected]);
+  const requestScope = JSON.stringify([workshopId, templateId, accessKey, selected, pagePid]);
   const liveScope = useRef(requestScope);
   liveScope.current = requestScope;
 
@@ -122,6 +136,7 @@ export default function BulkSendModal({
           template_id: templateId,
           workshop_id: workshopId,
           guest_ids: selected,
+          page_pid: pagePid || undefined,
         });
       if (liveScope.current === snapshot) setPreflight(data);
     } catch (preflightError) {
@@ -149,6 +164,7 @@ export default function BulkSendModal({
       const data = await sendZaloBulkMessage({
           template_id: templateId,
           guest_ids: preflight.eligible_guest_ids,
+          page_pid: pagePid || undefined,
         });
       if (liveScope.current === snapshot) { setResult(data); onSent(); }
     } catch (sendError) {
@@ -346,6 +362,23 @@ export default function BulkSendModal({
                     ))}
                   </select>
                 </label>
+                {channels.length > 0 && (
+                  <label className="text-sm font-semibold text-text-secondary sm:col-span-2">
+                    Gửi từ kênh Zalo
+                    <select
+                      disabled={submitting}
+                      value={pagePid}
+                      onChange={(event) => { setPagePid(event.target.value); setPreflight(null); }}
+                      className="mt-1 min-h-10 w-full rounded-md border border-line bg-white px-3 font-normal outline-none focus:border-brand"
+                    >
+                      {channels.map((c) => (
+                        <option key={c.page_pid} value={c.page_pid} disabled={!!c.connection_error}>
+                          {c.name}{c.is_default ? " (mặc định)" : ""}{c.connection_error ? " — mất kết nối" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
               <div className="mt-5 overflow-hidden rounded-lg border border-line">
                 <div className="flex flex-col gap-3 border-b border-line bg-surface-muted p-3 sm:flex-row sm:items-center sm:justify-between">

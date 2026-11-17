@@ -13,6 +13,7 @@ import { PERMISSIONS } from "@/lib/permissions";
 import WorkshopPicker from "@/components/WorkshopPicker";
 import GiftRedeemModal from "@/components/GiftRedeemModal";
 import CheckinDialog from "@/components/CheckinDialog";
+import ZaloBroadcastModal from "@/components/ZaloBroadcastModal";
 import { formatEventDateTime, formatTimestamp } from "@/lib/date-format";
 
 type ColumnKey = "name" | "phone" | "businessModel" | "source" | "note" | "creator" | "registered" | "checkedIn" | "gifts" | "qr" | "zbs" | "actions" | "registeredAt";
@@ -148,7 +149,8 @@ export default function DesktopAdmin() {
   ];
   const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(() =>
     Object.fromEntries(TABLE_COLUMNS.map(({ key }) => [key, defaultVisibleColumns.includes(key)])) as Record<ColumnKey, boolean>);
-  const visibleColumnCount = TABLE_COLUMNS.filter(({ key }) => visibleColumns[key]).length;
+  const canBroadcast = can(PERMISSIONS.zaloMessagesBulkSend) || can(PERMISSIONS.zaloMessagesSend);
+  const visibleColumnCount = TABLE_COLUMNS.filter(({ key }) => visibleColumns[key]).length + (canBroadcast ? 1 : 0);
   const searchRef = useRef<HTMLInputElement>(null);
   const [isMac, setIsMac] = useState(true);
   // ⌘K / Ctrl+K đưa con trỏ tới ô tìm khách từ bất kỳ đâu trên trang.
@@ -170,6 +172,24 @@ export default function DesktopAdmin() {
   const [pageSize, setPageSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
 
+  // Chọn khách để Broadcast Zalo (giữ khi đổi trang / lọc; xoá khi đổi workshop)
+  type PickedGuest = { id: string; full_name: string; phone: string | null };
+  const [selectedIds, setSelectedIds] = useState<Map<string, PickedGuest>>(new Map());
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  useEffect(() => { setSelectedIds(new Map()); }, [currentWorkshop?.id]);
+  const pick = (g: Guest): PickedGuest => ({ id: g.id, full_name: g.full_name, phone: g.phone ?? null });
+  const allVisibleSelected = visibleGuests.length > 0 && visibleGuests.every((g) => selectedIds.has(g.id));
+  const toggleSelectAll = () => setSelectedIds((prev) => {
+    const next = new Map(prev);
+    if (allVisibleSelected) visibleGuests.forEach((g) => next.delete(g.id));
+    else visibleGuests.forEach((g) => next.set(g.id, pick(g)));
+    return next;
+  });
+  const toggleSelect = (g: Guest) => setSelectedIds((prev) => {
+    const next = new Map(prev);
+    if (next.has(g.id)) next.delete(g.id); else next.set(g.id, pick(g));
+    return next;
+  });
   const pageCount = Math.max(1, Math.ceil(visibleGuests.length / pageSize));
   const page = Math.min(currentPage, pageCount);
   const pagedGuests = useMemo(
@@ -322,6 +342,13 @@ export default function DesktopAdmin() {
           <GiftRedeemModal workshopId={currentWorkshop.id} workshopName={currentWorkshop.name} onClose={() => setShowGiftRedeem(false)} onRedeemed={(guestId) => void refreshGuest(guestId)} />
         )}
 
+      {showBroadcast && currentWorkshop && (
+        <ZaloBroadcastModal
+          workshopId={currentWorkshop.id}
+          guests={Array.from(selectedIds.values())}
+          onClose={() => setShowBroadcast(false)}
+        />
+      )}
         {checkinGuest && can(PERMISSIONS.guestsCheckin) && (
           <CheckinDialog guest={checkinGuest} onClose={() => setCheckinGuest(null)}
             onConfirm={async (actual) => { await doCheckin(checkinGuest, actual); setCheckinGuest(null); }} />
@@ -546,6 +573,13 @@ export default function DesktopAdmin() {
                 <option value="checked_in">Đã check-in</option>
                 <option value="not_checked_in">Chưa check-in</option>
               </select>
+              {canBroadcast && selectedIds.size > 0 && (
+                <div className="flex items-center gap-2 rounded-md border border-brand bg-cyan-50 px-2 py-1 text-sm">
+                  <span className="font-semibold text-brand-teal">Đã chọn {selectedIds.size}</span>
+                  <button type="button" onClick={() => setShowBroadcast(true)} className="min-h-8 rounded-md bg-brand px-3 text-xs font-bold text-brand-teal">Broadcast Zalo</button>
+                  <button type="button" onClick={() => setSelectedIds(new Map())} className="min-h-8 rounded-md px-2 text-xs text-muted hover:text-ink">Bỏ chọn</button>
+                </div>
+              )}
               <div className="relative">
                 <input
                   ref={searchRef}
@@ -576,6 +610,10 @@ export default function DesktopAdmin() {
             <table className="min-w-[1100px] w-full text-sm">
               <thead className="bg-surface-muted text-left text-muted">
                 <tr>
+                  {canBroadcast && <th className="w-10 px-3 py-2">
+                    <input type="checkbox" aria-label="Chọn tất cả khách đang lọc" checked={allVisibleSelected} onChange={toggleSelectAll}
+                      className="h-4 w-4 cursor-pointer rounded accent-brand-teal" title={`Chọn tất cả ${visibleGuests.length} khách đang lọc`} />
+                  </th>}
                   {visibleColumns.name && <th className="px-3 py-2 font-medium min-w-[200px]">Tên khách</th>}
                   {visibleColumns.phone && <th className="px-3 py-2 font-medium">SĐT</th>}
                   {visibleColumns.businessModel && <th className="px-3 py-2 font-medium min-w-[160px]">Mô hình kinh doanh</th>}
@@ -609,6 +647,10 @@ export default function DesktopAdmin() {
                        }}
                        className={`${expanded ? "border-x-2 border-t-2 border-brand bg-cyan-50" : vip ? "bg-cyan-50" : duplicatePhones.has(normalizePhone(g.phone)) ? "bg-red-50" : ""} cursor-pointer hover:bg-brand/5 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand`}
                      >
+                        {canBroadcast && <td className="px-3 py-2 align-top" data-row-action>
+                          <input type="checkbox" aria-label={`Chọn ${g.full_name}`} checked={selectedIds.has(g.id)} onChange={() => toggleSelect(g)}
+                            className="mt-0.5 h-4 w-4 cursor-pointer rounded accent-brand-teal" />
+                        </td>}
                         {visibleColumns.name && <td className="px-3 py-2 align-top">
                          <div className="flex items-start justify-between gap-3">
                            <div className="font-semibold text-ink">{g.full_name}</div>

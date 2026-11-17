@@ -11,7 +11,7 @@ from urllib.parse import urljoin
 
 import httpx
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import exists, select, text, update
+from sqlalchemy import exists, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -22,6 +22,8 @@ from ..models import (
     ZaloQuotaReservation, ZaloQuotaUsage, ZaloTemplate,
 )
 from .zalo_agent import bridge_request
+from . import smax
+from .zalo_sender import Sender, current_sender
 
 log = logging.getLogger("zalo_messages")
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -241,22 +243,54 @@ async def cache_remote_media(blocks: list[dict]) -> list[dict]:
     return cached
 
 
-async def resolve_recipient(db: AsyncSession, guest: Guest, *, refresh: bool = False) -> GuestZaloMapping | None:
-    if not settings.ZALO_AGENT_ACCOUNT_OWNER_ID:
-        raise ValueError("Chưa cấu hình account_owner_id")
+async def _store_mapping(db: AsyncSession, guest: Guest, owner: str, recipient_id: str, name: str | None, resolution: dict) -> GuestZaloMapping:
     mapping = await db.get(GuestZaloMapping, guest.id)
-    if mapping and mapping.account_owner_id == settings.ZALO_AGENT_ACCOUNT_OWNER_ID and not refresh:
-        return mapping
+    if mapping is None:
+        mapping = GuestZaloMapping(guest_id=guest.id, account_owner_id=owner, recipient_id=recipient_id)
+        db.add(mapping)
+    mapping.account_owner_id = owner
+    mapping.recipient_id = recipient_id
+    mapping.recipient_name = name
+    mapping.resolution = resolution
+    mapping.resolved_at = mapping.refreshed_at = datetime.now(timezone.utc)
+    await db.flush()
+    return mapping
+
+
+async def _consume_lookup(sender: Sender, amount: int) -> None:
     async with async_session_maker() as quota_db:
         try:
-            await consume_quota(quota_db, "friend_lookup", 1)
+            await consume_quota(quota_db, "friend_lookup", amount, owner_id=sender.quota_owner)
             await quota_db.commit()
         except Exception:
             await quota_db.rollback()
             raise
+
+
+async def _smax_lookup(db: AsyncSession, guest: Guest, sender: Sender) -> GuestZaloMapping | None:
+    try:
+        found = await smax.find_friend(sender.page_pid, guest.phone)
+    except smax.SmaxRejected as exc:
+        raise ValueError(str(exc)) from exc
+    if not found:
+        return None
+    return await _store_mapping(db, guest, sender.mapping_owner, found["uid"], found["display_name"] or None, {
+        "provider": "smax", "page_pid": sender.page_pid, "user_id": found["uid"],
+        "display_name": found["display_name"], "avatar": found.get("avatar"),
+    })
+
+
+async def resolve_recipient(db: AsyncSession, guest: Guest, *, refresh: bool = False, sender: Sender | None = None) -> GuestZaloMapping | None:
+    sender = sender or await current_sender(db)
+    mapping = await db.get(GuestZaloMapping, guest.id)
+    if mapping and mapping.account_owner_id == sender.mapping_owner and not refresh:
+        return mapping
+    await _consume_lookup(sender, 1)
+    if sender.provider == "smax":
+        return await _smax_lookup(db, guest, sender)
     try:
         result = await bridge_request("POST", "/resolve-recipient", {
-            "account_owner_id": settings.ZALO_AGENT_ACCOUNT_OWNER_ID,
+            "account_owner_id": sender.mapping_owner,
             "guest_id": str(guest.id), "name": guest.full_name, "phone": guest.phone,
         })
     except HTTPException as exc:
@@ -266,43 +300,32 @@ async def resolve_recipient(db: AsyncSession, guest: Guest, *, refresh: bool = F
     recipient_id = str(result.get("thread_id") or result.get("recipient_id") or result.get("user_id") or result.get("id") or "").strip()
     if not recipient_id:
         return None
-    if mapping is None:
-        mapping = GuestZaloMapping(guest_id=guest.id, account_owner_id=settings.ZALO_AGENT_ACCOUNT_OWNER_ID, recipient_id=recipient_id)
-        db.add(mapping)
-    mapping.account_owner_id = settings.ZALO_AGENT_ACCOUNT_OWNER_ID
-    mapping.recipient_id = recipient_id
-    mapping.recipient_name = result.get("recipient_name") or result.get("name")
-    mapping.resolution = result
-    mapping.resolved_at = mapping.refreshed_at = datetime.now(timezone.utc)
-    await db.flush()
-    return mapping
+    return await _store_mapping(db, guest, sender.mapping_owner, recipient_id,
+                                result.get("recipient_name") or result.get("name"), result)
 
 
-async def resolve_recipients(db: AsyncSession, guests: list[Guest], *, refresh: bool = False) -> dict:
-    if not settings.ZALO_AGENT_ACCOUNT_OWNER_ID:
-        raise ValueError("Chưa cấu hình account_owner_id")
+async def resolve_recipients(db: AsyncSession, guests: list[Guest], *, refresh: bool = False, sender: Sender | None = None) -> dict:
+    sender = sender or await current_sender(db)
     pending = []
     resolved = {}
     for guest in guests:
         mapping = await db.get(GuestZaloMapping, guest.id)
-        if mapping and mapping.account_owner_id == settings.ZALO_AGENT_ACCOUNT_OWNER_ID and not refresh:
+        if mapping and mapping.account_owner_id == sender.mapping_owner and not refresh:
             resolved[guest.id] = mapping
         else:
             pending.append(guest)
-
     if not pending:
         return resolved
-
-    async with async_session_maker() as quota_db:
-        try:
-            await consume_quota(quota_db, "friend_lookup", len(pending))
-            await quota_db.commit()
-        except Exception:
-            await quota_db.rollback()
-            raise
-
+    await _consume_lookup(sender, len(pending))
+    if sender.provider == "smax":
+        # Smax không có API tra nhiều SĐT một lần → tra lần lượt
+        for guest in pending:
+            mapping = await _smax_lookup(db, guest, sender)
+            if mapping:
+                resolved[guest.id] = mapping
+        return resolved
     result = await bridge_request("POST", "/resolve-recipients", {
-        "account_owner_id": settings.ZALO_AGENT_ACCOUNT_OWNER_ID,
+        "account_owner_id": sender.mapping_owner,
         "recipients": [
             {"guest_id": str(guest.id), "name": guest.full_name, "phone": guest.phone}
             for guest in pending
@@ -314,21 +337,8 @@ async def resolve_recipients(db: AsyncSession, guests: list[Guest], *, refresh: 
         recipient_id = str(item.get("thread_id") or item.get("recipient_id") or item.get("user_id") or item.get("id") or "").strip()
         if not recipient_id:
             continue
-        mapping = await db.get(GuestZaloMapping, guest.id)
-        if mapping is None:
-            mapping = GuestZaloMapping(
-                guest_id=guest.id,
-                account_owner_id=settings.ZALO_AGENT_ACCOUNT_OWNER_ID,
-                recipient_id=recipient_id,
-            )
-            db.add(mapping)
-        mapping.account_owner_id = settings.ZALO_AGENT_ACCOUNT_OWNER_ID
-        mapping.recipient_id = recipient_id
-        mapping.recipient_name = item.get("recipient_name") or item.get("name")
-        mapping.resolution = item
-        mapping.resolved_at = mapping.refreshed_at = datetime.now(timezone.utc)
-        await db.flush()
-        resolved[guest.id] = mapping
+        resolved[guest.id] = await _store_mapping(db, guest, sender.mapping_owner, recipient_id,
+                                                  item.get("recipient_name") or item.get("name"), item)
     return resolved
 
 
@@ -351,10 +361,11 @@ def quota_limit(capability: str) -> int:
     raise ValueError("capability quota không hợp lệ")
 
 
-async def quota_usage(db: AsyncSession, capability: str, *, now: datetime | None = None, lock: bool = False) -> ZaloQuotaUsage:
-    owner_id = settings.ZALO_AGENT_ACCOUNT_OWNER_ID
-    if not owner_id:
-        raise ValueError("Chưa cấu hình account_owner_id")
+async def quota_usage(db: AsyncSession, capability: str, *, now: datetime | None = None, lock: bool = False,
+                      owner_id: str | None = None) -> ZaloQuotaUsage:
+    """Hạn mức theo tài khoản Zalo gửi: page_pid (Smax) hoặc owner id (bridge). Mặc định: nguồn gửi hiện tại."""
+    if owner_id is None:
+        owner_id = (await current_sender(db)).quota_owner
     now = now or datetime.now(timezone.utc)
     day = now.astimezone(VN_TZ).date()
     limit = quota_limit(capability)
@@ -377,19 +388,20 @@ async def quota_usage(db: AsyncSession, capability: str, *, now: datetime | None
     return usage
 
 
-async def consume_quota(db: AsyncSession, capability: str, amount: int) -> None:
-    usage = await quota_usage(db, capability, lock=True)
+async def consume_quota(db: AsyncSession, capability: str, amount: int, *, owner_id: str | None = None) -> None:
+    usage = await quota_usage(db, capability, lock=True, owner_id=owner_id)
     if amount < 1 or usage.used_count + usage.reserved_count + amount > usage.daily_limit:
         raise ValueError(f"Đã vượt quota {capability} trong ngày")
     usage.used_count += amount
     usage.updated_at = datetime.now(timezone.utc)
 
 
-async def reserve_quota(db: AsyncSession, amount: int, delivery_id, *, capability: str = "message", now: datetime | None = None) -> ZaloQuotaReservation:
+async def reserve_quota(db: AsyncSession, amount: int, delivery_id, *, capability: str = "message", now: datetime | None = None,
+                        owner_id: str | None = None) -> ZaloQuotaReservation:
     if amount < 1:
         raise ValueError("quota reservation phải lớn hơn 0")
     now = now or datetime.now(timezone.utc)
-    usage = await quota_usage(db, capability, now=now, lock=True)
+    usage = await quota_usage(db, capability, now=now, lock=True, owner_id=owner_id)
     day = usage.usage_date
     # Active deliveries own their reservation until every item reaches a terminal
     # state. A wall-clock TTL must not release quota while the worker can still send.
@@ -469,7 +481,7 @@ async def ensure_current_day_reservation(db: AsyncSession, delivery_id) -> None:
         ZaloQuotaUsage.capability == reservation.capability,
         ZaloQuotaUsage.usage_date == reservation.usage_date,
     ).with_for_update())
-    new_usage = await quota_usage(db, reservation.capability, now=now, lock=True)
+    new_usage = await quota_usage(db, reservation.capability, now=now, lock=True, owner_id=reservation.account_owner_id)
     if new_usage.used_count + new_usage.reserved_count + remainder > new_usage.daily_limit:
         raise ValueError("Không đủ quota gửi Zalo của ngày hiện tại")
     if old_usage:
@@ -479,16 +491,18 @@ async def ensure_current_day_reservation(db: AsyncSession, delivery_id) -> None:
     reservation.updated_at = now
 
 
-async def create_delivery(db: AsyncSession, template: ZaloTemplate, guests: list[Guest], created_by=None, batch_id=None, refresh=False, idempotency_key=None) -> ZaloDelivery:
+async def create_delivery(db: AsyncSession, template: ZaloTemplate, guests: list[Guest], created_by=None, batch_id=None, refresh=False,
+                          idempotency_key=None, page_pid: str | None = None) -> ZaloDelivery:
     if not settings.ZALO_MESSAGES_ENABLED:
-        raise ValueError("Zalo messages đang bị tắt")
+        raise ValueError("Gửi tin Zalo đang tắt trên máy chủ này (ZALO_MESSAGES_ENABLED=false)")
+    sender = await current_sender(db, page_pid)
     blocks = validate_blocks(template.content_blocks)
     delivery = ZaloDelivery(batch_id=batch_id, template_id=template.id, template_name=template.name,
                              content_blocks=blocks, recipient_count=len(guests), created_by=created_by,
-                             idempotency_key=str(idempotency_key))
+                             idempotency_key=str(idempotency_key), sender_page_pid=sender.page_pid)
     db.add(delivery)
     await db.flush()
-    mappings = await resolve_recipients(db, guests, refresh=refresh)
+    mappings = await resolve_recipients(db, guests, refresh=refresh, sender=sender)
     resolved: list[tuple[Guest, GuestZaloMapping]] = []
     workshops: dict = {}
     for guest in guests:
@@ -501,7 +515,7 @@ async def create_delivery(db: AsyncSession, template: ZaloTemplate, guests: list
         raise ValueError("Không resolve được recipient Zalo nào")
     delivery.recipient_count = len(resolved)
     required = len(blocks) * len(resolved)
-    await reserve_quota(db, required, delivery.id)
+    await reserve_quota(db, required, delivery.id, owner_id=sender.quota_owner)
     for guest, mapping in resolved:
         for position, block in enumerate(blocks):
             db.add(ZaloDeliveryItem(
@@ -559,6 +573,211 @@ async def enqueue_auto_send_checkin(db: AsyncSession, guest: Guest) -> list[Zalo
     return await enqueue_auto_send(db, guest, AUTO_SEND_CHECKIN)
 
 
+# ───────────── Broadcast từ block Smax (Zalo User) ─────────────
+# Biến trong block Smax dạng {{tên}}: nhận biến của workshop + vài tên thường dùng trong Smax.
+SMAX_VAR_ALIASES = {"name": "full_name", "customer_name": "full_name", "ten": "full_name", "sdt": "phone"}
+
+
+def smax_block_contents(block: dict) -> list[dict]:
+    """Card tin nhắn Zalo User → các block gửi: chữ trước, ảnh sau (Smax bỏ chữ nếu gửi kèm ảnh)."""
+    from .smax_blocks import card_view, message_cards
+    out: list[dict] = []
+    for card in message_cards(block):
+        view = card_view(card)
+        if view["text"].strip():
+            if len(view["text"]) > 2000:
+                raise ValueError("Tin chữ trong block dài quá 2000 ký tự")
+            out.append({"type": "text", "text": view["text"]})
+        if view["images"]:
+            out.append({"type": "image_album", "images": [{"url": u} for u in view["images"]]})
+    if not out:
+        raise ValueError("Block không có nội dung chữ hoặc ảnh để gửi")
+    return out
+
+
+def unknown_placeholders(blocks: list[dict]) -> list[str]:
+    names = set()
+    for b in blocks:
+        if b["type"] == "text":
+            names.update(PLACEHOLDER_RE.findall(b["text"]))
+    return sorted(n for n in names if n not in KNOWN_TEMPLATE_VARIABLES and n not in SMAX_VAR_ALIASES)
+
+
+def render_smax_block(block: dict, values: dict[str, str]) -> dict:
+    if block.get("type") != "text":
+        return dict(block)
+    text_value = PLACEHOLDER_RE.sub(lambda m: values.get(SMAX_VAR_ALIASES.get(m.group(1), m.group(1)), ""), block["text"])
+    return {**block, "text": text_value}
+
+
+def dedupe_by_phone(guests: list[Guest]) -> tuple[list[Guest], int]:
+    """Mỗi SĐT chỉ nhận 1 lần (một người đăng ký nhiều lần). Trả (danh sách, số bị bỏ do trùng)."""
+    seen, out = set(), []
+    for g in guests:
+        key = re.sub(r"\D", "", g.phone or "")[-9:]
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(g)
+    return out, len(guests) - len(out)
+
+
+async def create_smax_broadcast(db: AsyncSession, block_id: str, guests: list[Guest], *, created_by=None, batch_id=None,
+                                page_pid: str | None = None, rate_per_minute: int = 60, idempotency_key=None) -> ZaloDelivery:
+    """Xếp hàng gửi block Smax cho khách. Tra Zalo theo SĐT để worker làm dần (không chặn request)."""
+    if not settings.ZALO_MESSAGES_ENABLED:
+        raise ValueError("Gửi tin Zalo đang tắt trên máy chủ này (ZALO_MESSAGES_ENABLED=false)")
+    from .smax_blocks import get_block
+    sender = await current_sender(db, page_pid)
+    if sender.provider != "smax":
+        raise ValueError("Broadcast block Smax cần dùng kênh Zalo qua Smax")
+    try:
+        block = await get_block(block_id)
+    except smax.SmaxRejected as exc:
+        raise ValueError(str(exc)) from exc
+    if not block or block.get("platform") != "zaloweb":
+        raise ValueError("Không tìm thấy block Zalo User trên Smax")
+    contents = smax_block_contents(block)
+    unknown = unknown_placeholders(contents)
+    if unknown:
+        raise ValueError("Block có biến chưa hỗ trợ: " + ", ".join("{{%s}}" % n for n in unknown))
+    guests = [g for g in guests if g.phone]
+    guests, _dupes = dedupe_by_phone(guests)
+    if not guests:
+        raise ValueError("Không có khách nào có số điện thoại")
+    rate = max(1, min(int(rate_per_minute or 60), 120))
+    delivery = ZaloDelivery(batch_id=batch_id, template_id=None, template_name=f"Broadcast · {block.get('name') or block_id}",
+                            content_blocks=contents, recipient_count=len(guests), created_by=created_by,
+                            idempotency_key=str(idempotency_key), sender_page_pid=sender.page_pid,
+                            rate_per_minute=rate, source="smax_block", smax_block_id=block_id)
+    db.add(delivery)
+    await db.flush()
+    await reserve_quota(db, len(contents) * len(guests), delivery.id, owner_id=sender.quota_owner)
+    workshops: dict = {}
+    for guest in guests:
+        if guest.workshop_id not in workshops:
+            workshops[guest.workshop_id] = await db.get(Workshop, guest.workshop_id)
+        mapping = await db.get(GuestZaloMapping, guest.id)
+        known = mapping if mapping and mapping.account_owner_id == sender.mapping_owner else None
+        values = template_variables(guest, workshops.get(guest.workshop_id))
+        for position, content in enumerate(contents):
+            db.add(ZaloDeliveryItem(
+                delivery_id=delivery.id, guest_id=guest.id,
+                recipient_id=known.recipient_id if known else None,
+                recipient_name=known.recipient_name if known else None,
+                phone=guest.phone, block_position=position,
+                block_payload=render_smax_block(content, values), quota_cost=1,
+            ))
+    await db.flush()
+    return delivery
+
+
+async def _finish_delivery_if_done(db: AsyncSession, delivery: ZaloDelivery) -> None:
+    remaining = await db.scalar(select(ZaloDeliveryItem.id).where(
+        ZaloDeliveryItem.delivery_id == delivery.id, ZaloDeliveryItem.status.in_(["pending", "sending"])
+    ).limit(1))
+    if not remaining:
+        guest_states = (await db.execute(select(
+            ZaloDeliveryItem.guest_id, ZaloDeliveryItem.status
+        ).where(ZaloDeliveryItem.delivery_id == delivery.id))).all()
+        statuses: dict = {}
+        for guest_id, status in guest_states:
+            statuses.setdefault(guest_id, []).append(status)
+        delivery.sent_count = sum(all(status == "sent" for status in values) for values in statuses.values())
+        delivery.failed_count = sum(any(status == "failed" for status in values) for values in statuses.values())
+        has_pending = any(status in {"pending", "sending"} for values in statuses.values() for status in values)
+        has_success = any(status == "sent" for values in statuses.values() for status in values)
+        has_failed = any(status == "failed" for values in statuses.values() for status in values)
+        if has_pending:
+            delivery.status = "queued"
+        elif has_failed and has_success:
+            delivery.status = "partial_success"
+        elif has_failed:
+            delivery.status = "failed"
+        else:
+            delivery.status = "success"
+        delivery.completed_at = datetime.now(timezone.utc)
+        if delivery.batch_id:
+            from ..models import ZaloDeliveryBatch
+            batch = await db.get(ZaloDeliveryBatch, delivery.batch_id)
+            if batch:
+                batch.status = delivery.status
+                batch.updated_at = delivery.completed_at
+
+
+async def _resolve_deferred(db: AsyncSession, delivery: ZaloDelivery, item: ZaloDeliveryItem) -> bool:
+    """Broadcast: tra Zalo theo SĐT ngay trước khi gửi. Không có Zalo → bỏ mọi tin của khách này trong lượt."""
+    guest = await db.get(Guest, item.guest_id) if item.guest_id else None
+    error = None
+    mapping = None
+    if guest:
+        try:
+            sender = await current_sender(db, delivery.sender_page_pid)
+            mapping = await resolve_recipient(db, guest, sender=sender)
+        except smax.SmaxError as exc:  # tạm thời → thử lại sau
+            item.next_attempt_at = datetime.now(timezone.utc) + timedelta(minutes=1)
+            item.last_error = str(exc)
+            return False
+        except ValueError as exc:
+            error = str(exc)
+    if mapping:
+        siblings = (await db.execute(select(ZaloDeliveryItem).where(
+            ZaloDeliveryItem.delivery_id == delivery.id, ZaloDeliveryItem.guest_id == item.guest_id))).scalars().all()
+        for s in siblings:
+            s.recipient_id, s.recipient_name = mapping.recipient_id, mapping.recipient_name
+        return True
+    reason = error or "Không tìm thấy Zalo của số điện thoại này"
+    now = datetime.now(timezone.utc)
+    pending = (await db.execute(select(ZaloDeliveryItem).where(
+        ZaloDeliveryItem.delivery_id == delivery.id, ZaloDeliveryItem.guest_id == item.guest_id,
+        ZaloDeliveryItem.status == "pending"))).scalars().all()
+    for s in pending:
+        s.status, s.last_error, s.updated_at = "failed", reason, now
+    await settle_quota(db, delivery.id, released=sum(s.quota_cost for s in pending))
+    await _finish_delivery_if_done(db, delivery)
+    return False
+
+
+class _Sent(Exception):
+    """Đánh dấu đã gửi xong qua Smax (thoát khối try của đường bridge)."""
+
+
+def _public_url(url: str) -> str:
+    url = str(url)
+    if url.startswith("/"):
+        url = f"{(settings.PUBLIC_BASE_URL or '').rstrip('/')}{url}"
+    if not url.startswith("https://"):
+        raise ValueError("Ảnh/video phải có link https công khai để Smax tải (kiểm tra PUBLIC_BASE_URL)")
+    return url
+
+
+async def _send_block_smax(item: ZaloDeliveryItem, page_pid: str) -> None:
+    """Một block template → các lần gọi Smax. Chữ không gộp với ảnh (Smax bỏ mất chữ); video gửi dạng file."""
+    block = item.block_payload
+    steps: list[dict] = []
+    if block["type"] == "text":
+        steps.append({"message": block["text"]})
+    elif block["type"] == "image_album":
+        steps.append({"images": [_public_url(img["url"]) for img in block["images"]]})
+        if block.get("caption"):
+            steps.append({"message": block["caption"]})
+    else:
+        steps.append({"file": _public_url(block["url"])})
+        if block.get("caption"):
+            steps.append({"message": block["caption"]})
+    message_ids = list(item.message_ids or [])
+    responses = []
+    for content in steps:
+        resp = await smax.send_zaloweb(page_pid, str(item.recipient_id), content)
+        responses.append(resp)
+        mid = smax.message_id(resp)
+        if mid:
+            message_ids.append(mid)
+    item.status, item.message_ids, item.sent_at = "sent", message_ids, datetime.now(timezone.utc)
+    item.provider_response = {"provider": "smax", "page_pid": page_pid, "responses": responses}
+
+
 async def process_once(db: AsyncSession) -> None:
     now = datetime.now(timezone.utc)
     await db.execute(update(ZaloDeliveryItem).where(
@@ -566,9 +785,10 @@ async def process_once(db: AsyncSession) -> None:
         ZaloDeliveryItem.sending_started_at < now - timedelta(minutes=10),
     ).values(status="pending", next_attempt_at=now, updated_at=now))
     earlier = aliased(ZaloDeliveryItem)
+    deferred = select(ZaloDelivery.id).where(ZaloDelivery.source == "smax_block")
     item = await db.scalar(select(ZaloDeliveryItem).where(
         ZaloDeliveryItem.status == "pending", ZaloDeliveryItem.next_attempt_at <= now,
-        ZaloDeliveryItem.recipient_id.is_not(None),
+        (ZaloDeliveryItem.recipient_id.is_not(None)) | (ZaloDeliveryItem.delivery_id.in_(deferred)),
         ~exists().where(
             earlier.delivery_id == ZaloDeliveryItem.delivery_id,
             earlier.guest_id == ZaloDeliveryItem.guest_id,
@@ -581,6 +801,19 @@ async def process_once(db: AsyncSession) -> None:
         await db.commit()
         return
     delivery = await db.get(ZaloDelivery, item.delivery_id)
+    if delivery.rate_per_minute:
+        # Giãn nhịp như Broadcast của Smax: tối đa rate_per_minute tin/phút cho lượt gửi này
+        interval = timedelta(seconds=60 / max(1, delivery.rate_per_minute))
+        last = await db.scalar(select(func.max(ZaloDeliveryItem.sending_started_at)).where(
+            ZaloDeliveryItem.delivery_id == delivery.id, ZaloDeliveryItem.id != item.id))
+        if last and now - last < interval:
+            item.next_attempt_at = last + interval
+            await db.commit()
+            return
+    if not item.recipient_id:
+        if not await _resolve_deferred(db, delivery, item):
+            await db.commit()
+            return
     try:
         await ensure_current_day_reservation(db, delivery.id)
     except ValueError as exc:
@@ -591,6 +824,10 @@ async def process_once(db: AsyncSession) -> None:
     item.status, item.attempt_count, item.sending_started_at = "sending", item.attempt_count + 1, now
     await db.commit()
     try:
+        if delivery.sender_page_pid:
+            await _send_block_smax(item, delivery.sender_page_pid)
+            await settle_quota(db, delivery.id, consumed=item.quota_cost)
+            raise _Sent()
         message_ids = list(item.message_ids or [])
         block = item.block_payload
         payload = {
@@ -624,10 +861,14 @@ async def process_once(db: AsyncSession) -> None:
         item.status, item.message_ids, item.sent_at = "sent", message_ids, datetime.now(timezone.utc)
         item.provider_response = result
         await settle_quota(db, delivery.id, consumed=item.quota_cost)
+    except _Sent:
+        pass
     except Exception as exc:
         item.last_error = str(exc)
         item.provider_response = item.provider_response or {}
-        if isinstance(exc, HTTPException) and exc.status_code == 503:
+        if isinstance(exc, smax.SmaxRejected):
+            exc = ValueError(str(exc))  # từ chối có lý do → không thử lại
+        if (isinstance(exc, HTTPException) and exc.status_code == 503) or isinstance(exc, smax.SmaxAmbiguousError):
             item.status = "unknown"
             await settle_quota(db, delivery.id, consumed=item.quota_cost)
             item.updated_at = datetime.now(timezone.utc)
@@ -652,36 +893,7 @@ async def process_once(db: AsyncSession) -> None:
             if blocked_items:
                 await settle_quota(db, delivery.id, released=sum(x.quota_cost for x in blocked_items))
     item.updated_at = datetime.now(timezone.utc)
-    remaining = await db.scalar(select(ZaloDeliveryItem.id).where(
-        ZaloDeliveryItem.delivery_id == delivery.id, ZaloDeliveryItem.status.in_(["pending", "sending"])
-    ).limit(1))
-    if not remaining:
-        guest_states = (await db.execute(select(
-            ZaloDeliveryItem.guest_id, ZaloDeliveryItem.status
-        ).where(ZaloDeliveryItem.delivery_id == delivery.id))).all()
-        statuses: dict = {}
-        for guest_id, status in guest_states:
-            statuses.setdefault(guest_id, []).append(status)
-        delivery.sent_count = sum(all(status == "sent" for status in values) for values in statuses.values())
-        delivery.failed_count = sum(any(status == "failed" for status in values) for values in statuses.values())
-        has_pending = any(status in {"pending", "sending"} for values in statuses.values() for status in values)
-        has_success = any(status == "sent" for values in statuses.values() for status in values)
-        has_failed = any(status == "failed" for values in statuses.values() for status in values)
-        if has_pending:
-            delivery.status = "queued"
-        elif has_failed and has_success:
-            delivery.status = "partial_success"
-        elif has_failed:
-            delivery.status = "failed"
-        else:
-            delivery.status = "success"
-        delivery.completed_at = datetime.now(timezone.utc)
-        if delivery.batch_id:
-            from ..models import ZaloDeliveryBatch
-            batch = await db.get(ZaloDeliveryBatch, delivery.batch_id)
-            if batch:
-                batch.status = delivery.status
-                batch.updated_at = delivery.completed_at
+    await _finish_delivery_if_done(db, delivery)
     delivery.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
