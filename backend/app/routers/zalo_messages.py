@@ -16,7 +16,7 @@ from ..schemas import (ZaloBatchSendRequest, ZaloBroadcastRequest, ZaloDeliveryI
                        ZaloGuestSendStatusOut, ZaloPreflightRequest, ZaloSendRequest, ZaloTemplateCreate,
                        ZaloTemplateOut, ZaloTemplateToggleRequest, ZaloTemplateUpdate)
 from ..services.zalo_sender import current_sender
-from ..services.zalo_messages import (create_smax_broadcast, cache_remote_media, create_delivery, quota_usage,
+from ..services.zalo_messages import (UNLIMITED_QUOTA, create_smax_broadcast, cache_remote_media, create_delivery, quota_usage,
                                           guest_send_status, reopen_quota, resolve_recipient, resolve_recipients, save_media,
                                           selected_guests, TEMPLATE_VARIABLES,
                                           validate_blocks)
@@ -272,7 +272,8 @@ async def quota(page_pid: str | None = None, db: AsyncSession = Depends(get_db))
     limit, used, reserved = usage.daily_limit, usage.used_count, usage.reserved_count
     return {"account_owner_id": usage.account_owner_id, "capability": usage.capability,
             "usage_date": usage.usage_date, "daily_limit": limit, "used_count": used,
-            "reserved_count": reserved, "available_count": max(0, limit - used - reserved)}
+            "reserved_count": reserved, "available_count": max(0, limit - used - reserved),
+            "unlimited": limit >= UNLIMITED_QUOTA}
 
 
 @router.post("/send", response_model=ZaloDeliveryOut, status_code=201)

@@ -829,11 +829,11 @@ export function toggleZaloMessageTemplate(id: string, status: "active" | "archiv
 }
 
 export async function getZaloMessageQuota(pagePid?: string): Promise<ZaloMessageQuota> {
-  const quota = await api<{ daily_limit: number; used_count: number; reserved_count: number; available_count: number }>(`/zalo/quota${pagePid ? `?page_pid=${encodeURIComponent(pagePid)}` : ""}`);
+  const quota = await api<{ daily_limit: number; used_count: number; reserved_count: number; available_count: number; unlimited?: boolean }>(`/zalo/quota${pagePid ? `?page_pid=${encodeURIComponent(pagePid)}` : ""}`);
   const reset = new Date();
   reset.setDate(reset.getDate() + 1);
   reset.setHours(0, 0, 0, 0);
-  return { used: quota.used_count + quota.reserved_count, limit: quota.daily_limit, remaining: quota.available_count, resets_at: reset.toISOString() };
+  return { used: quota.used_count + quota.reserved_count, limit: quota.daily_limit, remaining: quota.available_count, resets_at: reset.toISOString(), unlimited: !!quota.unlimited };
 }
 
 export async function preflightZaloBulkMessage(body: {

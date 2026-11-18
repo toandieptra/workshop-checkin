@@ -125,3 +125,14 @@ def test_token_expiry_far_future_is_none():
     assert token_expiry(jwt(317317317317)) is None          # năm ~12025 (partner token Smax)
     assert token_expiry(jwt(1795427454)).year == 2026       # giây
     assert token_expiry(jwt(1795427454000)).year == 2026    # mili-giây
+
+
+def test_quota_limit_smax_unlimited(monkeypatch):
+    from app.services import zalo_messages as zm
+    monkeypatch.setattr(zm.settings, "ZALO_MESSAGES_DAILY_QUOTA", 200)
+    monkeypatch.setattr(zm.settings, "ZALO_SMAX_DAILY_QUOTA", 0)
+    assert zm.quota_limit("message") == 200
+    assert zm.quota_limit("message", smax_channel=True) == zm.UNLIMITED_QUOTA
+    assert zm.quota_limit("friend_lookup", smax_channel=True) == zm.UNLIMITED_QUOTA
+    monkeypatch.setattr(zm.settings, "ZALO_SMAX_DAILY_QUOTA", 500)
+    assert zm.quota_limit("message", smax_channel=True) == 500

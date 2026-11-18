@@ -4,6 +4,15 @@ import type { ZaloMessageQuota } from "@/types/zalo-message";
 import { formatDateTime } from "./utils";
 
 export default function QuotaCard({ quota }: { quota: ZaloMessageQuota }) {
+  if (quota.unlimited) return (
+    <section className="mb-5 shrink-0 rounded-lg border border-line bg-white p-5 shadow-sm">
+      <div className="text-xs font-bold uppercase tracking-wide text-muted">Quota gửi tin</div>
+      <div className="mt-1 flex flex-wrap items-end gap-2">
+        <strong className="font-heading text-2xl text-brand-teal">Không giới hạn</strong>
+        <span className="pb-0.5 text-sm text-muted">Kênh Zalo cá nhân qua Smax · hôm nay đã gửi {quota.used.toLocaleString("vi-VN")} tin</span>
+      </div>
+    </section>
+  );
   const quotaPercent = quota.limit
     ? Math.min(100, Math.round((quota.used / quota.limit) * 100))
     : 0;

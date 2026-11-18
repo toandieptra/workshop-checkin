@@ -19,7 +19,7 @@ from ..config import settings
 from ..db import async_session_maker
 from ..models import (
     Guest, GuestZaloMapping, Workshop, ZaloDelivery, ZaloDeliveryItem,
-    ZaloQuotaReservation, ZaloQuotaUsage, ZaloTemplate,
+    ZaloQuotaReservation, ZaloQuotaUsage, ZaloTemplate, ZaloUserChannel,
 )
 from .zalo_agent import bridge_request
 from . import smax
@@ -353,7 +353,14 @@ async def selected_guests(db: AsyncSession, guest_ids: list, workshop_id=None) -
     return list((await db.execute(stmt.order_by(Guest.full_name))).scalars().all())
 
 
-def quota_limit(capability: str) -> int:
+UNLIMITED_QUOTA = 10_000_000  # "không giới hạn" — vẫn ghi nhận số đã dùng để theo dõi
+
+
+def quota_limit(capability: str, *, smax_channel: bool = False) -> int:
+    if capability not in ("friend_lookup", "message"):
+        raise ValueError("capability quota không hợp lệ")
+    if smax_channel:  # kênh Zalo cá nhân qua Smax: Smax/Zalo tự giới hạn
+        return settings.ZALO_SMAX_DAILY_QUOTA or UNLIMITED_QUOTA
     if capability == "friend_lookup":
         return settings.ZALO_FRIEND_LOOKUP_DAILY_QUOTA
     if capability == "message":
@@ -368,7 +375,7 @@ async def quota_usage(db: AsyncSession, capability: str, *, now: datetime | None
         owner_id = (await current_sender(db)).quota_owner
     now = now or datetime.now(timezone.utc)
     day = now.astimezone(VN_TZ).date()
-    limit = quota_limit(capability)
+    limit = quota_limit(capability, smax_channel=await db.get(ZaloUserChannel, owner_id) is not None)
     await db.execute(text("""
         INSERT INTO zalo_quota_usage (account_owner_id, capability, usage_date, daily_limit)
         VALUES (:owner_id, :capability, :day, :limit)
@@ -406,7 +413,8 @@ async def reserve_quota(db: AsyncSession, amount: int, delivery_id, *, capabilit
     # Active deliveries own their reservation until every item reaches a terminal
     # state. A wall-clock TTL must not release quota while the worker can still send.
     if not usage or usage.used_count + usage.reserved_count + amount > usage.daily_limit:
-        raise ValueError("Đã vượt quota gửi Zalo trong ngày")
+        left = max(0, usage.daily_limit - usage.used_count - usage.reserved_count) if usage else 0
+        raise ValueError(f"Đã vượt quota gửi Zalo trong ngày: cần {amount} tin, kênh chỉ còn {left}/{usage.daily_limit if usage else 0} tin hôm nay")
     usage.reserved_count += amount
     usage.updated_at = now
     reservation = ZaloQuotaReservation(

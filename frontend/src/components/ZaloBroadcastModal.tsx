@@ -11,6 +11,7 @@ type Message = { id?: string; text: string; images: string[] };
 type Block = { id: string; name: string; folder: string | null; group_id: string | null; updated_at: string | null; messages: Message[] | null };
 type Channel = { page_pid: string; name: string; is_default: boolean; connection_error: string | null };
 type Item = { guest_id: string | null; status: string; last_error: string | null; recipient_name: string | null };
+type Quota = { daily_limit: number; used_count: number; reserved_count: number; available_count: number; unlimited?: boolean };
 type Delivery = { id: string; status: string; recipient_count: number; sent_count: number; failed_count: number; items: Item[] };
 
 const DONE = new Set(["success", "failed", "partial_success"]);
@@ -31,6 +32,7 @@ export default function ZaloBroadcastModal({ guests, workshopId, onClose }: {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [delivery, setDelivery] = useState<Delivery | null>(null);
+  const [quota, setQuota] = useState<Quota | null>(null);
   const idem = useRef(crypto.randomUUID());
 
   const withPhone = guests.filter((g) => (g.phone || "").replace(/\D/g, "").length >= 9);
@@ -50,6 +52,13 @@ export default function ZaloBroadcastModal({ guests, workshopId, onClose }: {
     void api<Block>(apiPath(`/api/smax/blocks/${encodeURIComponent(blockId)}`), { adminLoading: false }).then(setPreview).catch(() => setPreview(null));
   }, [blockId]);
 
+  // Hạn mức tin/ngày của kênh đang chọn (giữ trước cho cả lượt broadcast khi bấm gửi)
+  useEffect(() => {
+    setQuota(null);
+    if (!pagePid) return;
+    void api<Quota>(`/zalo/quota?page_pid=${encodeURIComponent(pagePid)}`, { adminLoading: false }).then(setQuota).catch(() => setQuota(null));
+  }, [pagePid, delivery?.id]);
+
   // Theo dõi tiến độ sau khi bắt đầu
   useEffect(() => {
     if (!delivery || DONE.has(delivery.status)) return;
@@ -62,6 +71,9 @@ export default function ZaloBroadcastModal({ guests, workshopId, onClose }: {
   const shown = (blocks || []).filter((b) => !filter.trim() || `${b.name} ${b.folder || ""}`.toLowerCase().includes(filter.trim().toLowerCase()));
   const msgCount = preview?.messages?.reduce((n, m) => n + (m.text.trim() ? 1 : 0) + (m.images.length ? 1 : 0), 0) || 0;
   const minutes = msgCount ? Math.ceil((uniquePhones * msgCount) / rate) : 0;
+  const needed = uniquePhones * msgCount;
+  const overQuota = !!quota && !quota.unlimited && msgCount > 0 && needed > quota.available_count;
+  const maxGuests = quota && msgCount ? Math.floor(quota.available_count / msgCount) : 0;
 
   const start = async () => {
     setBusy(true); setError(null);
@@ -143,6 +155,12 @@ export default function ZaloBroadcastModal({ guests, workshopId, onClose }: {
               <input type="number" min={1} max={120} value={rate} onChange={(e) => setRate(Math.max(1, Math.min(120, parseInt(e.target.value, 10) || 60)))}
                 className="mt-1 min-h-10 w-full rounded-md border border-line px-3 font-normal" />
             </label>
+            {quota && <p className={`rounded-md px-3 py-2 text-xs ${overQuota ? "border border-amber-300 bg-amber-50 font-semibold text-amber-900" : "bg-surface-muted text-text-secondary"}`}>
+              {quota.unlimited ? <>Hạn mức kênh: không giới hạn (theo Smax/Zalo) · hôm nay đã gửi {quota.used_count} tin</>
+                : <>Hạn mức kênh hôm nay: còn <strong>{quota.available_count}</strong>/{quota.daily_limit} tin</>}
+              {msgCount > 0 && <> · lượt này cần <strong>{needed}</strong> tin</>}
+              {overQuota && <> — vượt hạn mức. Chọn tối đa {maxGuests} khách, đổi sang kênh khác, hoặc chia gửi nhiều ngày.</>}
+            </p>}
             {msgCount > 0 && <p className="text-xs text-muted">{msgCount} tin/khách · khoảng {minutes} phút cho {uniquePhones} khách. Gửi cho mọi khách có Zalo (kể cả chưa kết bạn) — khách chặn tin người lạ sẽ báo thất bại.</p>}
           </div>
         </div>}
@@ -155,7 +173,7 @@ export default function ZaloBroadcastModal({ guests, workshopId, onClose }: {
           <button type="button" onClick={() => void start()} disabled={busy} className="min-h-10 rounded-md bg-[#dd2746] px-4 font-bold text-white disabled:opacity-60">{busy ? "Đang tạo…" : "Xác nhận chạy broadcast"}</button>
         </> : <>
           <button type="button" onClick={onClose} className="min-h-10 rounded-md border border-line px-4 font-semibold">Huỷ</button>
-          <button type="button" disabled={!blockId || !preview?.messages?.length || !pagePid || uniquePhones === 0} onClick={() => setConfirming(true)}
+          <button type="button" disabled={!blockId || !preview?.messages?.length || !pagePid || uniquePhones === 0 || overQuota} onClick={() => setConfirming(true)}
             className="min-h-10 rounded-md bg-brand px-4 font-bold text-brand-teal disabled:opacity-40">Tiếp tục</button>
         </>}
       </div>

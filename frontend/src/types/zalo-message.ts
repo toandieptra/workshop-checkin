@@ -54,6 +54,7 @@ export interface ZaloMessageQuota {
   limit: number;
   remaining: number;
   resets_at: string | null;
+  unlimited?: boolean;
 }
 
 export interface ZaloBulkGuest {

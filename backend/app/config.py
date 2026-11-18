@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     ZALO_MESSAGES_ENABLED: bool = False
     ZALO_MESSAGES_DAILY_QUOTA: int = 200
     ZALO_FRIEND_LOOKUP_DAILY_QUOTA: int = 1000
+    # Hạn mức/ngày cho kênh Zalo cá nhân qua Smax (gửi tin & tra SĐT). 0 = không giới hạn — dựa vào giới hạn của Smax/Zalo.
+    ZALO_SMAX_DAILY_QUOTA: int = 0
     # Zalo cá nhân qua Smax (thay zalo-agent bridge). "auto": dùng Smax khi có token; "bridge": ép dùng bridge cũ.
     ZALO_USER_PROVIDER: str = "auto"
     SMAX_API_URL: str = "https://api.smax.ai"
