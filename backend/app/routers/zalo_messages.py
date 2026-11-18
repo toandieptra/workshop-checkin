@@ -318,7 +318,11 @@ async def send_batch(body: ZaloBatchSendRequest, user=Depends(current_user), db:
 @router.post("/broadcasts", response_model=ZaloDeliveryOut, status_code=201)
 async def send_broadcast(body: ZaloBroadcastRequest, user=Depends(current_user), db: AsyncSession = Depends(get_db)):
     """Broadcast block Smax cho khách được chọn ở /admin (giống Broadcast & Re-marketing của Smax)."""
-    guests = await _selected_for_user(db, user, body)
+    # Khách đã bị xoá / gộp sau khi được chọn (vd. gộp trùng khi check-in) → bỏ qua, không chặn cả lượt
+    guests = await selected_guests(db, body.guest_ids, body.workshop_id)
+    if not guests:
+        raise HTTPException(404, "Không còn khách nào trong danh sách đã chọn (có thể đã bị xoá)")
+    await _authorize_recipients(db, user, guests, bulk=True, workshop_id=body.workshop_id)
     existing = await db.scalar(select(ZaloDelivery).where(ZaloDelivery.idempotency_key == str(body.idempotency_key)))
     if existing:
         await _authorize_delivery(db, user, existing.id, bulk=True)

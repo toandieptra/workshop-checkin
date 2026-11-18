@@ -129,6 +129,7 @@ export default function DesktopAdmin() {
     showDuplicateOnly,
     setShowDuplicateOnly,
     currentWorkshop,
+    workshopGuestIds,
     msg,
     setMsg,
     retryZbs,
@@ -177,6 +178,14 @@ export default function DesktopAdmin() {
   const [selectedIds, setSelectedIds] = useState<Map<string, PickedGuest>>(new Map());
   const [showBroadcast, setShowBroadcast] = useState(false);
   useEffect(() => { setSelectedIds(new Map()); }, [currentWorkshop?.id]);
+  // Khách bị xoá / gộp sau khi đã tích (danh sách tải lại) → gỡ khỏi danh sách chọn
+  useEffect(() => {
+    if (guestsLoading || workshopGuestIds.size === 0) return;
+    setSelectedIds((prev) => {
+      if ([...prev.keys()].every((id) => workshopGuestIds.has(id))) return prev;
+      return new Map([...prev].filter(([id]) => workshopGuestIds.has(id)));
+    });
+  }, [workshopGuestIds, guestsLoading]);
   const pick = (g: Guest): PickedGuest => ({ id: g.id, full_name: g.full_name, phone: g.phone ?? null });
   const allVisibleSelected = visibleGuests.length > 0 && visibleGuests.every((g) => selectedIds.has(g.id));
   const toggleSelectAll = () => setSelectedIds((prev) => {

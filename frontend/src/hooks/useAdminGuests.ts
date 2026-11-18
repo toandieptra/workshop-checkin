@@ -611,6 +611,12 @@ export function useAdminGuests() {
 
   const clearDuplicateGuest = useCallback(() => setDuplicateGuest(null), []);
 
+  // Toàn bộ khách (chưa xoá) của workshop đang chọn — không phụ thuộc ô tìm kiếm / bộ lọc
+  const workshopGuestIds = useMemo(
+    () => new Set(allGuests.filter((g) => g.workshop_id === wid).map((g) => g.id)),
+    [allGuests, wid],
+  );
+
   const currentWorkshop = useMemo(
     () => workshops.find((w) => w.id === wid),
     [workshops, wid],
@@ -641,6 +647,7 @@ export function useAdminGuests() {
     totalRecords,
     checkedInRecords,
     currentWorkshop,
+    workshopGuestIds,
     duplicatePhones,
     duplicateGuest,
     // actions
