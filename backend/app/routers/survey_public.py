@@ -22,7 +22,8 @@ MAX_DRAFT_BYTES = 64 * 1024
 
 
 class SessionIn(BaseModel):
-    full_name: str = Field(max_length=120)
+    # Tên không còn nhập ở trang khảo sát: lấy theo khách đăng ký có SĐT này. Trường giữ lại cho client cũ.
+    full_name: str = Field(default="", max_length=120)
     phone: str = Field(max_length=32)
 
 
@@ -135,9 +136,6 @@ async def start_session(slug: str, body: SessionIn, request: Request, db: AsyncS
     await hit("survey:session:ip", address, 400, 600)
     survey, version = await _published(db, slug)
     _require_open(survey)
-    name = " ".join(body.full_name.split())
-    if not 2 <= len(name) <= 40:
-        raise HTTPException(422, "Tên cần từ 2 đến 40 ký tự.")
     if not is_valid_vn_mobile(body.phone):
         raise HTTPException(422, "Số điện thoại chưa đúng — kiểm tra lại 10 số, bắt đầu bằng 0.")
     phone = normalize_phone(body.phone)
@@ -147,6 +145,9 @@ async def start_session(slug: str, body: SessionIn, request: Request, db: AsyncS
         raise HTTPException(403, "not_checked_in")
     if used >= quota:
         raise HTTPException(409, "quota_reached")
+    # Tên = tên khách mời đăng ký bằng SĐT này (ưu tiên đăng ký đã check-in); dự phòng: tên client gửi, rồi "Khách"
+    guest = await gift_svc.registration_for(db, survey.workshop_id, phone)
+    name = " ".join(((guest.full_name if guest else "") or body.full_name or "").split())[:120] or "Khách"
     token = secrets.token_urlsafe(32)
     session = SurveySession(survey_id=survey.id, version_id=version.id, token_hash=_token_hash(token),
                             full_name=name, phone=phone, draft={}, status="draft")

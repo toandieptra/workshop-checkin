@@ -96,9 +96,9 @@ async def main():
             check("public survey open", r.status_code == 200 and snap["state"] == "open" and len(snap["items"]) == 3, r.text)
             check("snapshot groups nested", snap["groups"][0]["children"][0]["short_title"] == "Trân châu 2 lớp")
             keys = {i["source_id"]: i["key"] for i in snap["items"]}
-            r = await pub.post(f"/api/public/surveys/{slug}/sessions", json={"full_name": "M", "phone": "0912345678"}); check("short name rejected", r.status_code == 422)
             r = await pub.post(f"/api/public/surveys/{slug}/sessions", json={"full_name": "Minh Anh", "phone": "0912 345"}); check("bad phone rejected", r.status_code == 422)
-            r = await pub.post(f"/api/public/surveys/{slug}/sessions", json={"full_name": "Minh Anh", "phone": "0912.345.678"}); check("session created", r.status_code == 201, r.text)
+            r = await pub.post(f"/api/public/surveys/{slug}/sessions", json={"phone": "0912.345.678"}); check("session created (chỉ SĐT)", r.status_code == 201, r.text)
+            check("tên lấy theo khách đăng ký", r.json()["session"]["full_name"] == "Khách QA", r.json()["session"])
             st = r.json()["token"]; H = {"X-Survey-Session": st}
             check("session masks phone", r.json()["session"]["phone_masked"] == "09•• ••• 678")
             draft = {"favorites": [keys[p1], keys[rc], "bogus"], "notes": {keys[p2]: {"tags": ["Rất ngon", "fake"], "text": "Giòn"}},

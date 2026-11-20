@@ -3,7 +3,7 @@
 import { useState } from "react";
 import QRCode from "react-qr-code";
 import { Alert, Bang, Check, Gift, Info, Lock, Mail, Phone } from "./icons";
-import { ddmm, hhmm, telHref, validName, validPhone, type GiftResult, type PublicSurvey, type Submission, type SurveyItem } from "@/lib/survey-public";
+import { ddmm, hhmm, telHref, validPhone, type GiftResult, type PublicSurvey, type Submission, type SurveyItem } from "@/lib/survey-public";
 
 export const MASCOT = "/survey/lermao-mascot.png";
 const HERO = "/survey/hero-default.jpg";
@@ -93,27 +93,22 @@ export function ClosedScreen({ data, likedCount, onViewLiked, notOpen }: {
 
 export function IdentifyScreen({ data, busy, serverError, onStart }: {
   data: PublicSurvey; busy: boolean; serverError: string | null;
-  onStart: (name: string, phone: string) => void;
+  onStart: (phone: string) => void;
 }) {
   const s = data.survey;
-  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [tried, setTried] = useState(false);
-  const [touched, setTouched] = useState<{ name?: boolean; phone?: boolean }>({});
-  const showName = tried || touched.name;
+  const [touched, setTouched] = useState<{ phone?: boolean }>({});
   const showPhone = tried || touched.phone;
-  const nameErr = showName && !validName(name)
-    ? (name.trim() ? "Tên cần từ 2 đến 40 ký tự." : "Cho team biết tên hoặc biệt danh để xưng hô nhé.") : "";
   const phoneErr = showPhone && !validPhone(phone)
     ? (phone.trim() ? "Số điện thoại chưa đúng — kiểm tra lại 10 số, bắt đầu bằng 0." : "Nhập số điện thoại để team phản hồi sau workshop.") : "";
-  const errorCount = (tried && !validName(name) ? 1 : 0) + (tried && !validPhone(phone) ? 1 : 0);
+  const errorCount = tried && !validPhone(phone) ? 1 : 0;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setTried(true);
-    if (!validName(name)) { document.getElementById("lm-name")?.focus(); return; }
     if (!validPhone(phone)) { document.getElementById("lm-phone")?.focus(); return; }
-    onStart(name.trim(), phone.trim());
+    onStart(phone.trim());
   };
   const timeLabel = data.state === "open" && s.event_time ? `Đang diễn ra · ${s.event_time}` : data.state === "open" ? "Đang mở nhận phiếu" : "";
 
@@ -135,14 +130,7 @@ export function IdentifyScreen({ data, busy, serverError, onStart }: {
         ) : s.greeting ? <p className="lm-greeting">{s.greeting}</p> : null}
         {serverError && <div role="alert" className="lm-alert"><Alert /><span>{serverError}</span></div>}
         <div className="lm-field">
-          <label htmlFor="lm-name" className="lm-label">Tên / biệt danh <span className="lm-req">*</span></label>
-          <input id="lm-name" className="lm-input" type="text" autoComplete="nickname" placeholder="VD: Minh Anh" value={name} maxLength={40}
-            onChange={(e) => setName(e.target.value)} onBlur={() => setTouched((t) => ({ ...t, name: tried || t.name }))}
-            aria-invalid={nameErr ? "true" : "false"} aria-describedby={nameErr ? "lm-name-err" : undefined} />
-          {nameErr && <span id="lm-name-err" role="alert" className="lm-field-error"><Bang />{nameErr}</span>}
-        </div>
-        <div className="lm-field">
-          <label htmlFor="lm-phone" className="lm-label">Số điện thoại <span className="lm-req">*</span></label>
+          <label htmlFor="lm-phone" className="lm-label">Số điện thoại đã đăng ký <span className="lm-req">*</span></label>
           <input id="lm-phone" className="lm-input" type="tel" inputMode="tel" autoComplete="tel" placeholder="09xx xxx xxx" value={phone} maxLength={20}
             onChange={(e) => setPhone(e.target.value)} onBlur={() => setTouched((t) => ({ ...t, phone: tried || t.phone }))}
             aria-invalid={phoneErr ? "true" : "false"} aria-describedby={["lm-phone-help", phoneErr ? "lm-phone-err" : ""].join(" ").trim()} />

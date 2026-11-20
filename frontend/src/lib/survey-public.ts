@@ -79,8 +79,9 @@ async function call<T>(path: string, init: RequestInit & { token?: string | null
 const enc = encodeURIComponent;
 export const surveyApi = {
   get: (slug: string) => call<PublicSurvey>(enc(slug)),
-  start: (slug: string, full_name: string, phone: string) =>
-    call<{ token: string; session: SessionState }>(`${enc(slug)}/sessions`, { method: "POST", body: JSON.stringify({ full_name, phone }) }),
+  // Tên khách lấy theo danh sách đăng ký (backend tra theo SĐT)
+  start: (slug: string, phone: string) =>
+    call<{ token: string; session: SessionState }>(`${enc(slug)}/sessions`, { method: "POST", body: JSON.stringify({ phone }) }),
   session: (slug: string, token: string) => call<SessionState>(`${enc(slug)}/session`, { token }),
   save: (slug: string, token: string, draft: Draft) =>
     call<{ revision: number; saved_at: string }>(`${enc(slug)}/session`, { method: "PUT", token, body: JSON.stringify({ draft }), keepalive: true, background: true }),

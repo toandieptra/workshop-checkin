@@ -136,12 +136,13 @@ export default function SurveyPage() {
   }, [flush]);
 
   // ---------- Identify ----------
-  const start = async (name: string, phone: string) => {
+  const start = async (phone: string) => {
     if (!data) return;
     setStartBusy(true);
     setStartError(null);
     try {
-      const res = await surveyApi.start(slug, name, phone);
+      const res = await surveyApi.start(slug, phone);
+      const name = res.session.full_name;
       setToken(res.token);
       setSession(res.session);
       const d = normalizeDraft(undefined, data.settings.custom_adjective_slots);
